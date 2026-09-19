@@ -10,5 +10,5 @@
 **/__pycache__/
 *.pyc
 /.codewiki-build/
-/docs/
+/.repowiki/
 *.rs.bk

@@ -46,7 +46,7 @@ commands, html, and session close.
 1. Start analysis and capture the returned `session_id`:
 
    ```text
-   codewiki generate --repo <repo> --output <repo>/docs --max-depth 4
+   codewiki generate --repo <repo> --output <repo>/.repowiki --max-depth 4
    ```
 
    Confirm that the result contains the session workspace, component index, leaf list, language list, dependency graph, and artifact index. Do not start prose generation before these paths exist.
@@ -74,14 +74,14 @@ commands, html, and session close.
 6. Confirm the key output contract and quality gate before closing:
 
    ```text
-   docs/overview.md
-   docs/<module>.md
-   docs/module_tree.json
-   docs/first_module_tree.json
-   docs/metadata.json
-   docs/update_record.json       # incremental runs
-   docs/temp/artifact_index.json
-   docs/temp/dependency_graphs/*_dependency_graph.json
+   .repowiki/overview.md
+   .repowiki/<module>.md
+   .repowiki/module_tree.json
+   .repowiki/first_module_tree.json
+   .repowiki/metadata.json
+   .repowiki/update_record.json       # incremental runs
+   .repowiki/temp/artifact_index.json
+   .repowiki/temp/dependency_graphs/*_dependency_graph.json
    ```
 
    Also confirm the final validation reports `quality_valid: true`, a depth greater than one when the repository has oversized multi-component modules, and module/leaf counts that match the recursively saved tree. Optionally run `codewiki html --repo-root <repo> --session <session_id>`. Then close the session with `codewiki session close --repo-root <repo> --session <session_id>`. Close is a hard quality gate: it refuses to clean the session when required pages, IDs, or recursive leaf limits are incomplete. A successful run has written pages, metadata, and a cleaned session workspace.
@@ -102,7 +102,7 @@ reference-shaped envelope `{"verdicts": {"page.md": {"verdict": "patch", "reason
 The CLI stores the normalized verdicts and generated report names in
 `update_record.json`.
 
-Use rung `1` for safe incremental edits, `2` for leaf rewrites, `3` for the full updater, and `3b` for the full updater with wider k-hop context. `tau_ren` controls token-level rename pairing; `tau_full` and `tau_tree` control full-build fallback; `tau_grow` controls reclustering; `tau_nb` controls neighbour-majority routing; `k_hop` controls upstream context; and `max_diff_tokens` caps report source. Treat a `full_fallback` plan as a rebuild request, not as a partial update. The completed update writes `docs/update_record.json`.
+Use rung `1` for safe incremental edits, `2` for leaf rewrites, `3` for the full updater, and `3b` for the full updater with wider k-hop context. `tau_ren` controls token-level rename pairing; `tau_full` and `tau_tree` control full-build fallback; `tau_grow` controls reclustering; `tau_nb` controls neighbour-majority routing; `k_hop` controls upstream context; and `max_diff_tokens` caps report source. Treat a `full_fallback` plan as a rebuild request, not as a partial update. The completed update writes `.repowiki/update_record.json`.
 
 ## Completion criteria
 

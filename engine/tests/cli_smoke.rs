@@ -53,6 +53,52 @@ where
 }
 
 #[test]
+fn default_output_dir_is_repowiki_and_document_prefixes_are_normalized() {
+    let repo = tempdir().expect("repo tempdir");
+    let repo_arg = repo.path().to_string_lossy().to_string();
+    fs::write(repo.path().join("app.py"), "def run():\n    return 1\n").expect("write fixture");
+
+    let analysis = run(["generate", "--repo", repo_arg.as_str()]);
+    let session = analysis["session_id"].as_str().expect("session id");
+    let output = repo.path().join(".repowiki");
+    assert_eq!(
+        analysis["summary"]["output_dir"].as_str().unwrap(),
+        output.to_string_lossy().as_ref()
+    );
+    assert!(output.is_dir());
+    assert!(!repo.path().join("docs").exists());
+
+    run([
+        "doc",
+        "write",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        session,
+        "--path",
+        ".repowiki/guide.md",
+        "--content",
+        "# Guide\n",
+    ]);
+    run([
+        "doc",
+        "write",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        session,
+        "--path",
+        "docs/legacy.md",
+        "--content",
+        "# Legacy\n",
+    ]);
+
+    assert!(output.join("guide.md").is_file());
+    assert!(output.join("legacy.md").is_file());
+    assert!(!output.join(".repowiki").exists());
+}
+
+#[test]
 fn file_side_workflow_creates_reference_artifacts() {
     let repo = tempdir().expect("repo tempdir");
     let output = tempdir().expect("output tempdir");

@@ -1308,7 +1308,10 @@ fn collect_expected_pages(tree: &ModuleTree, expected: &mut BTreeSet<String>) {
 }
 
 fn document_path(state: &SessionState, requested: &str) -> Result<PathBuf> {
-    let requested = requested.trim_start_matches("docs/");
+    let requested = requested
+        .strip_prefix(".repowiki/")
+        .or_else(|| requested.strip_prefix("docs/"))
+        .unwrap_or(requested);
     let path = Path::new(requested);
     if requested.is_empty()
         || path.is_absolute()

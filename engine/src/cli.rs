@@ -77,7 +77,7 @@ enum Command {
 struct CommonAnalysisArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
-    #[arg(long, default_value = "docs")]
+    #[arg(long, default_value = ".repowiki")]
     output: PathBuf,
     #[arg(long, action = clap::ArgAction::Append)]
     include: Vec<String>,
