@@ -9,19 +9,22 @@ BUILD_DIR ?= $(PROJECT_ROOT)/.build
 CARGO_TARGET_DIR ?= $(BUILD_DIR)/cargo-target
 PREVIEW_DIR := $(PROJECT_ROOT)/preview
 DIST_DIR := $(PROJECT_ROOT)/dist
-PACKAGE_NAME := codewiki-wiki-generator
+SKILL_NAME := RepoWiki
+PACKAGE_NAME := $(SKILL_NAME)
 VERSION := $(shell sed -n 's/^version = "\([^"]*\)".*/\1/p' $(ENGINE_DIR)/Cargo.toml | head -n 1)
 ARCHIVE := $(DIST_DIR)/$(PACKAGE_NAME)-$(VERSION).zip
+INSTALL_DIR ?= $(HOME)/.agents/skills
 
 PYTHON ?= python3
 CARGO ?= cargo
 ZIP ?= zip
+UNZIP ?= unzip
 SKILL_VALIDATOR ?= $(if $(CODEX_HOME),$(CODEX_HOME),$(HOME)/.codex)/skills/.system/skill-creator/scripts/quick_validate.py
 
 RUNTIME_PATHS := SKILL.md agents references
 PACKAGE_PATHS := SKILL.md agents references scripts
 
-.PHONY: build preview clean test test-reference
+.PHONY: build preview install test-install clean test test-reference
 
 ifeq ($(strip $(VERSION)),)
 $(error Could not read the package version from engine/Cargo.toml)
@@ -34,6 +37,53 @@ build: preview
 	@cd "$(PREVIEW_DIR)" && "$(ZIP)" -X -q -r "$(ARCHIVE)" $(PACKAGE_PATHS)
 	@$(PYTHON) tools/validate-skill-package.py "$(PREVIEW_DIR)" "$(ARCHIVE)"
 	@printf 'created %s\n' "$(ARCHIVE)"
+
+install: build
+	@command -v "$(UNZIP)" >/dev/null 2>&1 || { echo "unzip is required to install the Skill" >&2; exit 127; }
+	@install_root="$(INSTALL_DIR)"; \
+	[ -n "$$install_root" ] || { echo "INSTALL_DIR must not be empty" >&2; exit 2; }; \
+	mkdir -p "$$install_root"; \
+	target="$$install_root/$(SKILL_NAME)"; \
+	staging="$$(mktemp -d "$$install_root/.$(SKILL_NAME).install.XXXXXX")"; \
+	backup=""; \
+	cleanup() { \
+		status=$$?; \
+		trap - EXIT HUP INT TERM; \
+		if [ "$$status" -ne 0 ]; then \
+			if [ -e "$$target" ] || [ -L "$$target" ]; then rm -rf "$$target"; fi; \
+			if [ -n "$$backup" ] && { [ -e "$$backup" ] || [ -L "$$backup" ]; }; then mv "$$backup" "$$target"; fi; \
+		elif [ -n "$$backup" ] && { [ -e "$$backup" ] || [ -L "$$backup" ]; }; then \
+			rm -rf "$$backup"; \
+		fi; \
+		if [ -n "$$staging" ] && [ -e "$$staging" ]; then rm -rf "$$staging"; fi; \
+		exit "$$status"; \
+	}; \
+	trap cleanup EXIT HUP INT TERM; \
+	"$(UNZIP)" -q "$(ARCHIVE)" -d "$$staging"; \
+	"$(PYTHON)" tools/validate-skill-package.py "$$staging"; \
+	if [ -e "$$target" ] || [ -L "$$target" ]; then \
+		backup="$$(mktemp -d "$$install_root/.$(SKILL_NAME).backup.XXXXXX")"; \
+		rmdir "$$backup"; \
+		mv "$$target" "$$backup"; \
+	fi; \
+	mv "$$staging" "$$target"; \
+	staging=""; \
+	printf 'installed %s to %s\n' "$(SKILL_NAME)" "$$target"
+
+test-install: build
+	@temporary_install_root="$$(mktemp -d)"; \
+	cleanup() { status=$$?; trap - EXIT HUP INT TERM; rm -rf "$$temporary_install_root"; exit "$$status"; }; \
+	trap cleanup EXIT HUP INT TERM; \
+	mkdir -p "$$temporary_install_root/$(SKILL_NAME)"; \
+	printf 'stale file\n' > "$$temporary_install_root/$(SKILL_NAME)/stale.txt"; \
+	$(MAKE) --no-print-directory install INSTALL_DIR="$$temporary_install_root"; \
+	"$(PYTHON)" tools/validate-skill-package.py "$$temporary_install_root/$(SKILL_NAME)"; \
+	test ! -e "$$temporary_install_root/$(SKILL_NAME)/stale.txt"; \
+	installed_binary="$$temporary_install_root/$(SKILL_NAME)/scripts/codewiki"; \
+	if [ -f "$$installed_binary.exe" ]; then installed_binary="$$installed_binary.exe"; fi; \
+	test -f "$$installed_binary"; \
+	case "$$installed_binary" in *.exe) ;; *) test -x "$$installed_binary" ;; esac; \
+	printf 'PASS install smoke: %s\n' "$$temporary_install_root/$(SKILL_NAME)"
 
 preview:
 	@rm -rf "$(PREVIEW_DIR)"

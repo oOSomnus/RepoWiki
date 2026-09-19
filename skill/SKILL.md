@@ -1,11 +1,11 @@
 ---
-name: codewiki-wiki-generator
-description: Generate or incrementally update a repository wiki when the agent needs dependency-aware module documentation, overview pages, Mermaid diagrams, and CodeWiki-compatible JSON artifacts using the bundled Rust CLI.
+name: repo-wiki
+description: Generate or incrementally update a repository wiki when the agent needs dependency-aware module documentation, overview pages, Mermaid diagrams, and RepoWiki-compatible JSON artifacts using the bundled Rust CLI.
 metadata:
   short-description: Agent-driven repository wiki generation
 ---
 
-# CodeWiki wiki generation
+# RepoWiki wiki generation
 
 Use this skill when the requested result is a repository-level wiki, architecture documentation, or an incremental wiki update. The host agent owns prose generation; the bundled Rust CLI owns repository analysis, session files, prompt transport, safe document edits, module-tree validation, and bookkeeping.
 

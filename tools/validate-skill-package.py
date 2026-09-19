@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the minimal runtime CodeWiki Skill directory or ZIP archive."""
+"""Validate the minimal runtime RepoWiki Skill directory or ZIP archive."""
 
 from __future__ import annotations
 
@@ -137,7 +137,7 @@ def validate_package(package: LoadedPackage, label: str) -> None:
         fail(f"{label} POSIX binary is not executable")
 
     skill = package.files["SKILL.md"].decode("utf-8")
-    if not skill.startswith("---\n") or "name: codewiki-wiki-generator" not in skill:
+    if not skill.startswith("---\n") or "name: repo-wiki" not in skill:
         fail(f"{label} has invalid or missing SKILL.md frontmatter")
     if "scripts/codewiki" not in skill:
         fail(f"{label} SKILL.md does not describe the bundled executable")

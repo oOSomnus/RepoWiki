@@ -1,113 +1,231 @@
-# CodeWiki Wiki Generator Skill
+# RepoWiki
 
-这是一个面向 Agent 的 CodeWiki Skill。它使用 Rust CLI 完成仓库分析、组件读取、模块树校验、文档安全写入、增量更新和 JSON 产物管理；由宿主 Agent 负责根据 prompt 生成 Markdown 内容。
+RepoWiki is an agent skill for generating repository wikis. Its user-facing
+name is `RepoWiki` and its normalized agent trigger is `$repo-wiki`. It uses a Rust CLI
+for repository analysis, component reads, module-tree validation, safe document
+writes, incremental updates, and JSON artifact management. The host agent
+generates the Markdown content from the embedded prompts.
 
-最终 Skill 包只包含运行时所需的文档、Agent 元数据、references 和当前平台的 `codewiki` 可执行文件。Cargo 源码只用于构建，不会进入 `preview/` 或最终 ZIP。
+The distributable Skill package contains only runtime documentation, agent
+metadata, references, and the platform-specific `codewiki` executable. Cargo
+source files are used to build the executable and are not included in the
+preview directory or final ZIP archive.
 
-## 项目结构
+## Project layout
 
 ```text
 .
-├── Makefile                 # 唯一的 Skill 构建入口
-├── README.md                # 项目与开发说明
-├── engine/                  # Cargo 构建输入，不进入 Skill 包
+├── Makefile                 # build and installation entry points
+├── README.md                # project and development documentation
+├── engine/                  # Cargo build input; not included in the Skill package
 │   ├── Cargo.toml
 │   ├── Cargo.lock
 │   ├── src/
 │   ├── prompts/
 │   └── tests/
-├── skill/                   # 可追踪的运行时 Skill 源文件
+├── skill/                   # tracked runtime Skill source
 │   ├── SKILL.md
 │   ├── agents/openai.yaml
 │   └── references/
-├── preview/                 # make preview 生成的最终包内容
-├── dist/                    # make build 生成的 ZIP
-├── tools/                   # 开发期包校验工具
-└── reference/CodeWiki/      # 只读参考实现，不参与构建
+├── preview/                 # generated runtime package directory
+├── dist/                    # generated ZIP archives
+├── tools/                   # development-time package validators
+└── reference/CodeWiki/      # read-only reference implementation
 ```
 
-## Make 命令
+## Make commands
 
-需要 GNU Make、Rust/Cargo、Python 3 和 `zip` 命令。
+Requirements: GNU Make, Rust/Cargo, Python 3, `zip`, and `unzip` for
+installation.
 
 ```bash
-# 使用当前环境的 Cargo 编译二进制，并生成运行时包目录
+# Build the platform-specific executable and runtime package directory.
 make preview
 
-# 生成 preview，并创建 dist/codewiki-wiki-generator-<version>.zip
+# Build preview and create dist/RepoWiki-<version>.zip.
 make build
 
-# 删除 Cargo 构建目录、preview 和 dist
+# Build, validate, and install to ~/.agents/skills/RepoWiki.
+make install
+
+# Install below a different Skill collection directory.
+make install INSTALL_DIR=/custom/agent/skills
+
+# Remove generated build artifacts.
 make clean
 
-# 运行 Rust 格式检查、测试、Clippy、打包校验和离线 Skill 回放
+# Run offline replay, formatting, Rust tests, Clippy, and package validation.
 make test
 
-# 在离线回放通过后，再运行真实 reference Python parser 差分
+# Run the temporary-directory installation smoke test.
+make test-install
+
+# Run the optional differential check against the reference Python parser.
 make test-reference
 ```
 
-`make build` 会根据当前构建环境生成平台专用二进制：
+`INSTALL_DIR` is the parent directory for installed skills. The install target
+always installs the package at `<INSTALL_DIR>/RepoWiki`. It stages and validates
+the package before replacing that exact directory, so a failed update leaves an
+existing installation intact. Existing installations under other names are not
+modified.
 
-- POSIX 平台：`preview/scripts/codewiki`
-- Windows：`preview/scripts/codewiki.exe`
+`make build` creates a platform-specific binary:
 
-因此在另一种操作系统上生成 Skill 包时，应在该操作系统上重新执行 `make build`。安装后的 Skill 运行不需要 Cargo。
+- POSIX: `preview/scripts/codewiki`
+- Windows: `preview/scripts/codewiki.exe`
 
-## 离线回放与差分验证
+Build the package on the operating system where it will run. An installed Skill
+does not require Cargo.
 
-`make test` 不需要实时 LLM、MCP、API key 或 reference Python 依赖。它会使用
-`tests/differential/fixture/` 中覆盖当前 13 种语言的固定仓库和
-`tests/differential/transcript.json`，通过公开 CLI 顺序回放：分析、prompt 获取、模块树保存与排序、组件读取、文档写入和 session close。
-运行结果会经过稳定 canonicalization，与受版本控制的
-`tests/golden/mini-repo.json` 比较；随后还会解压刚生成的 ZIP，用安装目录中的
-`scripts/codewiki` 再跑一遍相同回放。因此 golden、preview 和 ZIP 三者必须同时一致。
+## Offline replay and differential validation
 
-也可以直接运行：
+`make test` does not need an LLM, MCP server, API key, or reference Python
+dependencies. It replays the fixed transcript in
+`tests/differential/transcript.json` against the current 13-language fixture,
+then compares the result with `tests/golden/mini-repo.json`. It also extracts
+the ZIP archive and runs the same replay against the installed package, so the
+golden data, preview, and archive must agree.
+
+The replay can also be run directly:
 
 ```bash
 python3 tests/differential/run_replay.py \
   --preview-dir preview \
-  --archive dist/codewiki-wiki-generator-0.1.0.zip
+  --archive dist/RepoWiki-0.1.0.zip
 ```
 
-只有在有意接受新运行时契约变化时，才使用 `--update-golden` 更新 golden。
+Use `--update-golden` only when intentionally changing the runtime contract.
 
-`make test-reference` 仍使用 reference 实现已有的 11 种语言基线；Rust/Go 的新契约由主离线回放和 Rust 分析器测试覆盖，`reference/CodeWiki` 不参与扩展。
+`make test-reference` is an additional differential gate against the pinned
+reference implementation. It checks the original 11-language baseline; the
+Rust and Go extensions are covered by the main replay and Rust analyzer tests.
+Reference dependency or parser failures are reported as failures rather than
+silently skipped.
 
-`make test-reference` 是额外的真实 reference differential gate。它调用
-`tools/reference_probe.py` 加载 `reference/CodeWiki` 的 parser，并比较固定 fixture
-的语言集合、文件数、组件 ID/类型/行号、叶节点和依赖边。reference 导入失败、依赖缺失或解析失败都会返回非零；不会把核心 Skill replay 静默标记为通过。
-当前环境若缺少 reference 依赖，可按 reference 项目的安装说明安装后重新运行该 gate；
-核心 `make test` 仍然必须独立通过。
+## Installing the package manually
 
-## 安装 Skill
+The one-command installation is preferred:
 
-最终 ZIP 是扁平结构，需要解压到新建的 Skill 目录：
+```bash
+make install
+```
+
+To install an already-built archive manually, extract its flat contents into a
+new `RepoWiki` directory:
 
 ```bash
 make build
-mkdir -p ~/.codex/skills/codewiki-wiki-generator
-unzip dist/codewiki-wiki-generator-*.zip \
-  -d ~/.codex/skills/codewiki-wiki-generator
+mkdir -p ~/.agents/skills/RepoWiki
+unzip dist/RepoWiki-*.zip -d ~/.agents/skills/RepoWiki
 ```
 
-安装后，Agent 会自动发现 `SKILL.md`，并直接调用包内的当前平台二进制。用户不需要手动运行 CLI，也不需要在目标机器上安装 Cargo。
+After installation, the agent discovers `SKILL.md` and uses the bundled
+platform-specific executable. Users do not need to invoke the CLI manually or
+install Cargo on the target machine.
 
-## 运行时产物
+## Runtime package contents
 
-Skill 包只包含：
+The package contains exactly:
 
 ```text
 SKILL.md
 agents/openai.yaml
 references/cli-contract.md
 references/prompt-map.md
-scripts/codewiki                  # 或 scripts/codewiki.exe
+scripts/codewiki                  # or scripts/codewiki.exe
 ```
 
-Rust prompt 源文件已经在编译阶段嵌入二进制。生成的 Wiki 关键产物包括 `overview.md`、模块 Markdown 页面、`module_tree.json`、`metadata.json`、artifact index 和 dependency graph。
+Rust prompt source files are embedded in the executable at build time. Wiki
+generation produces `overview.md`, module Markdown pages, `module_tree.json`,
+`metadata.json`, artifact indexes, and dependency graphs.
 
-## 测试与参考实现
+The `reference/CodeWiki` directory is used only for compatibility checks and
+understanding the original workflow. It is not copied into the Skill package
+and is not removed by `make clean`.
 
-Rust CLI 的测试位于 `engine/tests/`。`reference/CodeWiki` 只用于理解原始流程，不会被复制到 Skill 包，也不会被 `make clean` 删除。
+## 中文说明
+
+RepoWiki 是一个用于生成仓库 Wiki 的 Agent Skill。它的用户可见名称是
+`RepoWiki`，规范化的 Agent 触发名是 `$repo-wiki`。它使用 Rust CLI 完成仓库
+分析、组件读取、模块树校验、安全文档写入、增量更新和 JSON 产物管理；由宿主
+Agent 根据内置 prompt 生成 Markdown 内容。
+
+最终 Skill 包只包含运行时文档、Agent 元数据、references 和当前平台的
+`codewiki` 可执行文件。Cargo 源码只用于构建，不会进入 `preview/` 或最终 ZIP。
+
+### 项目结构
+
+目录职责与上面的英文说明一致：`engine/` 是构建输入，`skill/` 是可追踪的
+运行时 Skill 源文件，`preview/` 和 `dist/` 是构建产物，`reference/CodeWiki/`
+是只读参考实现。
+
+### 常用命令
+
+```bash
+# 构建当前平台的可执行文件和运行时包目录
+make preview
+
+# 构建 preview，并生成 dist/RepoWiki-<version>.zip
+make build
+
+# 构建、校验，并安装到 ~/.agents/skills/RepoWiki
+make install
+
+# 安装到指定的 Skill 集合目录
+make install INSTALL_DIR=/custom/agent/skills
+
+# 删除构建产物
+make clean
+
+# 运行离线回放、格式检查、Rust 测试、Clippy 和包校验
+make test
+
+# 运行临时目录安装 smoke test
+make test-install
+
+# 运行可选的 reference Python parser 差分检查
+make test-reference
+```
+
+`INSTALL_DIR` 表示已安装 skill 的父目录，安装目标固定写入
+`<INSTALL_DIR>/RepoWiki`。安装会先暂存并校验新包，再替换这个目录；如果更新
+失败，已有安装会被恢复。其他名称的已有安装不会被修改。
+
+### 离线回放与差分校验
+
+`make test` 不需要实时 LLM、MCP、API key 或 reference Python 依赖。它会使用
+固定 fixture 和 transcript 回放公开 CLI 流程，与版本控制中的 golden 文件比较，
+并将 ZIP 解压后再次运行相同回放，确保 golden、preview 和 ZIP 三者一致。
+
+`make test-reference` 是额外的 reference differential gate。它校验 reference
+已有的 11 种语言基线；Rust 和 Go 的扩展由主离线回放及 Rust analyzer 测试覆盖。
+
+### 手动安装
+
+推荐使用：
+
+```bash
+make install
+```
+
+也可以手动解压已经构建好的包：
+
+```bash
+make build
+mkdir -p ~/.agents/skills/RepoWiki
+unzip dist/RepoWiki-*.zip -d ~/.agents/skills/RepoWiki
+```
+
+安装后，Agent 会自动发现 `SKILL.md` 并使用包内当前平台的可执行文件。目标机器
+不需要安装 Cargo，也不需要用户手动运行 CLI。
+
+### 运行时产物
+
+运行时包固定包含 `SKILL.md`、`agents/openai.yaml`、两个 references 文件和
+`scripts/codewiki`（Windows 下为 `scripts/codewiki.exe`）。生成的 Wiki 关键产物
+包括 `overview.md`、模块 Markdown 页面、`module_tree.json`、`metadata.json`、
+artifact index 和 dependency graph。
+
+`reference/CodeWiki` 只用于兼容性检查和理解原始流程，不会被复制到 Skill 包，
+也不会被 `make clean` 删除。
