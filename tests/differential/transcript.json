@@ -1,69 +1,123 @@
 {
   "module_tree": {
-    "C": {
-      "path": "c",
-      "components": ["c/service.c::CService"],
-      "children": {}
-    },
-    "C#": {
-      "path": "csharp",
-      "components": ["csharp/Service.cs::CSharpService"],
-      "children": {}
-    },
-    "C++": {
-      "path": "cpp",
-      "components": ["cpp/service.cpp::CppService"],
-      "children": {}
-    },
-    "Go": {
-      "path": "go",
-      "components": ["go/service.go::GoService"],
-      "children": {}
-    },
-    "Java": {
-      "path": "java",
-      "components": ["java/Service.java::JavaService"],
-      "children": {}
-    },
-    "JavaScript": {
-      "path": "javascript",
-      "components": ["javascript/service.js::JavaScriptService"],
-      "children": {}
-    },
-    "Kotlin": {
-      "path": "kotlin",
-      "components": ["kotlin/Service.kt::KotlinService"],
-      "children": {}
-    },
-    "PHP": {
-      "path": "php",
-      "components": ["php/Service.php::PhpService"],
-      "children": {}
-    },
-    "Python": {
-      "path": "python",
-      "components": ["python/service.py::PythonService"],
-      "children": {}
-    },
-    "Ruby": {
-      "path": "ruby",
-      "components": ["ruby/service.rb::RubyService"],
-      "children": {}
-    },
-    "Rust": {
-      "path": "rust",
-      "components": ["rust/service.rs::RustService"],
-      "children": {}
-    },
-    "Scala": {
-      "path": "scala",
-      "components": ["scala/Service.scala::ScalaService"],
-      "children": {}
-    },
-    "TypeScript": {
-      "path": "typescript",
-      "components": ["typescript/service.ts::TypeScriptService"],
-      "children": {}
+    "Platform": {
+      "path": ".",
+      "components": [
+        "c/service.c::CService",
+        "csharp/Service.cs::CSharpService",
+        "cpp/service.cpp::CppService",
+        "go/service.go::GoService",
+        "java/Service.java::JavaService",
+        "javascript/service.js::JavaScriptService",
+        "kotlin/Service.kt::KotlinService",
+        "php/Service.php::PhpService",
+        "python/service.py::PythonService",
+        "ruby/service.rb::RubyService",
+        "rust/service.rs::RustService",
+        "scala/Service.scala::ScalaService",
+        "typescript/service.ts::TypeScriptService"
+      ],
+      "children": {
+        "Native": {
+          "path": "native",
+          "components": [
+            "c/service.c::CService",
+            "csharp/Service.cs::CSharpService",
+            "cpp/service.cpp::CppService",
+            "go/service.go::GoService",
+            "rust/service.rs::RustService"
+          ],
+          "children": {
+            "C": {
+              "path": "c",
+              "components": ["c/service.c::CService"],
+              "children": {}
+            },
+            "C#": {
+              "path": "csharp",
+              "components": ["csharp/Service.cs::CSharpService"],
+              "children": {}
+            },
+            "C++": {
+              "path": "cpp",
+              "components": ["cpp/service.cpp::CppService"],
+              "children": {}
+            },
+            "Go": {
+              "path": "go",
+              "components": ["go/service.go::GoService"],
+              "children": {}
+            },
+            "Rust": {
+              "path": "rust",
+              "components": ["rust/service.rs::RustService"],
+              "children": {}
+            }
+          }
+        },
+        "JVM": {
+          "path": "jvm",
+          "components": [
+            "java/Service.java::JavaService",
+            "kotlin/Service.kt::KotlinService",
+            "scala/Service.scala::ScalaService"
+          ],
+          "children": {
+            "Java": {
+              "path": "java",
+              "components": ["java/Service.java::JavaService"],
+              "children": {}
+            },
+            "Kotlin": {
+              "path": "kotlin",
+              "components": ["kotlin/Service.kt::KotlinService"],
+              "children": {}
+            },
+            "Scala": {
+              "path": "scala",
+              "components": ["scala/Service.scala::ScalaService"],
+              "children": {}
+            }
+          }
+        },
+        "Scripting": {
+          "path": "scripting",
+          "components": [
+            "javascript/service.js::JavaScriptService",
+            "php/Service.php::PhpService",
+            "python/service.py::PythonService",
+            "ruby/service.rb::RubyService",
+            "typescript/service.ts::TypeScriptService"
+          ],
+          "children": {
+            "JavaScript": {
+              "path": "javascript",
+              "components": ["javascript/service.js::JavaScriptService"],
+              "children": {}
+            },
+            "PHP": {
+              "path": "php",
+              "components": ["php/Service.php::PhpService"],
+              "children": {}
+            },
+            "Python": {
+              "path": "python",
+              "components": ["python/service.py::PythonService"],
+              "children": {}
+            },
+            "Ruby": {
+              "path": "ruby",
+              "components": ["ruby/service.rb::RubyService"],
+              "children": {}
+            },
+            "TypeScript": {
+              "path": "typescript",
+              "components": ["typescript/service.ts::TypeScriptService"],
+              "children": {}
+            }
+          }
+        }
+      }
     }
   },
   "documents": {
@@ -79,7 +133,11 @@
     "Ruby": "# Ruby\n\nReplay documentation for Ruby.\n",
     "Rust": "# Rust\n\nReplay documentation for Rust.\n",
     "Scala": "# Scala\n\nReplay documentation for Scala.\n",
-    "TypeScript": "# TypeScript\n\nReplay documentation for TypeScript.\n"
+    "TypeScript": "# TypeScript\n\nReplay documentation for TypeScript.\n",
+    "Native": "# Native\n\nReplay overview for native services.\n",
+    "JVM": "# JVM\n\nReplay overview for JVM services.\n",
+    "Scripting": "# Scripting\n\nReplay overview for scripting services.\n",
+    "Platform": "# Platform\n\nReplay overview for the platform.\n"
   },
   "overview": "# Replay Wiki\n\nThis overview was produced by the fixed replay transcript.\n"
 }

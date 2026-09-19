@@ -1,4 +1,4 @@
-Page to fix: `{page}.md` (view it with str_replace_editor, working_dir="docs").
+Page to fix: `{page}.md` (view it with `codewiki doc view --path {page}.md`; persist any change with `codewiki doc edit`).
 
 <STALE_ITEMS>
 {items}

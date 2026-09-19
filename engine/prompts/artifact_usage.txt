@@ -1,1 +1,1 @@
-* NOTE: when this module's behaviour depends on how the system is built, configured, packaged, deployed or tested, read the relevant artifact file with `str_replace_editor` (`command="view"`, `working_dir="repo"`, path as listed above) and cite the file path in the documentation.
+* NOTE: when this module's behaviour depends on how the system is built, configured, packaged, deployed or tested, read the relevant artifact file with the host's repository file reader or `codewiki components read` (using the path listed above) and cite that file path in the documentation.

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import hashlib
 import json
 import os
 import shutil
@@ -159,8 +160,10 @@ def prompt_vars(
             "module_tree": tree_text,
             "formatted_core_component_codes": source_text,
         }
+    if prompt_type == "overview_module":
+        return {"module_name": module_name, "repo_structure": source_text}
     if prompt_type == "overview_repo":
-        return {"repo_name": "replay-repo", "repo_structure": tree_text}
+        return {"repo_name": "replay-repo", "repo_structure": source_text or tree_text}
     raise ReplayFailure(f"unsupported replay prompt type: {prompt_type}")
 
 
@@ -192,7 +195,18 @@ def get_prompt(
     path = Path(result["path"])
     if not path.is_file():
         raise ReplayFailure(f"prompt path does not exist: {path}")
-    return str(result["sha256"])
+    prompt = path.read_text(encoding="utf-8")
+    actual_sha256 = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+    if result.get("sha256") != actual_sha256:
+        raise ReplayFailure(
+            f"prompt hash mismatch for {prompt_type}: CLI returned {result.get('sha256')}, "
+            f"file hashes to {actual_sha256}"
+        )
+    # Overview prompts intentionally contain absolute child-page paths so the
+    # host can open them.  Those paths point into this replay's random
+    # TemporaryDirectory and must not make the checked-in golden nondeterministic.
+    stable_prompt = prompt.replace(str(repo.parent.resolve()), "<replay-root>")
+    return hashlib.sha256(stable_prompt.encode("utf-8")).hexdigest()
 
 
 def assert_equal(label: str, actual: Any, expected: Any) -> None:
@@ -212,9 +226,14 @@ def assert_equal(label: str, actual: Any, expected: Any) -> None:
 
 
 def expected_component_ids(tree: dict[str, Any]) -> list[str]:
-    ids: list[str] = []
-    for module in tree.values():
-        ids.extend(module.get("components", []))
+    ids: set[str] = set()
+
+    def visit(modules: dict[str, Any]) -> None:
+        for module in modules.values():
+            ids.update(module.get("components", []))
+            visit(module.get("children", {}))
+
+    visit(tree)
     return sorted(ids)
 
 
@@ -242,7 +261,15 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
 
     analysis = run_command(
         binary,
-        ["generate", "--repo", str(repo), "--output", str(output)],
+        [
+            "generate",
+            "--repo",
+            str(repo),
+            "--output",
+            str(output),
+            "--max-depth",
+            "3",
+        ],
     )
     session_id = str(analysis["session_id"])
     session = Path(analysis["session_path"])
@@ -286,7 +313,12 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
             session,
         )
 
-        prompt_hashes: dict[str, list[str]] = {"cluster": []}
+        prompt_hashes: dict[str, list[str]] = {
+            "cluster": [],
+            "system_leaf": [],
+            "user": [],
+            "overview_module": [],
+        }
         prompt_hashes["cluster"].append(
             get_prompt(
                 binary,
@@ -347,26 +379,54 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
             ["tree", "order", "--repo-root", str(repo), "--session", session_id],
         )["processing_order"]
         expected_documents = transcript["documents"]
-        prompt_hashes.update({"system_leaf": [], "user": []})
         for item in ordered:
             module_name = item.get("module_name", item.get("module"))
             if not module_name:
                 raise ReplayFailure(f"processing order item has no module name: {item}")
             doc_path = item.get("doc_path", document_path_for(module_name))
-            ids = item["components"]
-            source_text = "\n".join(source_by_id[component_id] for component_id in ids)
-            variables = prompt_vars(
-                "system_leaf", transcript["module_tree"], module_name, source_text
-            )
-            prompt_hashes["system_leaf"].append(
-                get_prompt(binary, repo, session_id, "system_leaf", variables, work)
-            )
-            variables = prompt_vars(
-                "user", transcript["module_tree"], module_name, source_text
-            )
-            prompt_hashes["user"].append(
-                get_prompt(binary, repo, session_id, "user", variables, work)
-            )
+            if item["is_leaf"]:
+                ids = item["components"]
+                source_text = "\n".join(source_by_id[component_id] for component_id in ids)
+                variables = prompt_vars(
+                    "system_leaf", transcript["module_tree"], module_name, source_text
+                )
+                prompt_hashes["system_leaf"].append(
+                    get_prompt(binary, repo, session_id, "system_leaf", variables, work)
+                )
+                variables = prompt_vars(
+                    "user", transcript["module_tree"], module_name, source_text
+                )
+                prompt_hashes["user"].append(
+                    get_prompt(binary, repo, session_id, "user", variables, work)
+                )
+            else:
+                target_path = work / f"{module_name}-target.json"
+                write_json(target_path, item["path"])
+                context_path = work / f"{module_name}-overview-context.json"
+                run_command(
+                    binary,
+                    [
+                        "tree",
+                        "overview-context",
+                        "--repo-root",
+                        str(repo),
+                        "--session",
+                        session_id,
+                        "--tree-file",
+                        str(tree_path),
+                        "--target-path-file",
+                        str(target_path),
+                        "--output-file",
+                        str(context_path),
+                    ],
+                )
+                context_text = canonical_json(load_json(context_path))
+                variables = prompt_vars(
+                    "overview_module", transcript["module_tree"], module_name, context_text
+                )
+                prompt_hashes["overview_module"].append(
+                    get_prompt(binary, repo, session_id, "overview_module", variables, work)
+                )
             if module_name not in expected_documents:
                 raise ReplayFailure(f"transcript has no document for module {module_name}")
             content_path = work / f"{doc_path}.content"
@@ -387,18 +447,35 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
                 ],
             )
 
+        repo_context_path = work / "repo-overview-context.json"
+        run_command(
+            binary,
+            [
+                "tree",
+                "overview-context",
+                "--repo-root",
+                str(repo),
+                "--session",
+                session_id,
+                "--tree-file",
+                str(tree_path),
+                "--output-file",
+                str(repo_context_path),
+            ],
+        )
+        repo_context = canonical_json(load_json(repo_context_path))
         prompt_hashes["overview_repo"] = [
             get_prompt(
                 binary,
                 repo,
                 session_id,
-                "overview_repo",
-                prompt_vars(
                     "overview_repo",
-                    transcript["module_tree"],
-                    "Repository",
-                    "fixed overview input",
-                ),
+                    prompt_vars(
+                        "overview_repo",
+                        transcript["module_tree"],
+                        "Repository",
+                        repo_context,
+                    ),
                 work,
             )
         ]
@@ -454,10 +531,16 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
             "processing_order": processing_order,
             "validation": {
                 "valid": validation["valid"],
+                "complete": validation["complete"],
+                "quality_valid": validation["quality_valid"],
                 "unmatched_component_ids": validation["unmatched_component_ids"],
                 "leftover_candidate_ids": validation["leftover_candidate_ids"],
                 "module_count": validation["module_count"],
                 "leaf_count": validation["leaf_count"],
+                "max_depth": validation["max_depth"],
+                "orphaned_candidate_ids": validation["orphaned_candidate_ids"],
+                "oversized_leaf_modules": validation["oversized_leaf_modules"],
+                "tree_relationship_errors": validation["tree_relationship_errors"],
             },
             "prompt_hashes": prompt_hashes,
             "documents": documents,

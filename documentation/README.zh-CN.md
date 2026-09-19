@@ -35,10 +35,13 @@ make clean
 # 离线回放、Rust 检查和包校验。
 make test
 
+# 只运行提示词和 reference 兼容性契约检查。
+make test-contract
+
 # 临时目录安装 smoke test。
 make test-install
 
-# 可选的 reference parser 差分检查。
+# reference parser 及工作流语义差分检查。
 make test-reference
 ```
 

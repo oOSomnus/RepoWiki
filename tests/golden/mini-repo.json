@@ -397,6 +397,7 @@
       "typescript/service.ts::TypeScriptService"
     ],
     "summary": {
+      "cluster_batch_size": 600,
       "languages": [
         "c",
         "cpp",
@@ -413,7 +414,9 @@
         "typescript"
       ],
       "leaf_nodes": 13,
-      "max_depth": 2,
+      "max_depth": 3,
+      "max_token_per_leaf_module": 16000,
+      "max_token_per_module": 36369,
       "supported_files": 13,
       "total_components": 13,
       "warnings": []
@@ -428,108 +431,166 @@
     "C_.md": "# C#\n\nReplay documentation for C#.\n",
     "C__.md": "# C++\n\nReplay documentation for C++.\n",
     "Go.md": "# Go\n\nReplay documentation for Go.\n",
+    "JVM.md": "# JVM\n\nReplay overview for JVM services.\n",
     "Java.md": "# Java\n\nReplay documentation for Java.\n",
     "JavaScript.md": "# JavaScript\n\nReplay documentation for JavaScript.\n",
     "Kotlin.md": "# Kotlin\n\nReplay documentation for Kotlin.\n",
+    "Native.md": "# Native\n\nReplay overview for native services.\n",
     "PHP.md": "# PHP\n\nReplay documentation for PHP.\n",
+    "Platform.md": "# Platform\n\nReplay overview for the platform.\n",
     "Python.md": "# Python\n\nReplay documentation for Python.\n",
     "Ruby.md": "# Ruby\n\nReplay documentation for Ruby.\n",
     "Rust.md": "# Rust\n\nReplay documentation for Rust.\n",
     "Scala.md": "# Scala\n\nReplay documentation for Scala.\n",
+    "Scripting.md": "# Scripting\n\nReplay overview for scripting services.\n",
     "TypeScript.md": "# TypeScript\n\nReplay documentation for TypeScript.\n",
     "overview.md": "# Replay Wiki\n\nThis overview was produced by the fixed replay transcript.\n"
   },
   "first_module_tree": {
-    "C": {
-      "children": {},
+    "Platform": {
+      "children": {
+        "JVM": {
+          "children": {
+            "Java": {
+              "children": {},
+              "components": [
+                "java/Service.java::JavaService"
+              ],
+              "path": "java"
+            },
+            "Kotlin": {
+              "children": {},
+              "components": [
+                "kotlin/Service.kt::KotlinService"
+              ],
+              "path": "kotlin"
+            },
+            "Scala": {
+              "children": {},
+              "components": [
+                "scala/Service.scala::ScalaService"
+              ],
+              "path": "scala"
+            }
+          },
+          "components": [
+            "java/Service.java::JavaService",
+            "kotlin/Service.kt::KotlinService",
+            "scala/Service.scala::ScalaService"
+          ],
+          "path": "jvm"
+        },
+        "Native": {
+          "children": {
+            "C": {
+              "children": {},
+              "components": [
+                "c/service.c::CService"
+              ],
+              "path": "c"
+            },
+            "C#": {
+              "children": {},
+              "components": [
+                "csharp/Service.cs::CSharpService"
+              ],
+              "path": "csharp"
+            },
+            "C++": {
+              "children": {},
+              "components": [
+                "cpp/service.cpp::CppService"
+              ],
+              "path": "cpp"
+            },
+            "Go": {
+              "children": {},
+              "components": [
+                "go/service.go::GoService"
+              ],
+              "path": "go"
+            },
+            "Rust": {
+              "children": {},
+              "components": [
+                "rust/service.rs::RustService"
+              ],
+              "path": "rust"
+            }
+          },
+          "components": [
+            "c/service.c::CService",
+            "csharp/Service.cs::CSharpService",
+            "cpp/service.cpp::CppService",
+            "go/service.go::GoService",
+            "rust/service.rs::RustService"
+          ],
+          "path": "native"
+        },
+        "Scripting": {
+          "children": {
+            "JavaScript": {
+              "children": {},
+              "components": [
+                "javascript/service.js::JavaScriptService"
+              ],
+              "path": "javascript"
+            },
+            "PHP": {
+              "children": {},
+              "components": [
+                "php/Service.php::PhpService"
+              ],
+              "path": "php"
+            },
+            "Python": {
+              "children": {},
+              "components": [
+                "python/service.py::PythonService"
+              ],
+              "path": "python"
+            },
+            "Ruby": {
+              "children": {},
+              "components": [
+                "ruby/service.rb::RubyService"
+              ],
+              "path": "ruby"
+            },
+            "TypeScript": {
+              "children": {},
+              "components": [
+                "typescript/service.ts::TypeScriptService"
+              ],
+              "path": "typescript"
+            }
+          },
+          "components": [
+            "javascript/service.js::JavaScriptService",
+            "php/Service.php::PhpService",
+            "python/service.py::PythonService",
+            "ruby/service.rb::RubyService",
+            "typescript/service.ts::TypeScriptService"
+          ],
+          "path": "scripting"
+        }
+      },
       "components": [
-        "c/service.c::CService"
-      ],
-      "path": "c"
-    },
-    "C#": {
-      "children": {},
-      "components": [
-        "csharp/Service.cs::CSharpService"
-      ],
-      "path": "csharp"
-    },
-    "C++": {
-      "children": {},
-      "components": [
-        "cpp/service.cpp::CppService"
-      ],
-      "path": "cpp"
-    },
-    "Go": {
-      "children": {},
-      "components": [
-        "go/service.go::GoService"
-      ],
-      "path": "go"
-    },
-    "Java": {
-      "children": {},
-      "components": [
-        "java/Service.java::JavaService"
-      ],
-      "path": "java"
-    },
-    "JavaScript": {
-      "children": {},
-      "components": [
-        "javascript/service.js::JavaScriptService"
-      ],
-      "path": "javascript"
-    },
-    "Kotlin": {
-      "children": {},
-      "components": [
-        "kotlin/Service.kt::KotlinService"
-      ],
-      "path": "kotlin"
-    },
-    "PHP": {
-      "children": {},
-      "components": [
-        "php/Service.php::PhpService"
-      ],
-      "path": "php"
-    },
-    "Python": {
-      "children": {},
-      "components": [
-        "python/service.py::PythonService"
-      ],
-      "path": "python"
-    },
-    "Ruby": {
-      "children": {},
-      "components": [
-        "ruby/service.rb::RubyService"
-      ],
-      "path": "ruby"
-    },
-    "Rust": {
-      "children": {},
-      "components": [
-        "rust/service.rs::RustService"
-      ],
-      "path": "rust"
-    },
-    "Scala": {
-      "children": {},
-      "components": [
-        "scala/Service.scala::ScalaService"
-      ],
-      "path": "scala"
-    },
-    "TypeScript": {
-      "children": {},
-      "components": [
+        "c/service.c::CService",
+        "csharp/Service.cs::CSharpService",
+        "cpp/service.cpp::CppService",
+        "go/service.go::GoService",
+        "java/Service.java::JavaService",
+        "javascript/service.js::JavaScriptService",
+        "kotlin/Service.kt::KotlinService",
+        "php/Service.php::PhpService",
+        "python/service.py::PythonService",
+        "ruby/service.rb::RubyService",
+        "rust/service.rs::RustService",
+        "scala/Service.scala::ScalaService",
         "typescript/service.ts::TypeScriptService"
       ],
-      "path": "typescript"
+      "path": "."
     }
   },
   "metadata": {
@@ -537,18 +598,22 @@
       "overview.md",
       "module_tree.json",
       "first_module_tree.json",
+      "Platform.md",
+      "JVM.md",
+      "Java.md",
+      "Kotlin.md",
+      "Scala.md",
+      "Native.md",
       "C.md",
       "C_.md",
       "C__.md",
       "Go.md",
-      "Java.md",
+      "Rust.md",
+      "Scripting.md",
       "JavaScript.md",
-      "Kotlin.md",
       "PHP.md",
       "Python.md",
       "Ruby.md",
-      "Rust.md",
-      "Scala.md",
       "TypeScript.md"
     ],
     "generation_info": {
@@ -558,102 +623,158 @@
       "repo_path": "<repo>"
     },
     "statistics": {
+      "analysis_leaf_candidates": 13,
       "leaf_nodes": 13,
-      "max_depth": 1,
+      "max_depth": 3,
+      "module_count": 17,
       "total_components": 13
     }
   },
   "module_tree": {
-    "C": {
-      "children": {},
+    "Platform": {
+      "children": {
+        "JVM": {
+          "children": {
+            "Java": {
+              "children": {},
+              "components": [
+                "java/Service.java::JavaService"
+              ],
+              "path": "java"
+            },
+            "Kotlin": {
+              "children": {},
+              "components": [
+                "kotlin/Service.kt::KotlinService"
+              ],
+              "path": "kotlin"
+            },
+            "Scala": {
+              "children": {},
+              "components": [
+                "scala/Service.scala::ScalaService"
+              ],
+              "path": "scala"
+            }
+          },
+          "components": [
+            "java/Service.java::JavaService",
+            "kotlin/Service.kt::KotlinService",
+            "scala/Service.scala::ScalaService"
+          ],
+          "path": "jvm"
+        },
+        "Native": {
+          "children": {
+            "C": {
+              "children": {},
+              "components": [
+                "c/service.c::CService"
+              ],
+              "path": "c"
+            },
+            "C#": {
+              "children": {},
+              "components": [
+                "csharp/Service.cs::CSharpService"
+              ],
+              "path": "csharp"
+            },
+            "C++": {
+              "children": {},
+              "components": [
+                "cpp/service.cpp::CppService"
+              ],
+              "path": "cpp"
+            },
+            "Go": {
+              "children": {},
+              "components": [
+                "go/service.go::GoService"
+              ],
+              "path": "go"
+            },
+            "Rust": {
+              "children": {},
+              "components": [
+                "rust/service.rs::RustService"
+              ],
+              "path": "rust"
+            }
+          },
+          "components": [
+            "c/service.c::CService",
+            "csharp/Service.cs::CSharpService",
+            "cpp/service.cpp::CppService",
+            "go/service.go::GoService",
+            "rust/service.rs::RustService"
+          ],
+          "path": "native"
+        },
+        "Scripting": {
+          "children": {
+            "JavaScript": {
+              "children": {},
+              "components": [
+                "javascript/service.js::JavaScriptService"
+              ],
+              "path": "javascript"
+            },
+            "PHP": {
+              "children": {},
+              "components": [
+                "php/Service.php::PhpService"
+              ],
+              "path": "php"
+            },
+            "Python": {
+              "children": {},
+              "components": [
+                "python/service.py::PythonService"
+              ],
+              "path": "python"
+            },
+            "Ruby": {
+              "children": {},
+              "components": [
+                "ruby/service.rb::RubyService"
+              ],
+              "path": "ruby"
+            },
+            "TypeScript": {
+              "children": {},
+              "components": [
+                "typescript/service.ts::TypeScriptService"
+              ],
+              "path": "typescript"
+            }
+          },
+          "components": [
+            "javascript/service.js::JavaScriptService",
+            "php/Service.php::PhpService",
+            "python/service.py::PythonService",
+            "ruby/service.rb::RubyService",
+            "typescript/service.ts::TypeScriptService"
+          ],
+          "path": "scripting"
+        }
+      },
       "components": [
-        "c/service.c::CService"
-      ],
-      "path": "c"
-    },
-    "C#": {
-      "children": {},
-      "components": [
-        "csharp/Service.cs::CSharpService"
-      ],
-      "path": "csharp"
-    },
-    "C++": {
-      "children": {},
-      "components": [
-        "cpp/service.cpp::CppService"
-      ],
-      "path": "cpp"
-    },
-    "Go": {
-      "children": {},
-      "components": [
-        "go/service.go::GoService"
-      ],
-      "path": "go"
-    },
-    "Java": {
-      "children": {},
-      "components": [
-        "java/Service.java::JavaService"
-      ],
-      "path": "java"
-    },
-    "JavaScript": {
-      "children": {},
-      "components": [
-        "javascript/service.js::JavaScriptService"
-      ],
-      "path": "javascript"
-    },
-    "Kotlin": {
-      "children": {},
-      "components": [
-        "kotlin/Service.kt::KotlinService"
-      ],
-      "path": "kotlin"
-    },
-    "PHP": {
-      "children": {},
-      "components": [
-        "php/Service.php::PhpService"
-      ],
-      "path": "php"
-    },
-    "Python": {
-      "children": {},
-      "components": [
-        "python/service.py::PythonService"
-      ],
-      "path": "python"
-    },
-    "Ruby": {
-      "children": {},
-      "components": [
-        "ruby/service.rb::RubyService"
-      ],
-      "path": "ruby"
-    },
-    "Rust": {
-      "children": {},
-      "components": [
-        "rust/service.rs::RustService"
-      ],
-      "path": "rust"
-    },
-    "Scala": {
-      "children": {},
-      "components": [
-        "scala/Service.scala::ScalaService"
-      ],
-      "path": "scala"
-    },
-    "TypeScript": {
-      "children": {},
-      "components": [
+        "c/service.c::CService",
+        "csharp/Service.cs::CSharpService",
+        "cpp/service.cpp::CppService",
+        "go/service.go::GoService",
+        "java/Service.java::JavaService",
+        "javascript/service.js::JavaScriptService",
+        "kotlin/Service.kt::KotlinService",
+        "php/Service.php::PhpService",
+        "python/service.py::PythonService",
+        "ruby/service.rb::RubyService",
+        "rust/service.rs::RustService",
+        "scala/Service.scala::ScalaService",
         "typescript/service.ts::TypeScriptService"
       ],
-      "path": "typescript"
+      "path": "."
     }
   },
   "output_files": [
@@ -661,14 +782,18 @@
     "C_.md",
     "C__.md",
     "Go.md",
+    "JVM.md",
     "Java.md",
     "JavaScript.md",
     "Kotlin.md",
+    "Native.md",
     "PHP.md",
+    "Platform.md",
     "Python.md",
     "Ruby.md",
     "Rust.md",
     "Scala.md",
+    "Scripting.md",
     "TypeScript.md",
     "first_module_tree.json",
     "metadata.json",
@@ -680,11 +805,67 @@
   "processing_order": [
     {
       "components": [
+        "java/Service.java::JavaService"
+      ],
+      "is_leaf": true,
+      "module": "Java",
+      "path": [
+        "Platform",
+        "JVM",
+        "Java"
+      ]
+    },
+    {
+      "components": [
+        "kotlin/Service.kt::KotlinService"
+      ],
+      "is_leaf": true,
+      "module": "Kotlin",
+      "path": [
+        "Platform",
+        "JVM",
+        "Kotlin"
+      ]
+    },
+    {
+      "components": [
+        "scala/Service.scala::ScalaService"
+      ],
+      "is_leaf": true,
+      "module": "Scala",
+      "path": [
+        "Platform",
+        "JVM",
+        "Scala"
+      ]
+    },
+    {
+      "children": [
+        "Java",
+        "Kotlin",
+        "Scala"
+      ],
+      "components": [
+        "java/Service.java::JavaService",
+        "kotlin/Service.kt::KotlinService",
+        "scala/Service.scala::ScalaService"
+      ],
+      "is_leaf": false,
+      "module": "JVM",
+      "path": [
+        "Platform",
+        "JVM"
+      ]
+    },
+    {
+      "components": [
         "c/service.c::CService"
       ],
       "is_leaf": true,
       "module": "C",
       "path": [
+        "Platform",
+        "Native",
         "C"
       ]
     },
@@ -695,6 +876,8 @@
       "is_leaf": true,
       "module": "C#",
       "path": [
+        "Platform",
+        "Native",
         "C#"
       ]
     },
@@ -705,6 +888,8 @@
       "is_leaf": true,
       "module": "C++",
       "path": [
+        "Platform",
+        "Native",
         "C++"
       ]
     },
@@ -715,17 +900,43 @@
       "is_leaf": true,
       "module": "Go",
       "path": [
+        "Platform",
+        "Native",
         "Go"
       ]
     },
     {
       "components": [
-        "java/Service.java::JavaService"
+        "rust/service.rs::RustService"
       ],
       "is_leaf": true,
-      "module": "Java",
+      "module": "Rust",
       "path": [
-        "Java"
+        "Platform",
+        "Native",
+        "Rust"
+      ]
+    },
+    {
+      "children": [
+        "C",
+        "C#",
+        "C++",
+        "Go",
+        "Rust"
+      ],
+      "components": [
+        "c/service.c::CService",
+        "csharp/Service.cs::CSharpService",
+        "cpp/service.cpp::CppService",
+        "go/service.go::GoService",
+        "rust/service.rs::RustService"
+      ],
+      "is_leaf": false,
+      "module": "Native",
+      "path": [
+        "Platform",
+        "Native"
       ]
     },
     {
@@ -735,17 +946,9 @@
       "is_leaf": true,
       "module": "JavaScript",
       "path": [
+        "Platform",
+        "Scripting",
         "JavaScript"
-      ]
-    },
-    {
-      "components": [
-        "kotlin/Service.kt::KotlinService"
-      ],
-      "is_leaf": true,
-      "module": "Kotlin",
-      "path": [
-        "Kotlin"
       ]
     },
     {
@@ -755,6 +958,8 @@
       "is_leaf": true,
       "module": "PHP",
       "path": [
+        "Platform",
+        "Scripting",
         "PHP"
       ]
     },
@@ -765,6 +970,8 @@
       "is_leaf": true,
       "module": "Python",
       "path": [
+        "Platform",
+        "Scripting",
         "Python"
       ]
     },
@@ -775,27 +982,9 @@
       "is_leaf": true,
       "module": "Ruby",
       "path": [
+        "Platform",
+        "Scripting",
         "Ruby"
-      ]
-    },
-    {
-      "components": [
-        "rust/service.rs::RustService"
-      ],
-      "is_leaf": true,
-      "module": "Rust",
-      "path": [
-        "Rust"
-      ]
-    },
-    {
-      "components": [
-        "scala/Service.scala::ScalaService"
-      ],
-      "is_leaf": true,
-      "module": "Scala",
-      "path": [
-        "Scala"
       ]
     },
     {
@@ -805,52 +994,115 @@
       "is_leaf": true,
       "module": "TypeScript",
       "path": [
+        "Platform",
+        "Scripting",
         "TypeScript"
+      ]
+    },
+    {
+      "children": [
+        "JavaScript",
+        "PHP",
+        "Python",
+        "Ruby",
+        "TypeScript"
+      ],
+      "components": [
+        "javascript/service.js::JavaScriptService",
+        "php/Service.php::PhpService",
+        "python/service.py::PythonService",
+        "ruby/service.rb::RubyService",
+        "typescript/service.ts::TypeScriptService"
+      ],
+      "is_leaf": false,
+      "module": "Scripting",
+      "path": [
+        "Platform",
+        "Scripting"
+      ]
+    },
+    {
+      "children": [
+        "JVM",
+        "Native",
+        "Scripting"
+      ],
+      "components": [
+        "c/service.c::CService",
+        "csharp/Service.cs::CSharpService",
+        "cpp/service.cpp::CppService",
+        "go/service.go::GoService",
+        "java/Service.java::JavaService",
+        "javascript/service.js::JavaScriptService",
+        "kotlin/Service.kt::KotlinService",
+        "php/Service.php::PhpService",
+        "python/service.py::PythonService",
+        "ruby/service.rb::RubyService",
+        "rust/service.rs::RustService",
+        "scala/Service.scala::ScalaService",
+        "typescript/service.ts::TypeScriptService"
+      ],
+      "is_leaf": false,
+      "module": "Platform",
+      "path": [
+        "Platform"
       ]
     }
   ],
   "prompt_hashes": {
     "cluster": [
-      "e1ac444ba09837fbd78e2fb6fb7927f52ea06a2ecb940f7a835da13e6d607c79"
+      "3c55610962dc1ba31c2e55d8c4ee4d6b4c4c678333363d50f985fe349b7e06a2"
+    ],
+    "overview_module": [
+      "c063c8327bfc54eb1e535c41c226997049b22b68adcfdd5bd4d4f72e39dfbedd",
+      "4a58c367304efb3e57b8494da9c3d43080b38ff0164ddbbf0b9e3db05d7ea8ed",
+      "91f4c44a17594d3d836571291dc83935bdff6eeda7c02057b4dc1b59e102d029",
+      "dbe28a6c969c610a2027b533cba0309ea2cf0a8af9f03fc0f97d64ef66318bb5"
     ],
     "overview_repo": [
-      "ee49c72a8a587e7ea58633b8955656e886da2c0795de53cfb4d017f5be0004d6"
+      "1b3704f9c410557eb67711dcef51726ca50232ddefda06f1515fe772d34b587f"
     ],
     "system_leaf": [
-      "d491c103e467a32986266cf9a4f2e0ac1b168076d5c8769b5a2ff0685d8c6118",
-      "c07056c9cf8c0fccb79a8ca880b2d6b1dcbffd44e75322a483d786c49aa3baab",
-      "92cca4a22cf732c04eb50572de23dcc641c1a61cdca704112d823563f4921883",
-      "8302fad5310c6300fac39be8fab0f822dcd5e817c91c3f25a32e213a853666a9",
-      "5f8720662580376c49eea2bd0b9682192280b08927846cba17cd3d590de579bd",
-      "ab150c8756c2586389ed967fe183c099ab9f0dcc3d27e823e34082ed13dbb4d9",
-      "b4036db7cb2441adb902f845ecc00cd766dfa9f63e5320b1fdd13adca93be69d",
-      "b71027c91b1b048b5ab0923398ddb7ee2b87a67fa64d7afad39937dfbf50474c",
-      "50128bb4b518bc7b441be1f92a68068e5f0bf2f9b595d2f61eff162914d6c436",
-      "46bce14ccb56a3bcd9fddd3d82786d7312867ff7909fbc168626636973620fae",
-      "309079bcbbed530f4dc3028af026ce7773691a138a75790be8efde3bf1d4dd9f",
-      "24c4c54b1018e3c7a8c06da8994620bc0ecbfca4f5a0da4ca57d7ac4e90d54e4",
-      "78b50b58f1299d5f1437785b21253bf5babaa7f4c38481f263d2a8b56225d4e7"
+      "bea10364d1401d83b813329a59d9c387ee43cdbec1d188f0e9cce737b01e83f5",
+      "44ebb6e334504360dc29c28b487e131da5eb2385e7870d5ec804784b2d182f90",
+      "ae28da9ce20ea699d68a0dfac0a34a85a381ccc14d03a7259b448dea7e99d2ec",
+      "4b133158cc89e0c657a42494306a327d4e78e8f6e5cd52a1311fdfc82e89a382",
+      "17c11f2f5b73115db812df7dd9b9423362606fc34ce85ecec2293d93da4eee95",
+      "65a6c945aa077d1de8692284733b6d1b56409746205a606ec58ea38a04d374fc",
+      "59c306d8b5dc812ba48733105f6bc3ff13ce3039150525089299530b7dec7799",
+      "ed81b260f10a836ae8361205c82e5418f045319c9f4d333eedbd20510b82799f",
+      "d1eec924c7b03c600fb47dd82ed9391ff21767958cad79353b9d3f508155ae9f",
+      "5da67210fc8245fb7be5d8536262f30fcdbc5b4b0804237728b5ab09234b62d7",
+      "94b518be698cbc20262b08d87ff7a53483cd8f5db8369603c6eea7110d8fd3ca",
+      "5ab9c56669222feb65dd28a6a6ede3cd404c2ad447237a8eed1eb40e964586ae",
+      "6b32c2083b8806489b7317954a403c281192b65503739e48477bbfd2b24fa6d2"
     ],
     "user": [
-      "076bf7a8b8e41434b09df83e2b46991d24af54ac3622568ea5232a79a9d791aa",
-      "b78ded24c9e4d87fd18d4a7eff176b70652a22fb4475370d4acde1774c01d8a6",
-      "809dd4d5dd6bc1da2ab4db4291dfa45cbd75012eb17e722b5683f002dcc4eb16",
-      "2e5e5b429c2db731c31dd57b3999cd5444274492d1a451fb4cae763b6345dc9b",
-      "2b9b30c5b21d3807b16229e3a8b1148c74702ecbede0f1446009f9f55e62a795",
-      "fbc8853e816347fb9b7f85e856ed9ce9d4a0529c0de5ddddcec98dea4ade4b93",
-      "4abdc7a159e6b52f445ac7f11c8d87cd881e0a5ff49912b1b2cf6f7c54e17a0a",
-      "2ac0714e982767a1318bf853bccad237f566203def2765104547912d4a3d4086",
-      "a08c6812dc15618c6a7706d5f1253cf5252388d708090255e64e73c544ab0a24",
-      "4dcf7d984267d406e5d23e4e2d5ba23a521dc35f9d98b918186365d484336d1a",
-      "59cef787cd2fccc5adbb7e8c1b2c9b692b22ba6750f2282daedbb50d0b379efa",
-      "446b7a5474a78727b02654875df7dd82582ea9f55e40540cb7c3ee5c6c609118",
-      "55603c3ce50e1bb1491fe23dfad064194e9e7923d67fd0dfb159a8dc342264c9"
+      "11c7c064164b7dc3664e4045b59c97509f19d5a156b72d985f869a76c76868ad",
+      "a93d5302405d1583bfce001a5d93a995c4abb6a339bb1d7fe5b93adf4f955c33",
+      "55d5526576b055c69ca4037e8631f11452a1c2c4872fd9bd1366cebe7ed54d8f",
+      "8674df3d84ce86b3f6e91df7dcc3562127651b5a71e607a34fb1d0d87b9936d3",
+      "43ad18fc549e9e5ec8b6bc535d8bf56d437e488b8c2209c8337d4d5085436a4a",
+      "d4320e2ec459f23d6b0b2a509c3731058107d3520abaf2f9b7cd6b0971c5c961",
+      "6b4adf08c6bb3e635c44627a8b33aedfbe95e15ab339e090d5d3dc5274344d2d",
+      "aa1395735bcf0975383df1bd397abff1df8adec95170a0eff68ff73a4079fdc4",
+      "498bc90c5041a682fc96cf7f7c73ddbf307b8f22f4cf46b686ee3fbdf0f676df",
+      "4e73c24d1dd2c582c8223ed6008c4d94d686f6550a0d2ab8e1ce0e44eae8cc85",
+      "35d07bdfad1f78302aa9a021a2c0a5aeac9b02eadceb444a200cb235b8387c38",
+      "1e0a7424211e6cb508ee5691f8add517a6cf56525dc0208ccb1a67d1bebd946d",
+      "903e47fea5092ef99bfa02bcfed3d46db9f425ddc5183e092d9044fbd578cd79"
     ]
   },
   "validation": {
+    "complete": true,
     "leaf_count": 13,
     "leftover_candidate_ids": [],
-    "module_count": 13,
+    "max_depth": 3,
+    "module_count": 17,
+    "orphaned_candidate_ids": [],
+    "oversized_leaf_modules": [],
+    "quality_valid": true,
+    "tree_relationship_errors": [],
     "unmatched_component_ids": [],
     "valid": true
   }

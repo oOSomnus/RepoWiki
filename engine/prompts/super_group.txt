@@ -6,6 +6,10 @@ Here is the flat list of top-level modules of a repository. Each module has a pa
 
 The module list is flat: conceptually related modules sit next to unrelated ones. Please group these modules into higher-level architectural subsystems so the repository reads as an architecture rather than a directory listing.
 
+This pass creates parent overview modules. Preserve the existing module pages
+as children; do not discard or merge their component lists. The result must be
+followed by a tree save and validation, then leaf-first page generation.
+
 Guidelines:
 - Each subsystem is a set of modules that together fulfil one architectural responsibility (e.g. a processing pipeline, a user-facing interface layer, a shared platform/foundation).
 - Name each subsystem by its architectural role, not by a directory name.

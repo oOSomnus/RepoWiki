@@ -1,4 +1,4 @@
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -19,6 +19,37 @@ where
         String::from_utf8_lossy(&output.stderr)
     );
     serde_json::from_slice(&output.stdout).expect("JSON stdout")
+}
+
+fn run_from<I, S>(directory: &Path, args: I) -> Value
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    let output = Command::new(env!("CARGO_BIN_EXE_codewiki"))
+        .current_dir(directory)
+        .args(args)
+        .output()
+        .expect("run codewiki");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("JSON stdout")
+}
+
+fn run_failure<I, S>(args: I) -> (bool, Value)
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    let output = Command::new(env!("CARGO_BIN_EXE_codewiki"))
+        .args(args)
+        .output()
+        .expect("run codewiki");
+    let value = serde_json::from_slice(&output.stdout).expect("JSON error stdout");
+    (output.status.success(), value)
 }
 
 #[test]
@@ -133,4 +164,224 @@ fn file_side_workflow_creates_reference_artifacts() {
     ]);
     assert_eq!(closed["cleaned"], true);
     assert!(output.path().join("metadata.json").exists());
+}
+
+#[test]
+fn recursive_tree_commands_are_file_side_and_work_outside_repo_cwd() {
+    let repo = tempdir().expect("repo tempdir");
+    let output = tempdir().expect("output tempdir");
+    let scratch = tempdir().expect("scratch directory");
+    fs::create_dir_all(repo.path().join("src")).expect("src directory");
+    fs::write(repo.path().join("src/api.rs"), "pub struct Api;\n").expect("api fixture");
+    fs::write(repo.path().join("src/runtime.rs"), "pub struct Runtime;\n")
+        .expect("runtime fixture");
+    let repo_arg = repo.path().to_string_lossy().to_string();
+    let output_arg = output.path().to_string_lossy().to_string();
+    let analysis = run([
+        "generate",
+        "--repo",
+        repo_arg.as_str(),
+        "--output",
+        output_arg.as_str(),
+    ]);
+    let session = analysis["session_id"].as_str().expect("session id");
+    let component_index: Value = serde_json::from_str(
+        &fs::read_to_string(analysis["component_index_path"].as_str().unwrap())
+            .expect("component index"),
+    )
+    .expect("component index JSON");
+    let ids = component_index
+        .as_array()
+        .expect("component list")
+        .iter()
+        .filter_map(|item| item["id"].as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    assert!(
+        ids.len() >= 2,
+        "recursive fixture did not produce two components"
+    );
+
+    let work = repo.path().join("test-input");
+    fs::create_dir_all(&work).expect("test input directory");
+    let input_ids = work.join("input-ids.json");
+    fs::write(
+        &input_ids,
+        serde_json::to_string(&ids).expect("serialize IDs"),
+    )
+    .expect("write input IDs");
+    let response = work.join("cluster-response.txt");
+    let grouping = json!({
+        "API": {"path": "src", "components": [ids[0].clone()]},
+        "Runtime": {"path": "src", "components": ids[1..].to_vec()}
+    });
+    fs::write(
+        &response,
+        format!("<GROUPED_COMPONENTS>{}</GROUPED_COMPONENTS>", grouping),
+    )
+    .expect("write cluster response");
+    let root_tree = work.join("root-tree.json");
+    fs::write(&root_tree, "{}").expect("write empty tree");
+    let clustered_tree = work.join("clustered-tree.json");
+    let clustered = run_from(
+        scratch.path(),
+        [
+            "tree",
+            "apply-cluster",
+            "--repo-root",
+            repo_arg.as_str(),
+            "--session",
+            session,
+            "--tree-file",
+            root_tree.to_str().unwrap(),
+            "--response-file",
+            response.to_str().unwrap(),
+            "--input-ids-file",
+            input_ids.to_str().unwrap(),
+            "--scope",
+            "repo",
+            "--output-tree-file",
+            clustered_tree.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(clustered["diagnostics"]["fallback_used"], false);
+
+    let super_response = work.join("super-response.txt");
+    fs::write(
+        &super_response,
+        r#"<GROUPED_MODULES>{"Platform":{"modules":["API","Runtime"]}}</GROUPED_MODULES>"#,
+    )
+    .expect("write super group response");
+    let final_tree = work.join("final-tree.json");
+    let super_grouped = run_from(
+        scratch.path(),
+        [
+            "tree",
+            "apply-super-group",
+            "--repo-root",
+            repo_arg.as_str(),
+            "--session",
+            session,
+            "--tree-file",
+            clustered_tree.to_str().unwrap(),
+            "--response-file",
+            super_response.to_str().unwrap(),
+            "--output-tree-file",
+            final_tree.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(super_grouped["diagnostics"]["changed"], true);
+
+    let saved = run_from(
+        scratch.path(),
+        [
+            "tree",
+            "save",
+            "--repo-root",
+            repo_arg.as_str(),
+            "--session",
+            session,
+            "--tree-file",
+            final_tree.to_str().unwrap(),
+            "--first",
+        ],
+    );
+    assert_eq!(saved["result"]["unmatched_component_ids"], json!([]));
+    assert_eq!(saved["result"]["quality_valid"], true);
+    assert_eq!(saved["result"]["max_depth"], 2);
+
+    let context_file = work.join("overview-context.json");
+    let context = run_from(
+        scratch.path(),
+        [
+            "tree",
+            "overview-context",
+            "--repo-root",
+            repo_arg.as_str(),
+            "--session",
+            session,
+            "--tree-file",
+            final_tree.to_str().unwrap(),
+            "--output-file",
+            context_file.to_str().unwrap(),
+        ],
+    );
+    assert!(context["context_path"].as_str().is_some());
+    let context_json: Value =
+        serde_json::from_str(&fs::read_to_string(&context_file).expect("overview context file"))
+            .expect("overview context JSON");
+    assert_eq!(context_json["Platform"]["components"], Value::Null);
+    assert_eq!(context_json["Platform"]["docs_path"], Value::Null);
+
+    let order = run_from(
+        scratch.path(),
+        [
+            "tree",
+            "order",
+            "--repo-root",
+            repo_arg.as_str(),
+            "--session",
+            session,
+        ],
+    );
+    let items = order["processing_order"]
+        .as_array()
+        .expect("processing order");
+    assert_eq!(items.last().unwrap()["module"], json!("Platform"));
+    assert!(
+        items
+            .iter()
+            .position(|item| item["module"] == "API")
+            .unwrap()
+            < items
+                .iter()
+                .position(|item| item["module"] == "Platform")
+                .unwrap()
+    );
+
+    for page in ["API.md", "Runtime.md", "Platform.md", "overview.md"] {
+        run_from(
+            scratch.path(),
+            [
+                "doc",
+                "write",
+                "--repo-root",
+                repo_arg.as_str(),
+                "--session",
+                session,
+                "--path",
+                page,
+                "--content",
+                "# page\n",
+            ],
+        );
+    }
+    let closed = run_from(
+        scratch.path(),
+        [
+            "session",
+            "close",
+            "--repo-root",
+            repo_arg.as_str(),
+            "--session",
+            session,
+        ],
+    );
+    assert_eq!(closed["cleaned"], true);
+    assert!(output.path().join("metadata.json").is_file());
+}
+
+#[test]
+fn cli_failures_are_json_and_nonzero() {
+    let (success, error) = run_failure([
+        "prompt",
+        "get",
+        "--session",
+        "missing-session",
+        "--type",
+        "unknown-prompt",
+    ]);
+    assert!(!success);
+    assert_eq!(error["ok"], false);
+    assert!(error["error"].as_str().is_some());
+    assert!(error["chain"].as_array().is_some());
 }

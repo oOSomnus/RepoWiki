@@ -1,0 +1,31 @@
+{
+  "common_analysis_languages": [
+    "c",
+    "cpp",
+    "csharp",
+    "java",
+    "javascript",
+    "kotlin",
+    "php",
+    "python",
+    "ruby",
+    "scala",
+    "typescript"
+  ],
+  "exact_parity": [
+    "component ids",
+    "dependency targets",
+    "module child relationships",
+    "leaf-first processing order",
+    "artifact coverage",
+    "required prompt variables",
+    "response markers",
+    "output artifact names"
+  ],
+  "intentional_divergence": [
+    "RepoWiki uses host-agent codewiki CLI tools instead of reference MCP/editor tool names",
+    "RepoWiki supports Go and Rust in addition to the common reference fixture languages",
+    "RepoWiki keeps invalid trees for diagnostics but refuses session close while quality_valid is false",
+    "RepoWiki does not compare generated prose byte-for-byte"
+  ]
+}

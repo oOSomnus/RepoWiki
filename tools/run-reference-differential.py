@@ -52,12 +52,174 @@ def canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
+def write_json(path: Path, value: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(canonical_json(value), encoding="utf-8")
+
+
 def copy_reference_fixture(destination: Path) -> None:
     """Keep this opt-in comparison on the languages implemented by reference."""
 
     shutil.copytree(FIXTURE, destination)
     for language in ("go", "rust"):
         shutil.rmtree(destination / language, ignore_errors=True)
+
+
+def semantic_tree(component_ids: list[str]) -> dict[str, Any]:
+    """Build the same deterministic nested tree used by reference_probe.py."""
+
+    ordered_ids = sorted(component_ids)
+    midpoint = max(1, len(ordered_ids) // 2)
+    return {
+        "Root": {
+            "path": ".",
+            "components": ordered_ids,
+            "children": {
+                "Alpha": {
+                    "path": "alpha",
+                    "components": ordered_ids[:midpoint],
+                    "children": {},
+                },
+                "Beta": {
+                    "path": "beta",
+                    "components": ordered_ids[midpoint:],
+                    "children": {},
+                },
+            },
+        }
+    }
+
+
+def overview_shape(value: dict[str, Any]) -> dict[str, Any]:
+    """Keep only the deterministic shape shared with the reference probe."""
+
+    targets: list[str] = []
+    docs_paths: list[str] = []
+    components_present = False
+
+    def walk(modules: dict[str, Any], prefix: list[str]) -> None:
+        nonlocal components_present
+        for name, info in modules.items():
+            if not isinstance(info, dict):
+                continue
+            path = prefix + [name]
+            components_present = components_present or "components" in info
+            if info.get("is_target_for_overview_generation"):
+                targets.append("/".join(path))
+            if "docs_path" in info:
+                docs_paths.append("present" if info["docs_path"] else "missing")
+            children = info.get("children", {})
+            if isinstance(children, dict):
+                walk(children, path)
+
+    walk(value, [])
+    return {
+        "components_present": components_present,
+        "target_modules": sorted(targets),
+        "docs_paths": sorted(docs_paths),
+    }
+
+
+def skill_semantics(
+    binary: Path,
+    repo: Path,
+    output: Path,
+    session_id: str,
+    component_ids: list[str],
+) -> dict[str, Any]:
+    """Probe the Skill's deterministic tree and overview behavior."""
+
+    tree_file = output.parent / "semantic-tree.json"
+    write_json(tree_file, semantic_tree(component_ids))
+    run_json(
+        [
+            str(binary),
+            "tree",
+            "save",
+            "--repo-root",
+            str(repo),
+            "--session",
+            session_id,
+            "--tree-file",
+            str(tree_file),
+            "--first",
+        ],
+        label="Skill semantic tree save",
+    )
+    order = run_json(
+        [
+            str(binary),
+            "tree",
+            "order",
+            "--repo-root",
+            str(repo),
+            "--session",
+            session_id,
+        ],
+        label="Skill semantic tree order",
+    )["processing_order"]
+
+    target_file = output.parent / "semantic-target.json"
+    write_json(target_file, ["Root"])
+    context_file = output.parent / "semantic-overview-context.json"
+    for name in ("Alpha", "Beta"):
+        (output / f"{name}.md").write_text(f"# {name}\n", encoding="utf-8")
+    run_json(
+        [
+            str(binary),
+            "tree",
+            "overview-context",
+            "--repo-root",
+            str(repo),
+            "--session",
+            session_id,
+            "--tree-file",
+            str(tree_file),
+            "--target-path-file",
+            str(target_file),
+            "--output-file",
+            str(context_file),
+        ],
+        label="Skill semantic overview context",
+    )
+    context_present = load_json(context_file)
+    for name in ("Alpha", "Beta"):
+        (output / f"{name}.md").unlink()
+    run_json(
+        [
+            str(binary),
+            "tree",
+            "overview-context",
+            "--repo-root",
+            str(repo),
+            "--session",
+            session_id,
+            "--tree-file",
+            str(tree_file),
+            "--target-path-file",
+            str(target_file),
+            "--output-file",
+            str(context_file),
+        ],
+        label="Skill semantic overview context without pages",
+    )
+    context_missing = load_json(context_file)
+    return {
+        "tree": {
+            "processing_order": [
+                {
+                    "module": item["module"],
+                    "path": item["path"],
+                    "is_leaf": item["is_leaf"],
+                }
+                for item in order
+            ]
+        },
+        "overview": {
+            "missing_child_pages": overview_shape(context_missing),
+            "present_child_pages": overview_shape(context_present),
+        },
+    }
 
 
 def resolve_binary(location: Path) -> Path:
@@ -113,7 +275,7 @@ def skill_contract(binary: Path, repo: Path, output: Path) -> dict[str, Any]:
         )
     components.sort(key=lambda item: item["id"])
     summary = analysis["summary"]
-    result = {
+    analysis_contract = {
         "summary": {
             "languages": sorted(summary["languages"]),
             "supported_files": summary["supported_files"],
@@ -123,12 +285,21 @@ def skill_contract(binary: Path, repo: Path, output: Path) -> dict[str, Any]:
         "leaf_nodes": sorted(leaf_nodes),
         "dependencies": {item["id"]: item["depends_on"] for item in components},
     }
-    if result["summary"]["languages"] != EXPECTED_LANGUAGES:
+    if analysis_contract["summary"]["languages"] != EXPECTED_LANGUAGES:
         raise DifferentialFailure(
             f"Skill language coverage mismatch: expected {EXPECTED_LANGUAGES}, "
-            f"got {result['summary']['languages']}"
+            f"got {analysis_contract['summary']['languages']}"
         )
-    return result
+    return {
+        "analysis": analysis_contract,
+        "semantics": skill_semantics(
+            binary,
+            repo,
+            output,
+            str(analysis["session_id"]),
+            [item["id"] for item in components],
+        ),
+    }
 
 
 def reference_contract(reference_root: Path, repo: Path) -> dict[str, Any]:
@@ -202,7 +373,9 @@ def main() -> int:
             compare(skill, reference)
         print(
             "PASS reference differential: "
-            f"{len(EXPECTED_LANGUAGES)} languages, {skill['summary']['total_components']} components"
+            f"{len(EXPECTED_LANGUAGES)} languages, "
+            f"{skill['analysis']['summary']['total_components']} components, "
+            "analysis/tree/overview contracts"
         )
     except DifferentialFailure as exc:
         print(f"REFERENCE DIFFERENTIAL FAILED: {exc}", file=sys.stderr)

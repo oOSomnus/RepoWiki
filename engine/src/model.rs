@@ -17,6 +17,14 @@ pub const SUPPORTED_LANGUAGES: &[&str] = &[
     "scala",
 ];
 
+/// The clustering defaults are intentionally shared by the analyzer, tree
+/// validator, and host-agent workflow.  The engine does not call an LLM, but
+/// it must be able to tell the host when a saved tree still violates the
+/// same limits that drive recursive clustering.
+pub const DEFAULT_MAX_TOKEN_PER_MODULE: usize = 36_369;
+pub const DEFAULT_MAX_TOKEN_PER_LEAF_MODULE: usize = 16_000;
+pub const DEFAULT_CLUSTER_BATCH_SIZE: usize = 600;
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Node {
     pub id: String,
@@ -94,8 +102,16 @@ pub struct Summary {
     pub repo_path: String,
     pub output_dir: String,
     pub total_components: usize,
+    /// Number of components selected as clustering/documentation candidates;
+    /// final module-tree leaves are reported in `Statistics`.
     pub leaf_nodes: usize,
     pub max_depth: usize,
+    #[serde(default)]
+    pub max_token_per_module: usize,
+    #[serde(default)]
+    pub max_token_per_leaf_module: usize,
+    #[serde(default)]
+    pub cluster_batch_size: usize,
     pub supported_files: usize,
     pub languages: Vec<String>,
     pub analyzed_commit: Option<String>,
@@ -208,6 +224,14 @@ pub struct GenerationInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Statistics {
     pub total_components: usize,
+    /// Number of selected analysis candidates.  Kept separate from the
+    /// documentation-tree leaf count so metadata cannot report a flat tree as
+    /// having thousands of generated leaf pages.
+    #[serde(default)]
+    pub analysis_leaf_candidates: usize,
+    /// Number of module-tree leaves that received a documentation page.
     pub leaf_nodes: usize,
+    #[serde(default)]
+    pub module_count: usize,
     pub max_depth: usize,
 }

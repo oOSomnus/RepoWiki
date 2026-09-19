@@ -1,6 +1,7 @@
 use crate::language;
 use crate::model::{
-    ArtifactFile, ArtifactIndex, CallRelationship, Node, Summary, SUPPORTED_LANGUAGES,
+    ArtifactFile, ArtifactIndex, CallRelationship, Node, Summary, DEFAULT_CLUSTER_BATCH_SIZE,
+    DEFAULT_MAX_TOKEN_PER_LEAF_MODULE, DEFAULT_MAX_TOKEN_PER_MODULE, SUPPORTED_LANGUAGES,
 };
 use crate::session::{self, SessionState};
 use anyhow::{Context, Result};
@@ -30,6 +31,10 @@ pub struct AnalyzeOptions {
     /// Analysis does not build the LLM tree, but this remains part of the
     /// summary contract and is passed through to the analyzer.
     pub max_depth: usize,
+    /// Clustering limits are recorded in the analysis summary for the host
+    /// agent and tree quality gate. Zero means use the engine defaults.
+    pub max_token_per_module: usize,
+    pub max_token_per_leaf_module: usize,
     pub with_prose: bool,
 }
 
@@ -187,16 +192,30 @@ pub fn analyze(
     resolve_relationships(&mut nodes, relationships);
     let leaf_nodes = select_leaf_nodes(&nodes);
     let commit = git_head(&repo_path);
+    let max_depth = if options.max_depth == 0 {
+        2
+    } else {
+        options.max_depth
+    };
+    let max_token_per_module = if options.max_token_per_module == 0 {
+        DEFAULT_MAX_TOKEN_PER_MODULE
+    } else {
+        options.max_token_per_module
+    };
+    let max_token_per_leaf_module = if options.max_token_per_leaf_module == 0 {
+        DEFAULT_MAX_TOKEN_PER_LEAF_MODULE
+    } else {
+        options.max_token_per_leaf_module
+    };
     let summary = Summary {
         repo_path: repo_path.to_string_lossy().into_owned(),
         output_dir: output_dir.to_string_lossy().into_owned(),
         total_components: nodes.len(),
         leaf_nodes: leaf_nodes.len(),
-        max_depth: if options.max_depth == 0 {
-            2
-        } else {
-            options.max_depth
-        },
+        max_depth,
+        max_token_per_module,
+        max_token_per_leaf_module,
+        cluster_batch_size: DEFAULT_CLUSTER_BATCH_SIZE,
         supported_files: file_count,
         languages: languages.into_iter().collect(),
         analyzed_commit: commit,
@@ -245,9 +264,21 @@ pub fn load_nodes_from_graph(path: &Path) -> Result<BTreeMap<String, Node>> {
     session::read_json(path)
 }
 
-pub fn build_initial_module_tree(nodes: &BTreeMap<String, Node>) -> crate::model::ModuleTree {
+/// Build a structural candidate tree from selected analysis leaves.
+///
+/// This is deliberately not presented as the final documentation tree.  It is
+/// a deterministic starting point for the host agent's semantic clustering
+/// pass; large candidates must still be recursively split with scope=module.
+pub fn build_initial_module_tree(
+    nodes: &BTreeMap<String, Node>,
+    leaf_nodes: &[String],
+) -> crate::model::ModuleTree {
     let mut tree = crate::model::ModuleTree::new();
-    for node in nodes.values() {
+    let selected = leaf_nodes
+        .iter()
+        .filter_map(|id| nodes.get(id))
+        .collect::<Vec<_>>();
+    for node in selected {
         let group = node
             .relative_path
             .split('/')
@@ -1033,5 +1064,29 @@ mod tests {
             artifact_class(".github/workflows/test.yml"),
             Some("ci".to_string())
         );
+    }
+
+    #[test]
+    fn initial_module_tree_contains_only_selected_analysis_leaves() {
+        let mut nodes = BTreeMap::new();
+        nodes.insert(
+            "src/service.rs::Service".to_string(),
+            Node {
+                id: "src/service.rs::Service".to_string(),
+                relative_path: "src/service.rs".to_string(),
+                ..Node::default()
+            },
+        );
+        nodes.insert(
+            "src/service.rs::Service.run".to_string(),
+            Node {
+                id: "src/service.rs::Service.run".to_string(),
+                relative_path: "src/service.rs".to_string(),
+                ..Node::default()
+            },
+        );
+
+        let tree = build_initial_module_tree(&nodes, &["src/service.rs::Service".to_string()]);
+        assert_eq!(tree["src"].components, vec!["src/service.rs::Service"]);
     }
 }

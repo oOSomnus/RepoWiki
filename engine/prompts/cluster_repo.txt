@@ -5,6 +5,14 @@ Here is list of all potential core components of the repository (It's normal tha
 
 Please group the components into groups such that each group is a set of components that are closely related to each other and together they form a module. DO NOT include components that are not essential to the repository.
 
+This is the repository-level clustering pass, not the final documentation
+tree. Keep the groups semantically meaningful and reasonably sized. If the
+input is too large to reason about in one response, the host will call this
+prompt in deterministic batches and merge the results; every input component
+must still appear in exactly one returned group. A group that is still large
+must be recursively clustered later with scope=module, so do not treat a
+coarse directory bucket as a completed leaf.
+
 Files marked `(artifact: <class>)` are build, CI, container, packaging, manifest, configuration, schema or script files. Their components describe how the system is built, packaged, shipped, configured and tested. They ARE essential: group them into a dedicated build/deployment/configuration module, or attach them to the module they configure. Never drop them.
 
 Each component ID has the form `<file_path>::<name>`. Return the IDs EXACTLY as given — do NOT strip the `<file_path>::` prefix or shorten the ID to the bare name.

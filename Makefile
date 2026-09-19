@@ -24,7 +24,7 @@ SKILL_VALIDATOR ?= $(if $(CODEX_HOME),$(CODEX_HOME),$(HOME)/.codex)/skills/.syst
 RUNTIME_PATHS := SKILL.md agents references
 PACKAGE_PATHS := SKILL.md agents references scripts
 
-.PHONY: build preview install test-install clean test test-reference
+.PHONY: build preview install test-install clean test test-contract test-reference
 
 ifeq ($(strip $(VERSION)),)
 $(error Could not read the package version from engine/Cargo.toml)
@@ -129,7 +129,11 @@ clean:
 		"$(PROJECT_ROOT)/packaging"
 	@printf 'cleaned generated build artifacts\n'
 
-test: build
+test-contract:
+	@$(PYTHON) tests/differential/prompt_contract.py
+	@$(PYTHON) -m json.tool tests/contracts/reference-compatibility.json >/dev/null
+
+test: build test-contract
 	@$(PYTHON) tests/differential/run_replay.py \
 		--preview-dir "$(PREVIEW_DIR)" \
 		--archive "$(ARCHIVE)"
@@ -146,6 +150,7 @@ test: build
 # Python reference adapter. Missing reference dependencies are a hard failure
 # for this target; the core replay never silently degrades to a reference skip.
 test-reference: build
+	@$(PYTHON) tests/differential/prompt_contract.py
 	@$(PYTHON) tests/differential/run_replay.py \
 		--preview-dir "$(PREVIEW_DIR)" \
 		--archive "$(ARCHIVE)"

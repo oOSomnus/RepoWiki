@@ -149,11 +149,115 @@ pub fn route(state: &SessionState) -> Result<Value> {
     }
     let path = root.join("routes.json");
     session::write_json(&path, &routes)?;
+    let orphans = routes
+        .iter()
+        .filter_map(|(id, route)| {
+            nodes.get(id).map(|node| {
+                json!({
+                    "component_id": id,
+                    "path": node.relative_path,
+                    "name": node.name,
+                    "suggested_leaf": route,
+                    "reason": "deterministic fallback; host routing may override",
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+    let routing_context_path = root.join("routing_context.json");
+    session::write_json(
+        &routing_context_path,
+        &json!({"module_tree": load_tree_value(state), "orphans": orphans}),
+    )?;
     Ok(json!({
         "routes_path": path,
         "routes": routes,
+        "orphans": orphans,
+        "routing_context_path": routing_context_path,
         "neighbor_threshold": options.tau_nb,
     }))
+}
+
+/// Apply a routing-agent response to the saved module tree.  The engine does
+/// not decide prose or call an LLM; it only enforces the routing decision
+/// schema and updates aggregate IDs consistently for every ancestor.
+pub fn apply_routes(state: &SessionState, decisions_path: &Path) -> Result<Value> {
+    let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
+    let value: Value = session::read_json(decisions_path)?;
+    let decisions = value
+        .get("decisions")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow!("routing decisions must contain a 'decisions' array"))?;
+    let mut tree = docs::read_tree_file(&session::module_tree_path(state))?;
+    let diff: ChangeSet = session::read_json(&root.join("changes.json"))?;
+    remove_deleted_and_renamed(&mut tree, &diff);
+    let nodes: BTreeMap<String, Node> = session::read_json(&root.join("components.json"))?;
+    let mut applied = Vec::new();
+    let mut rejected = Vec::new();
+    let mut untracked = Vec::new();
+    for decision in decisions {
+        let Some(object) = decision.as_object() else {
+            rejected.push(json!({"reason": "decision is not an object", "decision": decision}));
+            continue;
+        };
+        let Some(id) = object.get("component_id").and_then(Value::as_str) else {
+            rejected.push(json!({"reason": "decision has no component_id", "decision": decision}));
+            continue;
+        };
+        if !nodes.contains_key(id) {
+            rejected.push(json!({"component_id": id, "reason": "unknown component id"}));
+            continue;
+        }
+        let action = object
+            .get("action")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let applied_ok = match action {
+            "place" => {
+                let leaf = object
+                    .get("leaf")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                add_to_leaf(&mut tree, leaf, id)
+            }
+            "create" => {
+                let new_leaf = object
+                    .get("new_leaf")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let parent = object.get("parent").and_then(Value::as_str);
+                create_leaf(&mut tree, parent, new_leaf, id)
+            }
+            "untracked" => {
+                untracked.push(id.to_string());
+                true
+            }
+            _ => false,
+        };
+        if applied_ok {
+            applied.push(id.to_string());
+        } else {
+            rejected.push(json!({
+                "component_id": id,
+                "action": action,
+                "reason": "target leaf or parent was not found"
+            }));
+        }
+    }
+    let rescued_artifacts = docs::ensure_artifact_coverage(state, &mut tree)?;
+    let tree_path = session::module_tree_path(state);
+    session::write_json(&tree_path, &tree)?;
+    let saved = docs::save_module_tree(state, &tree, false)?;
+    let output = json!({
+        "decisions_path": decisions_path,
+        "tree_path": tree_path,
+        "applied": applied,
+        "untracked": untracked,
+        "rejected": rejected,
+        "rescued_artifact_ids": rescued_artifacts,
+        "validation_path": saved.validation_path,
+    });
+    session::write_json(&root.join("routes_applied.json"), &output)?;
+    Ok(output)
 }
 
 pub fn context(state: &SessionState) -> Result<Value> {
@@ -162,6 +266,21 @@ pub fn context(state: &SessionState) -> Result<Value> {
     let nodes: BTreeMap<String, Node> = session::read_json(&root.join("components.json"))?;
     let options = load_update_options(state)?;
     let active = active_ids(&diff);
+    let tree = load_tree_value(state);
+    let orphan_context = active
+        .iter()
+        .filter(|id| diff.added.iter().any(|added| added == *id))
+        .filter_map(|id| {
+            nodes.get(id).map(|node| {
+                json!({
+                    "component_id": id,
+                    "path": node.relative_path,
+                    "name": node.name,
+                    "kind": node.component_type,
+                })
+            })
+        })
+        .collect::<Vec<_>>();
     let reports_dir = root.join("reports");
     fs::create_dir_all(&reports_dir)?;
     let mut reports = Vec::new();
@@ -181,7 +300,8 @@ pub fn context(state: &SessionState) -> Result<Value> {
                 "up": up,
                 "context": {"file": node.relative_path, "language": node.language},
                 "referrers": referrers,
-                "tree": "See module_tree.json",
+                "module_tree": tree.clone(),
+                "orphan_context": orphan_context.clone(),
                 "k_hop": options.k_hop,
                 "max_diff_tokens": options.max_diff_tokens,
             });
@@ -190,7 +310,78 @@ pub fn context(state: &SessionState) -> Result<Value> {
             reports.push(path.to_string_lossy().into_owned());
         }
     }
-    Ok(json!({"reports": reports, "count": reports.len()}))
+    let stale = stale_scan(state)?;
+    let orphan_context_path = reports_dir.join("orphan_context.json");
+    session::write_json(
+        &orphan_context_path,
+        &json!({"module_tree": tree, "orphans": orphan_context}),
+    )?;
+    Ok(json!({
+        "reports": reports,
+        "count": reports.len(),
+        "orphan_context_path": orphan_context_path,
+        "stale_scan": stale,
+    }))
+}
+
+/// Deterministic stale-page scan used as a pre-finalization repair signal.
+/// Semantic freshness remains a host-agent decision, but missing pages, broken
+/// markdown links, and validation leftovers are objective and should not be
+/// hidden by an otherwise successful update.
+pub fn stale_scan(state: &SessionState) -> Result<Value> {
+    let output = session::output_dir(state);
+    let tree = docs::read_tree_file(&session::module_tree_path(state)).unwrap_or_default();
+    let mut expected = BTreeSet::from(["overview.md".to_string()]);
+    collect_expected_pages(&tree, &mut expected);
+    let mut missing_pages = Vec::new();
+    for page in &expected {
+        if !output.join(page).is_file() {
+            missing_pages.push(page.clone());
+        }
+    }
+    let mut broken_links = Vec::new();
+    let mut extra_pages = Vec::new();
+    if output.exists() {
+        for entry in fs::read_dir(&output)? {
+            let path = entry?.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("md") {
+                continue;
+            }
+            let name = path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default()
+                .to_string();
+            if !expected.contains(&name) {
+                extra_pages.push(name);
+            }
+            let content = fs::read_to_string(&path)?;
+            for target in markdown_targets(&content) {
+                if !output.join(&target).is_file() {
+                    broken_links.push(
+                        json!({"page": path.file_name().unwrap_or_default(), "target": target}),
+                    );
+                }
+            }
+        }
+    }
+    let validation = session::session_value_path(state, "module_tree_validation.json");
+    let validation_value: Value = if validation.is_file() {
+        session::read_json(&validation)?
+    } else {
+        json!({})
+    };
+    let result = json!({
+        "scanned": true,
+        "missing_pages": missing_pages,
+        "broken_links": broken_links,
+        "extra_pages": extra_pages,
+        "quality_errors": validation_value.get("quality_errors").cloned().unwrap_or_else(|| json!([])),
+        "leftover_component_ids": validation_value.get("leftover_component_ids").cloned().unwrap_or_else(|| json!([])),
+    });
+    let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
+    session::write_json(&root.join("stale_scan.json"), &result)?;
+    Ok(result)
 }
 
 pub fn finalize(state: &SessionState, model: &str, verdicts_path: Option<&Path>) -> Result<Value> {
@@ -204,6 +395,7 @@ pub fn finalize(state: &SessionState, model: &str, verdicts_path: Option<&Path>)
         record.verdicts = read_verdicts(path)?;
     }
     record.reports = list_report_files(&root.join("reports"))?;
+    record.stale_scan = stale_scan(state)?;
     record.finished_at = Utc::now().to_rfc3339();
     record.pages_written = list_markdown_files(&session::output_dir(state))?;
     record.wall_seconds = record
@@ -293,6 +485,127 @@ pub fn current_graph_path(state: &SessionState) -> Result<PathBuf> {
         .ok_or_else(|| anyhow!("no dependency graph found"))
 }
 
+fn load_tree_value(state: &SessionState) -> Value {
+    docs::read_tree_file(&session::module_tree_path(state))
+        .ok()
+        .and_then(|tree| serde_json::to_value(tree).ok())
+        .unwrap_or_else(|| json!({}))
+}
+
+fn remove_deleted_and_renamed(tree: &mut ModuleTree, diff: &ChangeSet) {
+    fn visit(modules: &mut ModuleTree, diff: &ChangeSet) {
+        for module in modules.values_mut() {
+            module.components.retain(|id| !diff.deleted.contains(id));
+            for (old, new) in &diff.renamed {
+                for id in &mut module.components {
+                    if id == old {
+                        *id = new.clone();
+                    }
+                }
+            }
+            visit(&mut module.children, diff);
+        }
+    }
+    visit(tree, diff);
+}
+
+fn add_to_leaf(tree: &mut ModuleTree, leaf_name: &str, id: &str) -> bool {
+    fn visit(modules: &mut ModuleTree, leaf_name: &str, id: &str) -> bool {
+        for (name, module) in modules.iter_mut() {
+            if name == leaf_name && module.children.is_empty() {
+                if !module.components.iter().any(|component| component == id) {
+                    module.components.push(id.to_string());
+                }
+                return true;
+            }
+            if visit(&mut module.children, leaf_name, id) {
+                if !module.components.iter().any(|component| component == id) {
+                    module.components.push(id.to_string());
+                }
+                return true;
+            }
+        }
+        false
+    }
+    visit(tree, leaf_name, id)
+}
+
+fn create_leaf(
+    tree: &mut ModuleTree,
+    parent_name: Option<&str>,
+    leaf_name: &str,
+    id: &str,
+) -> bool {
+    if leaf_name.is_empty() {
+        return false;
+    }
+    if let Some(parent_name) = parent_name.filter(|name| !name.is_empty()) {
+        fn visit(modules: &mut ModuleTree, parent_name: &str, leaf_name: &str, id: &str) -> bool {
+            for (name, module) in modules.iter_mut() {
+                if name == parent_name {
+                    let child = module.children.entry(leaf_name.to_string()).or_default();
+                    if !child.components.iter().any(|component| component == id) {
+                        child.components.push(id.to_string());
+                    }
+                    if !module.components.iter().any(|component| component == id) {
+                        module.components.push(id.to_string());
+                    }
+                    return true;
+                }
+                if visit(&mut module.children, parent_name, leaf_name, id) {
+                    if !module.components.iter().any(|component| component == id) {
+                        module.components.push(id.to_string());
+                    }
+                    return true;
+                }
+            }
+            false
+        }
+        return visit(tree, parent_name, leaf_name, id);
+    }
+    let module = tree.entry(leaf_name.to_string()).or_default();
+    if !module.components.iter().any(|component| component == id) {
+        module.components.push(id.to_string());
+    }
+    true
+}
+
+fn collect_expected_pages(tree: &ModuleTree, expected: &mut BTreeSet<String>) {
+    for (name, module) in tree {
+        expected.insert(docs::module_page_filename(name));
+        collect_expected_pages(&module.children, expected);
+    }
+}
+
+fn markdown_targets(content: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut remaining = content;
+    while let Some(start) = remaining.find("](") {
+        let target_start = start + 2;
+        let Some(end) = remaining[target_start..].find(')') else {
+            break;
+        };
+        let raw = &remaining[target_start..target_start + end];
+        let target = raw
+            .split('#')
+            .next()
+            .unwrap_or(raw)
+            .split('?')
+            .next()
+            .unwrap_or(raw)
+            .trim()
+            .trim_matches('<')
+            .trim_matches('>');
+        if target.ends_with(".md") && !target.contains("://") && !target.starts_with('/') {
+            result.push(target.to_string());
+        }
+        remaining = &remaining[target_start + end + 1..];
+    }
+    result.sort();
+    result.dedup();
+    result
+}
+
 fn graph_diff(
     previous: &BTreeMap<String, Node>,
     current: &BTreeMap<String, Node>,
@@ -316,7 +629,7 @@ fn graph_diff(
         let new = &current[id];
         if signature(old) != signature(new) {
             modified_interface.push(id.clone());
-        } else if old.source_code != new.source_code {
+        } else if source_tokens(&old.source_code) != source_tokens(&new.source_code) {
             modified_body.push(id.clone());
         }
         if old.depends_on != new.depends_on {
@@ -434,17 +747,27 @@ fn is_no_change(diff: &ChangeSet) -> bool {
 
 fn module_page_for_node(state: &SessionState, id: &str) -> Option<String> {
     let tree = docs::read_tree_file(&session::module_tree_path(state)).ok()?;
+    deepest_module_page(&tree, id)
+}
+
+/// Parent modules intentionally repeat aggregate component IDs so their pages
+/// can describe the whole subtree.  Routing must therefore prefer the
+/// deepest matching child page, otherwise an update to a leaf is incorrectly
+/// sent to its first ancestor.
+fn deepest_module_page(tree: &ModuleTree, id: &str) -> Option<String> {
     fn visit(name: &str, module: &crate::model::Module, id: &str) -> Option<String> {
-        if module.components.iter().any(|component| component == id) {
-            return Some(docs::module_page_filename(name));
-        }
         for (child_name, child) in &module.children {
             if let Some(value) = visit(child_name, child, id) {
                 return Some(value);
             }
         }
-        None
+        module
+            .components
+            .iter()
+            .any(|component| component == id)
+            .then(|| docs::module_page_filename(name))
     }
+
     tree.iter()
         .find_map(|(name, module)| visit(name, module, id))
 }
@@ -474,10 +797,12 @@ fn module_index(state: &SessionState) -> BTreeMap<String, String> {
 
 fn index_modules(tree: &ModuleTree, index: &mut BTreeMap<String, String>) {
     for (name, module) in tree {
-        for component in &module.components {
-            index.insert(component.clone(), name.clone());
-        }
         index_modules(&module.children, index);
+        if module.children.is_empty() {
+            for component in &module.components {
+                index.insert(component.clone(), name.clone());
+            }
+        }
     }
 }
 
@@ -629,6 +954,7 @@ fn safe_id(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::Module;
 
     #[test]
     fn detects_body_and_interface_changes() {
@@ -648,6 +974,28 @@ mod tests {
             &UpdateOptions::default(),
         );
         assert_eq!(diff.modified_body, vec!["a.py::run"]);
+    }
+
+    #[test]
+    fn whitespace_only_source_changes_are_not_active() {
+        let old = Node {
+            id: "a.py::run".to_string(),
+            source_code: "def run(x):\n    return x + 1\n".to_string(),
+            ..Default::default()
+        };
+        let new = Node {
+            id: old.id.clone(),
+            source_code: "def run(x):\n\n  return   x + 1  \n".to_string(),
+            ..old.clone()
+        };
+        let diff = graph_diff(
+            &BTreeMap::from([(old.id.clone(), old)]),
+            &BTreeMap::from([(new.id.clone(), new)]),
+            &UpdateOptions::default(),
+        );
+        assert!(diff.modified_body.is_empty());
+        assert!(diff.modified_interface.is_empty());
+        assert!(diff.edge_changes.is_empty());
     }
 
     #[test]
@@ -740,5 +1088,32 @@ mod tests {
         let verdicts = read_verdicts(&path).expect("parse verdicts");
         assert_eq!(verdicts["Service"], "patch: updated signature");
         assert_eq!(verdicts["overview"], "no-op");
+    }
+
+    #[test]
+    fn update_routing_prefers_the_deepest_aggregate_owner() {
+        let child = Module {
+            components: vec!["leaf-id".to_string()],
+            ..Default::default()
+        };
+        let mut root = Module {
+            components: vec!["leaf-id".to_string()],
+            ..Default::default()
+        };
+        root.children.insert("Leaf".to_string(), child);
+        let tree = ModuleTree::from([("Root".to_string(), root)]);
+
+        assert_eq!(
+            deepest_module_page(&tree, "leaf-id"),
+            Some("Leaf.md".to_string())
+        );
+    }
+
+    #[test]
+    fn markdown_target_scan_ignores_external_links_and_fragments() {
+        assert_eq!(
+            markdown_targets("[one](one.md) [external](https://x/two.md) [two](two.md#part)"),
+            vec!["one.md".to_string(), "two.md".to_string()]
+        );
     }
 }

@@ -17,13 +17,18 @@ Generate documentation following the following requirements:
 </DOCUMENTATION_REQUIREMENTS>
 
 <WORKFLOW>
-1. Analyze provided code components and module structure
-2. Explore dependencies between components if needed
-3. Generate complete {module_name}.md documentation file
+1. Analyze provided code components and module structure.
+2. Explore dependencies between components if needed with `codewiki components read`.
+3. Generate complete {module_name}.md documentation content.
+4. The host agent writes the returned Markdown through `codewiki doc write`
+   (or `codewiki doc edit` for an existing page); do not create files directly
+   and do not invent a different page name.
 </WORKFLOW>
 
 <AVAILABLE_TOOLS>
-- `str_replace_editor`: File system operations for creating and editing documentation files, and (with `working_dir="repo"`, `view` only) for reading build, CI, container, packaging, manifest and config files such as Dockerfile, Makefile, .github/workflows/*.yml, pyproject.toml or package.json
-- `read_code_components`: Explore additional code dependencies not included in the provided components
+- `codewiki components read`: Explore additional code dependencies not included
+  in the provided components
+- `codewiki doc write` / `codewiki doc edit`: Persist generated Markdown
+  through the host-controlled write guard
 </AVAILABLE_TOOLS>
 {custom_instructions}

@@ -37,10 +37,13 @@ machine.
 # Offline replay, Rust checks, and package validation.
 make test
 
+# Prompt/reference compatibility contract only.
+make test-contract
+
 # Temporary-directory installation smoke test.
 make test-install
 
-# Optional comparison with the pinned reference parser.
+# Comparison with the pinned reference parser and workflow semantics.
 make test-reference
 ```
 

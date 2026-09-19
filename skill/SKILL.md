@@ -26,6 +26,9 @@ read_code_components  -> codewiki components read
 get_prompt            -> codewiki prompt get
 save_module_tree      -> codewiki tree save
 get_processing_order  -> codewiki tree order
+apply_cluster         -> codewiki tree apply-cluster
+apply_super_group     -> codewiki tree apply-super-group
+overview_context      -> codewiki tree overview-context
 write_doc_file        -> codewiki doc write
 edit_doc_file         -> codewiki doc edit
 close_session         -> codewiki session close
@@ -35,35 +38,40 @@ Read [references/cli-contract.md](references/cli-contract.md) when constructing 
 
 Always pass --repo-root <repo> to session-based commands when the agent is not
 running with the analyzed repository as its current directory. This includes
-components read, prompt get, tree save, tree order, every doc command, all
-update commands, html, and session close.
+components read, prompt get, all tree commands, every doc command, all update
+commands, html, and session close.
 
 ## Fresh wiki
 
 1. Start analysis and capture the returned `session_id`:
 
    ```text
-   codewiki generate --repo <repo> --output <repo>/docs
+   codewiki generate --repo <repo> --output <repo>/docs --max-depth 4
    ```
 
    Confirm that the result contains the session workspace, component index, leaf list, language list, dependency graph, and artifact index. Do not start prose generation before these paths exist.
 
-2. Read `summary.json`, `languages.json`, `component_index.json`, and the relevant source files under the session workspace. Request the repository clustering prompt with `codewiki prompt get --repo-root <repo> --session <session_id> --type cluster --vars-file <cluster-vars.json>`. The vars file must be a JSON object containing `potential_core_components`; use `scope=module`, `module_name`, and `module_tree` for module clustering. Have the host agent return the prompt's required grouping structure, preserve component IDs exactly, and write that response as a module-tree JSON input file.
+2. Treat `candidate_module_tree.json` as a diagnostic starting point, never as the final tree. Read `summary.json`, `languages.json`, `component_index.json`, `leaf_nodes.json`, and the relevant source files under the session workspace. Build `potential_core_components` from the selected leaf IDs (including essential artifact components), not from every parsed function or method. Request the repository clustering prompt with `codewiki prompt get --repo-root <repo> --session <session_id> --type cluster --vars-file <cluster-vars.json>`. The vars file may contain `potential_core_components` or exact `component_ids`; the CLI formats IDs, source by file, module-tree outlines, and artifact context when IDs are supplied.
 
-3. Save the clustered tree:
+   For large inputs, partition deterministically by relative path and then coalesce adjacent groups up to the configured batch size (default 600 selected components). Every batch must be clustered, merged, and checked for exact ID coverage. Retry an empty/malformed response once with the same input; if it still fails, leave that batch unresolved and report it for repair rather than silently promoting a directory bucket to a semantic module. If the root produces at least three modules, optionally request `super_group` and preserve the resulting modules as children of the new subsystem parents.
+
+   The root response is only the first semantic level. For every module whose selected component source exceeds `max_token_per_module` or is still an obvious multi-domain directory bucket, request `cluster` again with `scope=module`, the exact `module_name`, the current `module_tree`, and that module's component IDs. The batch size is only the maximum size of one model request; it is not a leaf-quality failure. Apply each marked response with `codewiki tree apply-cluster`; it validates exact IDs, merges duplicate names, and structurally rescues malformed or omitted groups. Recursively apply the same rule to each returned child until it fits, reaches `max_depth`, or contains one unsplittable component. Keep the parent's aggregate component list when adding children; child lists must partition the parent's selected IDs and use exact IDs from the analysis. If super-grouping is used, apply it with `codewiki tree apply-super-group` so existing modules remain children. Write the recursively expanded tree to a JSON input file.
+
+3. Save the clustered tree in two phases:
 
    ```text
-   codewiki tree save --repo-root <repo> --session <session_id> --tree-file <tree.json> --first
+   codewiki tree save --repo-root <repo> --session <session_id> --tree-file <root-tree.json> --first
+   codewiki tree save --repo-root <repo> --session <session_id> --tree-file <final-tree.json>
    codewiki tree order --repo-root <repo> --session <session_id>
    ```
 
-   Continue only when validation reports no unknown component IDs. The processing order must be leaf modules before parents.
+   The first save preserves the root candidate for comparison; the second save is the final recursively expanded tree. Inspect `module_tree_validation.json` after the final save. Repair unknown IDs, leftover candidates, orphaned candidates, and `quality_errors` before writing prose. `quality_valid` must be true: an oversized multi-component leaf is evidence that recursive clustering stopped too early; a singleton over the limit is reported as a warning because it cannot be split. `max_token_per_leaf_module` is documentation/delegation context, not a tree-close failure. The processing order must be leaf modules before parents, and parent component lists may repeat aggregate IDs from their descendants.
 
-4. For each processing-order item, request `system_leaf` or `system_complex`, then `user` with the module name, tree, and component source paths. The host agent writes Markdown content to a temporary file and calls `codewiki doc write --repo-root <repo>` for a new page or `codewiki doc edit --repo-root <repo>` for an existing page. Keep the page name returned by the processing order; do not invent a second filename.
+4. For each leaf processing-order item, request `system_leaf`, then `user` with the module name, final tree, and component source paths. For a complex leaf, `system_complex` may guide the page content, but it must document only that already-clustered leaf; it must not spawn an untracked sub-module workflow. The host agent writes Markdown content to a temporary file and calls `codewiki doc write --repo-root <repo>` for a new page or `codewiki doc edit --repo-root <repo>` for an existing page. Keep the page name returned by the processing order; do not invent a second filename.
 
-5. After all module pages exist, request `overview_module` for parent pages and `overview_repo` for `overview.md`. The overview must link to child pages using the flat document names and must not inline a child page's full documentation.
+5. After all leaf pages exist, request `overview_module` for every parent, deepest parent first, using `codewiki tree overview-context` to produce the target structure, and write those pages through the CLI. Then request `overview_repo` for `overview.md`. Parent pages must link to child pages using the flat document names and must not inline a child page's full documentation.
 
-6. Confirm the key output contract before closing:
+6. Confirm the key output contract and quality gate before closing:
 
    ```text
    docs/overview.md
@@ -76,11 +84,11 @@ update commands, html, and session close.
    docs/temp/dependency_graphs/*_dependency_graph.json
    ```
 
-   Optionally run `codewiki html --repo-root <repo> --session <session_id>`. Then close the session with `codewiki session close --repo-root <repo> --session <session_id>`. A successful run has written pages, metadata, and a cleaned session workspace.
+   Also confirm the final validation reports `quality_valid: true`, a depth greater than one when the repository has oversized multi-component modules, and module/leaf counts that match the recursively saved tree. Optionally run `codewiki html --repo-root <repo> --session <session_id>`. Then close the session with `codewiki session close --repo-root <repo> --session <session_id>`. Close is a hard quality gate: it refuses to clean the session when required pages, IDs, or recursive leaf limits are incomplete. A successful run has written pages, metadata, and a cleaned session workspace.
 
 ## Incremental update
 
-Run `codewiki generate --update` with the same repository and output directory. The default update rung is `3`; accepted values are `0`, `1`, `2`, `3`, and `3b`. Invalid rung or threshold values fail before an update plan is written. Then execute the returned update plan, route, and context commands with `--repo-root <repo>`. Use the generated reports and write sets to decide which existing pages need edits. Route every host-agent edit through the CLI so the write guard, edit history, and Mermaid report remain authoritative.
+Run `codewiki generate --update` with the same repository and output directory. The default update rung is `3`; accepted values are `0`, `1`, `2`, `3`, and `3b`. Invalid rung or threshold values fail before an update plan is written. Then execute the returned update plan, route, routing prompt/decision application, context, and stale-scan commands with `--repo-root <repo>`. Use the generated reports and write sets to decide which existing pages need edits. Route every host-agent edit through the CLI so the write guard, edit history, and Mermaid report remain authoritative.
 
 Use the update prompt types for each active leaf. End every update-agent response with the required fenced JSON verdict, record the verdicts in the update workflow, and run:
 
@@ -98,7 +106,7 @@ Use rung `1` for safe incremental edits, `2` for leaf rewrites, `3` for the full
 
 ## Completion criteria
 
-The task is complete only when the requested pages and JSON artifacts are present, `module_tree_validation.json` has no invalid IDs, the processing order has been consumed, every intended page write was made through the CLI, and metadata/update records describe the run. Generated prose may differ from the reference wording; artifact names, structural fields, dependency IDs, module relationships, and lifecycle semantics are the compatibility target.
+The task is complete only when the requested pages and JSON artifacts are present, `module_tree_validation.json` has no invalid IDs or quality errors, `quality_valid` is true, the processing order has been consumed, every intended page write was made through the CLI, and metadata/update records describe the run. Generated prose may differ from the reference wording; artifact names, structural fields, dependency IDs, module relationships, recursive depth, and lifecycle semantics are the compatibility target.
 
 ## Boundaries
 

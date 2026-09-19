@@ -134,6 +134,103 @@ def canonical_components(components: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _tree_shape(tree: dict[str, Any]) -> dict[str, Any]:
+    order = []
+
+    def walk(modules: dict[str, Any], prefix: list[str]) -> None:
+        for name, info in modules.items():
+            path = prefix + [name]
+            children = info.get("children", {}) if isinstance(info, dict) else {}
+            if isinstance(children, dict) and children:
+                walk(children, path)
+            order.append(
+                {
+                    "module": name,
+                    "path": path,
+                    "is_leaf": not bool(children),
+                }
+            )
+
+    walk(tree, [])
+    return {"processing_order": order}
+
+
+def _overview_shape(value: dict[str, Any]) -> dict[str, Any]:
+    targets: list[str] = []
+    docs_paths: list[str | None] = []
+    components_present = False
+
+    def walk(modules: dict[str, Any], prefix: list[str]) -> None:
+        nonlocal components_present
+        for name, info in modules.items():
+            if not isinstance(info, dict):
+                continue
+            path = prefix + [name]
+            components_present = components_present or "components" in info
+            if info.get("is_target_for_overview_generation"):
+                targets.append("/".join(path))
+            if "docs_path" in info:
+                docs_paths.append(info["docs_path"])
+            children = info.get("children", {})
+            if isinstance(children, dict):
+                walk(children, path)
+
+    walk(value, [])
+    return {
+        "components_present": components_present,
+        "target_modules": sorted(targets),
+        "docs_paths": sorted(
+            "present" if path else "missing" for path in docs_paths
+        ),
+    }
+
+
+def reference_semantics(components: dict[str, Any], repo: Path) -> dict[str, Any]:
+    """Probe deterministic reference behavior without invoking an LLM."""
+
+    from codewiki.src.be.documentation_generator import DocumentationGenerator
+
+    ids = sorted(str(component_id) for component_id in components)
+    midpoint = max(1, len(ids) // 2)
+    tree = {
+        "Root": {
+            "path": ".",
+            "components": ids,
+            "children": {
+                "Alpha": {"path": "alpha", "components": ids[:midpoint], "children": {}},
+                "Beta": {"path": "beta", "components": ids[midpoint:], "children": {}},
+            },
+        }
+    }
+    order = DocumentationGenerator.get_processing_order(tree)
+    generator = DocumentationGenerator.__new__(DocumentationGenerator)
+    overview_missing = generator.build_overview_structure(tree, ["Root"], str(repo))
+    for name in ("Alpha", "Beta"):
+        (repo / f"{name}.md").write_text(f"# {name}\n", encoding="utf-8")
+    overview_present = generator.build_overview_structure(tree, ["Root"], str(repo))
+    shape = _tree_shape(tree)
+    shape["processing_order"] = [
+        {"module": name, "path": path, "is_leaf": not bool(_node_at(tree, path).get("children"))}
+        for path, name in order
+    ]
+    return {
+        "tree": shape,
+        "overview": {
+            "missing_child_pages": _overview_shape(overview_missing),
+            "present_child_pages": _overview_shape(overview_present),
+        },
+    }
+
+
+def _node_at(tree: dict[str, Any], path: list[str]) -> dict[str, Any]:
+    current: dict[str, Any] = tree
+    node: dict[str, Any] = {}
+    for name in path:
+        node = current[name]
+        current = node.get("children", {})
+    return node
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference-root", type=Path, required=True)
@@ -172,6 +269,10 @@ def main() -> int:
         )
         components = parser.parse_repository()
         result = canonical_components(components)
+        result = {
+            "analysis": result,
+            "semantics": reference_semantics(components, args.repo.resolve()),
+        }
     except Exception as exc:
         print(
             f"REFERENCE_PARSE_FAILED: {type(exc).__name__}: {exc}",

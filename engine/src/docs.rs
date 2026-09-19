@@ -1,4 +1,7 @@
-use crate::model::{Metadata, Module, ModuleTree, Statistics};
+use crate::model::{
+    Metadata, Module, ModuleTree, Node, Statistics, Summary, DEFAULT_CLUSTER_BATCH_SIZE,
+    DEFAULT_MAX_TOKEN_PER_LEAF_MODULE, DEFAULT_MAX_TOKEN_PER_MODULE,
+};
 use crate::session::{self, SessionState};
 use anyhow::{anyhow, Context, Result};
 use chrono::{SecondsFormat, Utc};
@@ -39,6 +42,9 @@ pub struct TreeSaveResult {
     pub validation_path: String,
     pub module_count: usize,
     pub leaf_count: usize,
+    pub max_depth: usize,
+    pub quality_valid: bool,
+    pub quality_errors: Vec<String>,
     pub unmatched_component_ids: Vec<String>,
     pub leftover_candidate_ids: Vec<String>,
 }
@@ -249,7 +255,7 @@ pub fn save_module_tree(
         None
     };
 
-    let nodes: BTreeMap<String, Value> =
+    let nodes: BTreeMap<String, Node> =
         session::read_json(&session::session_value_path(state, "components.json"))?;
     let mut assigned = BTreeSet::new();
     let mut order = Vec::new();
@@ -276,8 +282,21 @@ pub fn save_module_tree(
         .difference(&assigned)
         .cloned()
         .collect::<Vec<_>>();
+    let quality = assess_tree_quality(state, tree, &nodes, &candidate_ids);
+    let quality_errors = quality["quality_errors"]
+        .as_array()
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let quality_valid = quality["quality_valid"].as_bool().unwrap_or(false);
     let validation = json!({
         "valid": unmatched.is_empty(),
+        "complete": unmatched.is_empty() && leftover.is_empty() && quality_valid,
         "unmatched_ids": unmatched.clone(),
         "unmatched_count": unmatched.len(),
         "leftover_component_ids": leftover.clone(),
@@ -286,6 +305,15 @@ pub fn save_module_tree(
         "leftover_candidate_ids": leftover.clone(),
         "module_count": module_count,
         "leaf_count": leaf_count,
+        "max_depth": quality["max_depth"],
+        "quality_valid": quality_valid,
+        "quality_errors": quality_errors,
+        "oversized_leaf_modules": quality["oversized_leaf_modules"],
+        "oversized_leaf_warnings": quality["oversized_leaf_warnings"],
+        "orphaned_candidate_ids": quality["orphaned_candidate_ids"],
+        "tree_relationship_errors": quality["tree_relationship_errors"],
+        "depth_errors": quality["depth_errors"],
+        "quality_limits": quality["limits"],
     });
     let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
     let order_path = root.join("processing_order.json");
@@ -299,6 +327,9 @@ pub fn save_module_tree(
         validation_path: validation_path.to_string_lossy().into_owned(),
         module_count,
         leaf_count,
+        max_depth: quality["max_depth"].as_u64().unwrap_or_default() as usize,
+        quality_valid,
+        quality_errors,
         unmatched_component_ids: validation["unmatched_component_ids"]
             .as_array()
             .map(|values| {
@@ -326,6 +357,520 @@ pub fn read_tree_file(path: &Path) -> Result<ModuleTree> {
     session::read_json(path)
 }
 
+/// Apply one host-agent clustering response to a working tree.
+///
+/// The reference implementation mutates the tree while recursively invoking
+/// its clustering routine.  RepoWiki keeps the model call in the host, so this
+/// function is the deterministic half of that protocol: parse the marked
+/// response, validate the exact input IDs, merge the groups at the requested
+/// scope, and structurally rescue anything the model omitted.
+pub fn apply_cluster_response(
+    state: &SessionState,
+    tree: &mut ModuleTree,
+    response: &str,
+    input_ids: &[String],
+    scope: &str,
+    parent_path: &[String],
+) -> Result<Value> {
+    if scope != "repo" && scope != "module" {
+        return Err(anyhow!("cluster scope must be 'repo' or 'module'"));
+    }
+    if scope == "module" && parent_path.is_empty() {
+        return Err(anyhow!(
+            "module clustering requires a non-empty parent path"
+        ));
+    }
+    if input_ids.is_empty() {
+        return Err(anyhow!(
+            "cluster input must contain at least one component ID"
+        ));
+    }
+    let nodes: BTreeMap<String, Node> =
+        session::read_json(&session::session_value_path(state, "components.json"))?;
+    let requested = input_ids.iter().cloned().collect::<BTreeSet<_>>();
+    let unknown_input = requested
+        .difference(&nodes.keys().cloned().collect())
+        .cloned()
+        .collect::<Vec<_>>();
+    if !unknown_input.is_empty() {
+        return Err(anyhow!(
+            "cluster input contains unknown component IDs: {}",
+            unknown_input.join(", ")
+        ));
+    }
+
+    let mut diagnostics = Vec::new();
+    let parsed = parse_grouped_components(response, &mut diagnostics);
+    let mut groups = Vec::<(String, Module)>::new();
+    let mut claimed = BTreeSet::new();
+    if let Some(parsed) = parsed {
+        for (name, mut module) in parsed {
+            let original = module.components.len();
+            module.components.retain(|id| {
+                if !requested.contains(id) {
+                    diagnostics.push(format!(
+                        "group '{name}' referenced component outside its input: {id}"
+                    ));
+                    return false;
+                }
+                if !claimed.insert(id.clone()) {
+                    diagnostics.push(format!("component assigned more than once: {id}"));
+                    return false;
+                }
+                true
+            });
+            if original != module.components.len() {
+                diagnostics.push(format!(
+                    "group '{name}' had {} invalid or duplicate component(s)",
+                    original - module.components.len()
+                ));
+            }
+            if !module.components.is_empty() {
+                groups.push((name, module));
+            }
+        }
+    }
+
+    let missing = requested.difference(&claimed).cloned().collect::<Vec<_>>();
+    if !missing.is_empty() {
+        diagnostics.push(format!(
+            "structural fallback assigned {} omitted component(s)",
+            missing.len()
+        ));
+        let name = fallback_module_name(&missing, &nodes, tree);
+        groups.push((
+            name,
+            Module {
+                path: Some(common_path(&missing, &nodes)),
+                components: missing,
+                children: BTreeMap::new(),
+            },
+        ));
+    }
+    if groups.is_empty() {
+        diagnostics.push("empty clustering response; created a structural fallback".to_string());
+        let all = requested.into_iter().collect::<Vec<_>>();
+        let name = fallback_module_name(&all, &nodes, tree);
+        groups.push((
+            name,
+            Module {
+                path: Some(common_path(&all, &nodes)),
+                components: all,
+                children: BTreeMap::new(),
+            },
+        ));
+    }
+
+    if scope == "repo" {
+        merge_modules(tree, groups);
+    } else {
+        let parent = module_at_path_mut(tree, parent_path)
+            .ok_or_else(|| anyhow!("module path not found: {}", parent_path.join("/")))?;
+        for id in input_ids {
+            if !parent.components.iter().any(|component| component == id) {
+                parent.components.push(id.clone());
+            }
+        }
+        merge_modules(&mut parent.children, groups);
+        for depth in 1..parent_path.len() {
+            if let Some(ancestor) = module_at_path_mut(tree, &parent_path[..depth]) {
+                for id in input_ids {
+                    if !ancestor.components.iter().any(|component| component == id) {
+                        ancestor.components.push(id.clone());
+                    }
+                }
+            }
+        }
+    }
+    Ok(json!({
+        "scope": scope,
+        "parent_path": parent_path,
+        "input_count": input_ids.len(),
+        "group_count": if scope == "repo" { tree.len() } else { module_at_path(tree, parent_path).map(|module| module.children.len()).unwrap_or_default() },
+        "diagnostics": diagnostics,
+        "fallback_used": !diagnostics.is_empty(),
+    }))
+}
+
+/// Apply a super-group response by making the existing top-level modules
+/// children of newly named architectural parents.  Existing module pages and
+/// aggregate IDs are preserved verbatim.
+pub fn apply_super_group_response(tree: &mut ModuleTree, response: &str) -> Result<Value> {
+    let mut diagnostics = Vec::new();
+    let Some(grouping) = parse_grouped_modules(response, &mut diagnostics) else {
+        return Ok(json!({
+            "changed": false,
+            "diagnostics": diagnostics,
+            "top_level_count": tree.len(),
+        }));
+    };
+    let original = tree.clone();
+    let names = original.keys().cloned().collect::<BTreeSet<_>>();
+    let mut assigned = BTreeSet::new();
+    let mut result = ModuleTree::new();
+    let mut consolidated = 0usize;
+    for (name, info) in grouping {
+        let members = info.children.keys().cloned().collect::<Vec<_>>();
+        if members.len() < 2 {
+            continue;
+        }
+        let mut valid = Vec::new();
+        for member in members {
+            if !names.contains(&member) {
+                diagnostics.push(format!("unknown module in super-group '{name}': {member}"));
+            } else if assigned.insert(member.clone()) {
+                valid.push(member);
+            } else {
+                diagnostics.push(format!("module assigned more than once: {member}"));
+            }
+        }
+        if valid.len() < 2 {
+            continue;
+        }
+        let mut components = Vec::new();
+        let mut seen = BTreeSet::new();
+        let mut children = BTreeMap::new();
+        for member in valid {
+            let child = original
+                .get(&member)
+                .expect("validated module name")
+                .clone();
+            for id in &child.components {
+                if seen.insert(id.clone()) {
+                    components.push(id.clone());
+                }
+            }
+            children.insert(member, child);
+        }
+        result.insert(
+            name,
+            Module {
+                path: None,
+                components,
+                children,
+            },
+        );
+        consolidated += 1;
+    }
+    for (name, module) in original {
+        if !assigned.contains(&name) {
+            result.insert(name, module);
+        }
+    }
+    let changed = consolidated > 0 && result.len() < tree.len();
+    if changed {
+        *tree = result;
+    }
+    Ok(json!({
+        "changed": changed,
+        "consolidated_groups": consolidated,
+        "top_level_count": tree.len(),
+        "diagnostics": diagnostics,
+    }))
+}
+
+/// Build the small context object consumed by overview prompts.  Components
+/// are intentionally removed; overview agents should read child pages rather
+/// than inline every leaf's source.
+pub fn overview_context(
+    tree: &ModuleTree,
+    target_path: &[String],
+    output_dir: &Path,
+) -> Result<Value> {
+    fn visit(
+        modules: &ModuleTree,
+        target_path: &[String],
+        prefix: &[String],
+        output_dir: &Path,
+    ) -> Value {
+        let mut result = serde_json::Map::new();
+        let target_is_here = prefix == target_path;
+        for (name, module) in modules {
+            let mut object = serde_json::Map::new();
+            object.insert(
+                "path".to_string(),
+                module
+                    .path
+                    .clone()
+                    .map(Value::String)
+                    .unwrap_or(Value::Null),
+            );
+            let mut current = prefix.to_vec();
+            current.push(name.clone());
+            let is_target = current == target_path;
+            object.insert(
+                "is_target_for_overview_generation".to_string(),
+                json!(is_target),
+            );
+            let children = visit(&module.children, target_path, &current, output_dir);
+            if let Some(children_object) = children.as_object() {
+                object.insert(
+                    "children".to_string(),
+                    Value::Object(children_object.clone()),
+                );
+            }
+            if target_is_here {
+                let docs_path = output_dir.join(module_page_filename(name));
+                object.insert(
+                    "docs_path".to_string(),
+                    if docs_path.is_file() {
+                        Value::String(docs_path.to_string_lossy().into_owned())
+                    } else {
+                        Value::Null
+                    },
+                );
+            }
+            result.insert(name.clone(), Value::Object(object));
+        }
+        Value::Object(result)
+    }
+
+    Ok(visit(tree, target_path, &[], output_dir))
+}
+
+/// Ensure artifact candidates are never lost between clustering and the final
+/// tree.  The host may still attach them to a more specific module; this
+/// rescue only adds IDs that are absent everywhere.
+pub fn ensure_artifact_coverage(
+    state: &SessionState,
+    tree: &mut ModuleTree,
+) -> Result<Vec<String>> {
+    let nodes: BTreeMap<String, Node> =
+        session::read_json(&session::session_value_path(state, "components.json"))?;
+    let assigned = collect_leaf_tree_ids(tree);
+    let missing = nodes
+        .values()
+        .filter(|node| node.component_type == "artifact" && !assigned.contains(&node.id))
+        .map(|node| node.id.clone())
+        .collect::<Vec<_>>();
+    if missing.is_empty() {
+        return Ok(Vec::new());
+    }
+    let name = unique_module_name("Build, Deployment and Configuration", tree);
+    tree.insert(
+        name,
+        Module {
+            path: Some(common_path(&missing, &nodes)),
+            components: missing.clone(),
+            children: BTreeMap::new(),
+        },
+    );
+    Ok(missing)
+}
+
+fn parse_grouped_components(
+    response: &str,
+    diagnostics: &mut Vec<String>,
+) -> Option<BTreeMap<String, Module>> {
+    parse_grouped_object(response, "GROUPED_COMPONENTS", diagnostics)
+}
+
+fn parse_grouped_modules(
+    response: &str,
+    diagnostics: &mut Vec<String>,
+) -> Option<BTreeMap<String, Module>> {
+    parse_grouped_object(response, "GROUPED_MODULES", diagnostics)
+}
+
+fn parse_grouped_object(
+    response: &str,
+    marker: &str,
+    diagnostics: &mut Vec<String>,
+) -> Option<BTreeMap<String, Module>> {
+    let body = if let (Some(start), Some(end)) = (
+        response.find(&format!("<{marker}>")),
+        response.find(&format!("</{marker}>")),
+    ) {
+        &response[start + marker.len() + 2..end]
+    } else {
+        response
+    };
+    let body = body
+        .trim()
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+    if body.is_empty() {
+        diagnostics.push(format!("empty {marker} response"));
+        return None;
+    }
+    let value: Value = match serde_json::from_str(body) {
+        Ok(value) => value,
+        Err(error) => {
+            diagnostics.push(format!("could not parse {marker} JSON: {error}"));
+            return None;
+        }
+    };
+    let Some(object) = value.as_object() else {
+        diagnostics.push(format!("{marker} response must be a JSON object"));
+        return None;
+    };
+    let mut result = BTreeMap::new();
+    for (name, info) in object {
+        let Some(info) = info.as_object() else {
+            diagnostics.push(format!("group '{name}' is not an object"));
+            continue;
+        };
+        result.insert(name.clone(), parse_module_value(info, diagnostics));
+    }
+    Some(result)
+}
+
+fn parse_module_value(
+    info: &serde_json::Map<String, Value>,
+    diagnostics: &mut Vec<String>,
+) -> Module {
+    let path = info.get("path").and_then(Value::as_str).map(str::to_string);
+    let components = info
+        .get("components")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| {
+                    value.as_str().map(str::to_string).or_else(|| {
+                        diagnostics.push("component ID was not a string".to_string());
+                        None
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let children_value = info.get("children").or_else(|| info.get("modules"));
+    let mut children = BTreeMap::new();
+    if let Some(children_object) = children_value.and_then(Value::as_object) {
+        for (name, child) in children_object {
+            if let Some(child) = child.as_object() {
+                children.insert(name.clone(), parse_module_value(child, diagnostics));
+            }
+        }
+    } else if let Some(modules) = children_value.and_then(Value::as_array) {
+        for module in modules.iter().filter_map(Value::as_str) {
+            children.insert(module.to_string(), Module::default());
+        }
+    }
+    Module {
+        path,
+        components,
+        children,
+    }
+}
+
+fn merge_modules(target: &mut ModuleTree, groups: Vec<(String, Module)>) {
+    for (name, mut incoming) in groups {
+        if let Some(existing) = target.get_mut(&name) {
+            for id in incoming.components.drain(..) {
+                if !existing.components.contains(&id) {
+                    existing.components.push(id);
+                }
+            }
+            if existing.path.is_none() {
+                existing.path = incoming.path.take();
+            }
+            let children = incoming.children.into_iter().collect::<Vec<_>>();
+            merge_modules(&mut existing.children, children);
+        } else {
+            target.insert(name, incoming);
+        }
+    }
+}
+
+fn module_at_path<'a>(tree: &'a ModuleTree, path: &[String]) -> Option<&'a Module> {
+    let (first, rest) = path.split_first()?;
+    let mut module = tree.get(first)?;
+    for name in rest {
+        module = module.children.get(name)?;
+    }
+    Some(module)
+}
+
+fn module_at_path_mut<'a>(tree: &'a mut ModuleTree, path: &[String]) -> Option<&'a mut Module> {
+    let (first, rest) = path.split_first()?;
+    let mut module = tree.get_mut(first)?;
+    for name in rest {
+        module = module.children.get_mut(name)?;
+    }
+    Some(module)
+}
+
+fn collect_leaf_tree_ids(tree: &ModuleTree) -> BTreeSet<String> {
+    fn visit(modules: &ModuleTree, ids: &mut BTreeSet<String>) {
+        for module in modules.values() {
+            if module.children.is_empty() {
+                ids.extend(module.components.iter().cloned());
+            } else {
+                visit(&module.children, ids);
+            }
+        }
+    }
+    let mut ids = BTreeSet::new();
+    visit(tree, &mut ids);
+    ids
+}
+
+fn common_path(ids: &[String], nodes: &BTreeMap<String, Node>) -> String {
+    let mut common: Option<Vec<&str>> = None;
+    for id in ids {
+        let Some(node) = nodes.get(id) else {
+            continue;
+        };
+        let mut parts = node.relative_path.split('/').collect::<Vec<_>>();
+        if parts.len() > 1 {
+            parts.pop();
+        }
+        if let Some(existing) = &mut common {
+            let length = existing
+                .iter()
+                .zip(parts.iter())
+                .take_while(|(left, right)| left == right)
+                .count();
+            existing.truncate(length);
+        } else {
+            common = Some(parts);
+        }
+    }
+    common
+        .unwrap_or_default()
+        .into_iter()
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn fallback_module_name(
+    ids: &[String],
+    nodes: &BTreeMap<String, Node>,
+    tree: &ModuleTree,
+) -> String {
+    let path = common_path(ids, nodes);
+    let base = path
+        .rsplit('/')
+        .next()
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Repository");
+    unique_module_name(&format!("{base} Components"), tree)
+}
+
+fn unique_module_name(base: &str, tree: &ModuleTree) -> String {
+    let base = sanitize_module_name(base);
+    if !tree_contains_name(tree, &base) {
+        return base;
+    }
+    let mut index = 2usize;
+    loop {
+        let candidate = format!("{base}_{index}");
+        if !tree_contains_name(tree, &candidate) {
+            return candidate;
+        }
+        index += 1;
+    }
+}
+
+fn tree_contains_name(tree: &ModuleTree, name: &str) -> bool {
+    tree.iter().any(|(module_name, module)| {
+        module_name == name || tree_contains_name(&module.children, name)
+    })
+}
+
 pub fn read_processing_order(state: &SessionState) -> Result<Vec<ProcessingItem>> {
     session::read_json(&session::session_value_path(state, "processing_order.json"))
 }
@@ -345,12 +890,14 @@ pub fn finalize_metadata(state: &SessionState, model: &str) -> Result<Metadata> 
     }
     let mut max_depth = 0usize;
     let mut count = 0usize;
+    let mut module_leaf_count = 0usize;
     collect_metadata(
         &tree,
         &output,
         1,
         &mut count,
         &mut max_depth,
+        &mut module_leaf_count,
         &mut files_generated,
     );
     let metadata = Metadata {
@@ -363,7 +910,9 @@ pub fn finalize_metadata(state: &SessionState, model: &str) -> Result<Metadata> 
         },
         statistics: Statistics {
             total_components: state.component_count,
-            leaf_nodes: state.leaf_count,
+            analysis_leaf_candidates: state.leaf_count,
+            leaf_nodes: module_leaf_count,
+            module_count: count,
             max_depth,
         },
         files_generated,
@@ -407,6 +956,25 @@ pub fn validate_documentation(state: &SessionState) -> Result<()> {
                 "incomplete documentation: module tree validation field '{field}' is non-empty"
             ));
         }
+    }
+    if validation["quality_valid"].as_bool() == Some(false)
+        || validation["quality_errors"]
+            .as_array()
+            .is_some_and(|values| !values.is_empty())
+    {
+        let errors = validation["quality_errors"]
+            .as_array()
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })
+            .unwrap_or_else(|| "module tree quality gate failed".to_string());
+        return Err(anyhow!(
+            "incomplete documentation: module tree quality gate failed: {errors}"
+        ));
     }
 
     let tree: ModuleTree = session::read_json(&output.join("module_tree.json"))?;
@@ -483,22 +1051,252 @@ fn collect_processing(
     });
 }
 
+/// Assess the final tree rather than merely checking that its IDs are known.
+///
+/// A flat tree can cover every selected component and still be unusable as a
+/// wiki.  The reference workflow treats a module as a leaf only when its
+/// clustering input fits the configured limits; this side-channel metric
+/// gives the host agent the same invariant without making the Rust CLI call an
+/// LLM itself.
+fn assess_tree_quality(
+    state: &SessionState,
+    tree: &ModuleTree,
+    nodes: &BTreeMap<String, Node>,
+    candidate_ids: &BTreeSet<String>,
+) -> Value {
+    let summary: Summary =
+        session::read_json(&session::session_value_path(state, "summary.json")).unwrap_or_default();
+    let module_limit = nonzero_or(summary.max_token_per_module, DEFAULT_MAX_TOKEN_PER_MODULE);
+    let leaf_limit = nonzero_or(
+        summary.max_token_per_leaf_module,
+        DEFAULT_MAX_TOKEN_PER_LEAF_MODULE,
+    );
+    let batch_size = nonzero_or(summary.cluster_batch_size, DEFAULT_CLUSTER_BATCH_SIZE);
+    let context = TreeQualityContext {
+        nodes,
+        candidate_ids,
+        module_limit,
+        max_depth: summary.max_depth,
+    };
+
+    let mut metrics = TreeQualityMetrics::default();
+    for (name, module) in tree {
+        collect_tree_quality(name, module, &[], 1, &context, None, &mut metrics);
+    }
+
+    let orphaned = candidate_ids
+        .difference(&metrics.leaf_candidate_ids)
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut quality_errors = Vec::new();
+    if !metrics.oversized_leaf_modules.is_empty() {
+        quality_errors.push(format!(
+            "{} leaf module(s) exceed recursive clustering limits",
+            metrics.oversized_leaf_modules.len()
+        ));
+    }
+    if !orphaned.is_empty() {
+        quality_errors.push(format!(
+            "{} analysis candidate(s) are not owned by a final leaf module",
+            orphaned.len()
+        ));
+    }
+    quality_errors.extend(metrics.relationship_errors.iter().cloned());
+    if !metrics.depth_errors.is_empty() {
+        quality_errors.extend(metrics.depth_errors.iter().cloned());
+    }
+
+    json!({
+        "quality_valid": quality_errors.is_empty(),
+        "quality_errors": quality_errors,
+        "module_count": metrics.module_count,
+        "leaf_count": metrics.leaf_count,
+        "max_depth": metrics.max_depth,
+        "oversized_leaf_modules": metrics.oversized_leaf_modules,
+        "oversized_leaf_warnings": metrics.oversized_leaf_warnings,
+        "orphaned_candidate_ids": orphaned,
+        "tree_relationship_errors": metrics.relationship_errors,
+        "depth_errors": metrics.depth_errors,
+        "limits": {
+            "max_token_per_module": module_limit,
+            "max_token_per_leaf_module": leaf_limit,
+            "cluster_batch_size": batch_size,
+            "max_depth": summary.max_depth,
+        },
+    })
+}
+
+#[derive(Default)]
+struct TreeQualityMetrics {
+    module_count: usize,
+    leaf_count: usize,
+    max_depth: usize,
+    leaf_candidate_ids: BTreeSet<String>,
+    leaf_owners: BTreeMap<String, String>,
+    oversized_leaf_modules: Vec<Value>,
+    oversized_leaf_warnings: Vec<Value>,
+    relationship_errors: Vec<String>,
+    depth_errors: Vec<String>,
+}
+
+struct TreeQualityContext<'a> {
+    nodes: &'a BTreeMap<String, Node>,
+    candidate_ids: &'a BTreeSet<String>,
+    module_limit: usize,
+    max_depth: usize,
+}
+
+fn collect_tree_quality(
+    name: &str,
+    module: &Module,
+    parent_path: &[String],
+    depth: usize,
+    context: &TreeQualityContext<'_>,
+    parent_candidate_ids: Option<&BTreeSet<String>>,
+    metrics: &mut TreeQualityMetrics,
+) -> BTreeSet<String> {
+    let mut path = parent_path.to_vec();
+    path.push(name.to_string());
+    metrics.module_count += 1;
+    metrics.max_depth = metrics.max_depth.max(depth);
+    if context.max_depth > 0 && depth > context.max_depth {
+        metrics.depth_errors.push(format!(
+            "module '{}' exceeds configured max depth {}",
+            path.join("/"),
+            context.max_depth
+        ));
+    }
+
+    let own_candidate_ids = module
+        .components
+        .iter()
+        .filter(|id| context.candidate_ids.contains(*id))
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if let Some(parent_candidate_ids) = parent_candidate_ids {
+        let missing = own_candidate_ids
+            .difference(parent_candidate_ids)
+            .cloned()
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            metrics.relationship_errors.push(format!(
+                "module '{name}' contains candidate IDs absent from its parent: {}",
+                missing.join(", ")
+            ));
+        }
+    }
+
+    if module.children.is_empty() {
+        metrics.leaf_count += 1;
+        let leaf_ids = own_candidate_ids;
+        for id in &leaf_ids {
+            if let Some(previous) = metrics.leaf_owners.insert(id.clone(), path.join("/")) {
+                if previous != path.join("/") {
+                    metrics.relationship_errors.push(format!(
+                        "candidate '{}' is assigned to multiple leaf modules: '{}' and '{}'",
+                        id,
+                        previous,
+                        path.join("/")
+                    ));
+                }
+            }
+            metrics.leaf_candidate_ids.insert(id.clone());
+        }
+        let estimated_tokens = leaf_ids
+            .iter()
+            .filter_map(|id| context.nodes.get(id))
+            .map(|node| estimate_tokens(&node.source_code))
+            .fold(0usize, usize::saturating_add);
+        if estimated_tokens > context.module_limit && leaf_ids.len() > 1 {
+            metrics.oversized_leaf_modules.push(json!({
+                "module": name,
+                "path": path,
+                "component_count": leaf_ids.len(),
+                "estimated_tokens": estimated_tokens,
+                "max_token_per_module": context.module_limit,
+            }));
+        } else if estimated_tokens > context.module_limit {
+            // A single component cannot be semantically split by the module
+            // clustering pass. Keep it documentable, but make the trade-off
+            // visible to the host instead of failing session close.
+            metrics.oversized_leaf_warnings.push(json!({
+                "module": name,
+                "path": path,
+                "component_count": leaf_ids.len(),
+                "estimated_tokens": estimated_tokens,
+                "max_token_per_module": context.module_limit,
+                "reason": "singleton component cannot be recursively partitioned",
+            }));
+        }
+        return leaf_ids;
+    }
+
+    let mut descendant_candidate_ids = BTreeSet::new();
+    for (child_name, child) in &module.children {
+        descendant_candidate_ids.extend(collect_tree_quality(
+            child_name,
+            child,
+            &path,
+            depth + 1,
+            context,
+            Some(&own_candidate_ids),
+            metrics,
+        ));
+    }
+    let missing_from_parent = descendant_candidate_ids
+        .difference(&own_candidate_ids)
+        .cloned()
+        .collect::<Vec<_>>();
+    if !missing_from_parent.is_empty() {
+        metrics.relationship_errors.push(format!(
+            "module '{name}' does not aggregate all descendant candidate IDs: {}",
+            missing_from_parent.join(", ")
+        ));
+    }
+    descendant_candidate_ids
+}
+
+fn estimate_tokens(source: &str) -> usize {
+    let characters = source.chars().count();
+    characters.saturating_add(3) / 4
+}
+
+fn nonzero_or(value: usize, fallback: usize) -> usize {
+    if value == 0 {
+        fallback
+    } else {
+        value
+    }
+}
+
 fn collect_metadata(
     tree: &ModuleTree,
     output: &Path,
     depth: usize,
     count: &mut usize,
     max_depth: &mut usize,
+    leaf_count: &mut usize,
     files: &mut Vec<String>,
 ) {
     for (name, module) in tree {
         *count += 1;
         *max_depth = (*max_depth).max(depth);
+        if module.children.is_empty() {
+            *leaf_count += 1;
+        }
         let file = module_page_filename(name);
         if output.join(&file).exists() && !files.iter().any(|item| item == &file) {
             files.push(file);
         }
-        collect_metadata(&module.children, output, depth + 1, count, max_depth, files);
+        collect_metadata(
+            &module.children,
+            output,
+            depth + 1,
+            count,
+            max_depth,
+            leaf_count,
+            files,
+        );
     }
 }
 

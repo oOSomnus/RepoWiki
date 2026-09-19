@@ -24,6 +24,7 @@ Sessions live below the analyzed repository:
 ├── languages.json
 ├── summary.json
 ├── artifact_index.json
+├── candidate_module_tree.json
 ├── sources/<safe-id>.src
 ├── prompts/<prompt-type>-<timestamp>.txt
 ├── processing_order.json
@@ -31,6 +32,10 @@ Sessions live below the analyzed repository:
 ```
 
 `components read` returns source paths for the requested IDs. The source files begin with component and language comments and are safe to read directly.
+
+`candidate_module_tree.json` is an engine-generated structural starting point,
+not a final documentation tree. It is built from selected analysis leaves and
+may be refined by the host with repeated `scope=module` clustering calls.
 
 ## Prompt and update validation
 
@@ -46,6 +51,14 @@ max_diff_tokens must be positive. tau_ren controls token-level rename pairing,
 tau_full/tau_tree control full fallback, tau_grow controls reclustering,
 tau_nb controls neighbour routing, and k_hop controls upstream context.
 
+`update route` writes deterministic suggestions plus `routing_context.json` for
+host routing. After the host returns the required `decisions` array,
+`update route-apply --decisions-file <path>` places or creates leaves, updates
+renamed/deleted IDs, preserves aggregate ownership, and re-runs tree
+validation. `update context` writes per-component reports and an orphan context;
+it also runs the deterministic stale scan. `update stale-scan` can be run
+explicitly, and `update finalize` records its result in `update_record.json`.
+
 ## Module tree
 
 The tree input is an object keyed by module name:
@@ -60,7 +73,43 @@ The tree input is an object keyed by module name:
 }
 ```
 
-`tree save --first` writes `first_module_tree.json` and `module_tree.json`, computes leaf-first `processing_order.json`, and validates that every component ID belongs to the analysis. A non-empty `unmatched_component_ids` or `leftover_candidate_ids` means the tree must be repaired before documentation begins.
+`tree apply-cluster` consumes a host response file, an exact input-ID list, and
+a working tree. It accepts `<GROUPED_COMPONENTS>` or a JSON object, merges
+groups at repository or module scope, preserves parent aggregate IDs, and
+structurally assigns omitted IDs. `tree apply-super-group` consumes
+`<GROUPED_MODULES>` and nests existing module entries as children without
+discarding their pages or IDs. Both commands write the transformed tree to
+`--output-tree-file` (or replace `--tree-file`) and return diagnostics.
+
+`tree overview-context` renders a target's structure with components removed
+and immediate child `docs_path` values added. A child without an existing page
+has `docs_path: null`, matching the reference overview structure; an existing
+page has its resolved path. Its default target is the repository root and its
+result is written to the session workspace.
+
+`tree save --first` writes `first_module_tree.json` and `module_tree.json`, computes leaf-first `processing_order.json`, rescues unassigned artifact candidates into a build/configuration module, and validates that every component ID belongs to the analysis. A non-empty `unmatched_component_ids` or `leftover_candidate_ids` means the tree must be repaired before documentation begins.
+
+The final tree may repeat aggregate component IDs in a parent and its
+descendants. `tree save` additionally records these recursive quality fields in
+`module_tree_validation.json`:
+
+- `module_count`, `leaf_count`, and `max_depth` describe the saved tree;
+- `orphaned_candidate_ids` lists selected analysis leaves that are not owned by
+  any final leaf module;
+- `oversized_leaf_modules` reports multi-component leaves whose source-token
+  estimate exceeds `max_token_per_module`; `oversized_leaf_warnings` records
+  unsplittable singleton leaves. `cluster_batch_size` is a request-size limit
+  only and does not make a saved leaf invalid;
+- `tree_relationship_errors` reports child IDs missing from a parent's
+  aggregate list or descendant IDs not represented by that aggregate;
+- `quality_valid` is false when either condition needs another recursive
+  clustering pass, and `complete` is true only when ID coverage and quality
+  checks both pass.
+
+The engine does not invoke an LLM. The host must perform root clustering,
+optional super-grouping, and recursive `scope=module` clustering, then save the
+expanded tree. `session close` refuses to remove the session workspace while
+the quality gate is false.
 
 ## Update verdicts
 
@@ -85,3 +134,8 @@ a direct object keyed by page name or a reference-style object with a
 ## Output artifacts
 
 The generated output keeps the reference names: `overview.md`, flat module Markdown files, `module_tree.json`, `first_module_tree.json`, `metadata.json`, `temp/artifact_index.json`, and `temp/dependency_graphs/*_dependency_graph.json`. Incremental runs additionally write `update_record.json`.
+
+Metadata statistics distinguish `analysis_leaf_candidates` from generated
+`leaf_nodes`; the latter is the number of final module-tree leaves. `module_count`
+and `max_depth` describe the documentation tree rather than the analyzer's
+candidate selection.

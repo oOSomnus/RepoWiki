@@ -52,17 +52,46 @@ unzip dist/RepoWiki-*.zip -d ~/.agents/skills/RepoWiki
 
 ## Verification
 
-`make test` runs the offline replay against the fixed 13-language fixture,
-compares the result with the checked-in golden data, tests the Rust engine,
-checks formatting and Clippy, and validates the runtime package.
+`make test` runs the layered offline gate:
+
+- `test-contract` checks prompt semantics against the pinned reference source,
+  validates the declared compatibility matrix, and rejects legacy tool names or
+  missing recursive/overview obligations;
+- the replay drives the real packaged CLI through analysis, prompt rendering,
+  recursive tree saving, leaf-first ordering, overview-context generation,
+  document writes, session close, and ZIP extraction, then compares the full
+  normalized result with `tests/golden/mini-repo.json`;
+- Rust integration contracts cover prompt variables and rendering, exact
+  recursive tree coverage and quality diagnostics, update routing/stale scans,
+  and CLI behavior from a non-repository working directory;
+- formatting, tests, Clippy, and runtime-package validation complete the gate.
+
+The replay does not call an LLM. Prompt hashes and fixed Markdown make changes
+to the host-agent contract visible without making generated prose part of the
+byte-for-byte compatibility requirement.
+
+Run the prompt/static layer alone with:
+
+```bash
+make test-contract
+```
 
 `make test-install` repeats the package validation through a temporary install
 directory and checks that a stale file is removed during replacement.
 
-`make test-reference` runs the offline replay and then compares the analyzer
-contract with the pinned Python reference implementation. Reference setup and
-its isolated environment are documented in
+`make test-reference` runs the same offline gate and then invokes the real
+pinned Python reference implementation. It compares a normalized analyzer
+contract (component IDs, locations, languages, dependencies, and leaves) plus
+deterministic workflow semantics: leaf-first processing order and the
+component-free, target-marked overview context with child `docs_path` fields.
+It also runs the static prompt contract against both prompt trees. Missing
+reference dependencies are a hard failure for this opt-in gate, never a skip.
+Reference setup and its isolated environment are documented in
 [`reference/README.md`](../reference/README.md).
+
+`.github/workflows/verification.yml` runs the offline/package gate on every
+push and pull request, and runs the pinned reference differential in a separate
+job with the reference submodule and virtual environment initialized explicitly.
 
 Use `make clean` to remove generated build, preview, archive, and local
 packaging artifacts. It does not remove the pinned reference checkout.

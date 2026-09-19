@@ -9,7 +9,18 @@ Here is list of all potential core components of the module {module_name} (It's 
 {potential_core_components}
 </POTENTIAL_CORE_COMPONENTS>
 
-Please group the components into groups such that each group is a set of components that are closely related to each other and together they form a smaller module. DO NOT include components that are not essential to the module.
+This is a recursive refinement pass for the existing module {module_name}.
+Return child groups only: each group must be a coherent smaller module and the
+union of the child component lists must cover the input component IDs exactly.
+If the input is already small and cohesive, return one group only; otherwise
+return at least two groups. The parent keeps its aggregate component list, so
+do not remove IDs from the parent and do not invent IDs.
+
+Do not stop at a directory-shaped grouping when the input is still large. The
+host will invoke this same scope=module prompt again for every oversized child
+until the configured depth/token limits are satisfied.
+
+DO NOT include components that are not essential to the module.
 
 Files marked `(artifact: <class>)` are build, CI, container, packaging, manifest, configuration, schema or script files. Their components describe how the system is built, packaged, shipped, configured and tested. They ARE essential: group them into a dedicated build/deployment/configuration module, or attach them to the module they configure. Never drop them.
 

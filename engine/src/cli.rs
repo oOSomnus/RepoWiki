@@ -210,6 +210,9 @@ struct GetPromptArgs {
 #[derive(Debug, Subcommand)]
 enum TreeCommand {
     Save(SaveTreeArgs),
+    ApplyCluster(ApplyClusterArgs),
+    ApplySuperGroup(ApplySuperGroupArgs),
+    OverviewContext(OverviewContextArgs),
     Order(SessionArg),
 }
 
@@ -221,6 +224,48 @@ struct SaveTreeArgs {
     tree_file: PathBuf,
     #[arg(long, default_value_t = false)]
     first: bool,
+}
+
+#[derive(Debug, Args)]
+struct ApplyClusterArgs {
+    #[arg(long)]
+    session: String,
+    #[arg(long)]
+    tree_file: PathBuf,
+    #[arg(long)]
+    response_file: PathBuf,
+    #[arg(long)]
+    input_ids_file: PathBuf,
+    #[arg(long, default_value = "repo")]
+    scope: String,
+    #[arg(long)]
+    parent_path_file: Option<PathBuf>,
+    #[arg(long)]
+    output_tree_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+struct ApplySuperGroupArgs {
+    #[arg(long)]
+    session: String,
+    #[arg(long)]
+    tree_file: PathBuf,
+    #[arg(long)]
+    response_file: PathBuf,
+    #[arg(long)]
+    output_tree_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+struct OverviewContextArgs {
+    #[arg(long)]
+    session: String,
+    #[arg(long)]
+    tree_file: Option<PathBuf>,
+    #[arg(long)]
+    target_path_file: Option<PathBuf>,
+    #[arg(long)]
+    output_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -270,7 +315,9 @@ struct ViewDocArgs {
 enum UpdateCommand {
     Plan(UpdatePlanArgs),
     Route(SessionArg),
+    RouteApply(UpdateRouteApplyArgs),
     Context(SessionArg),
+    StaleScan(SessionArg),
     Finalize(FinalizeArgs),
 }
 
@@ -280,6 +327,14 @@ struct UpdatePlanArgs {
     session: String,
     #[command(flatten)]
     options: UpdateArgs,
+}
+
+#[derive(Debug, Args)]
+struct UpdateRouteApplyArgs {
+    #[arg(long)]
+    session: String,
+    #[arg(long)]
+    decisions_file: PathBuf,
 }
 
 #[derive(Debug, Args)]
@@ -373,6 +428,9 @@ fn dispatch(command: Command) -> Result<()> {
         },
         Command::Tree { command } => match command {
             TreeCommand::Save(args) => save_tree(args)?,
+            TreeCommand::ApplyCluster(args) => apply_cluster(args)?,
+            TreeCommand::ApplySuperGroup(args) => apply_super_group(args)?,
+            TreeCommand::OverviewContext(args) => overview_context(args)?,
             TreeCommand::Order(args) => load_order(args)?,
         },
         Command::Doc { command } => match command {
@@ -383,8 +441,15 @@ fn dispatch(command: Command) -> Result<()> {
         Command::Update { command } => match command {
             UpdateCommand::Plan(args) => update_plan(args)?,
             UpdateCommand::Route(args) => ok_value(update::route(&load_session(&args.session)?)?),
+            UpdateCommand::RouteApply(args) => ok_value(update::apply_routes(
+                &load_session(&args.session)?,
+                &args.decisions_file,
+            )?),
             UpdateCommand::Context(args) => {
                 ok_value(update::context(&load_session(&args.session)?)?)
+            }
+            UpdateCommand::StaleScan(args) => {
+                ok_value(update::stale_scan(&load_session(&args.session)?)?)
             }
             UpdateCommand::Finalize(args) => ok_value(update::finalize(
                 &load_session(&args.session)?,
@@ -441,6 +506,8 @@ fn analyze_command(
         artifact_token_budget,
         artifact_exclude: artifact_exclude.clone(),
         max_depth,
+        max_token_per_module,
+        max_token_per_leaf_module,
         with_prose,
     };
     let (state, output, nodes) =
@@ -450,10 +517,12 @@ fn analyze_command(
     if generate {
         let tree_path = PathBuf::from(&output.summary.output_dir).join("module_tree.json");
         if !tree_path.exists() {
-            let candidate = analyzer::build_initial_module_tree(&nodes);
+            let leaf_nodes: Vec<String> = session::read_json(Path::new(&output.leaf_nodes_path))?;
+            let candidate = analyzer::build_initial_module_tree(&nodes, &leaf_nodes);
             let candidate_path = session::session_value_path(&state, "candidate_module_tree.json");
             session::write_json(&candidate_path, &candidate)?;
             value["candidate_module_tree_path"] = json!(candidate_path);
+            value["candidate_tree_is_final"] = json!(false);
         }
         let workflow = json!({
             "session_id": state.session_id,
@@ -463,6 +532,12 @@ fn analyze_command(
             "max_depth": max_depth,
             "max_token_per_module": max_token_per_module,
             "max_token_per_leaf_module": max_token_per_leaf_module,
+            "clustering_policy": {
+                "candidate_tree_is_final": false,
+                "recursive_module_clustering": true,
+                "cluster_batch_size": crate::model::DEFAULT_CLUSTER_BATCH_SIZE,
+                "quality_gate": "session_close"
+            },
             "artifact_token_budget": artifact_token_budget,
             "artifact_exclude": artifact_exclude,
             "github_pages": github_pages,
@@ -473,15 +548,18 @@ fn analyze_command(
                 "read_code_components": "codewiki components read",
                 "get_prompt": "codewiki prompt get",
                 "save_module_tree": "codewiki tree save",
+                "apply_cluster": "codewiki tree apply-cluster",
+                "apply_super_group": "codewiki tree apply-super-group",
+                "overview_context": "codewiki tree overview-context",
                 "get_processing_order": "codewiki tree order",
                 "write_doc_file": "codewiki doc write",
                 "edit_doc_file": "codewiki doc edit",
                 "close_session": "codewiki session close"
             },
             "next": if update_options.is_some() {
-                vec!["codewiki update plan", "codewiki update route", "codewiki update context", "host-agent document edits", "codewiki update finalize"]
+                vec!["codewiki update plan", "codewiki update route", "host-agent routing_user decision", "codewiki update route-apply", "codewiki update context", "codewiki update stale-scan", "host-agent document edits", "codewiki update finalize"]
             } else {
-                vec!["host-agent cluster response", "codewiki tree save", "host-agent leaf-first documentation", "host-agent overview documentation", "codewiki session close"]
+                vec!["host-agent root cluster response", "host-agent recursive scope=module clustering", "codewiki tree save", "host-agent leaf-first documentation", "host-agent overview documentation", "codewiki session close"]
             }
         });
         let workflow_path = session::session_value_path(&state, "workflow.json");
@@ -536,7 +614,7 @@ fn read_components(args: ReadComponentsArgs) -> Result<Value> {
 fn get_prompt(args: GetPromptArgs) -> Result<Value> {
     let state = load_session(&args.session)?;
     let kind = PromptType::parse(&args.prompt_type)?;
-    let vars = if let Some(path) = args.vars_file {
+    let mut vars = if let Some(path) = args.vars_file {
         let value: Value = session::read_json(&path)?;
         value
             .as_object()
@@ -547,6 +625,32 @@ fn get_prompt(args: GetPromptArgs) -> Result<Value> {
     } else {
         BTreeMap::new()
     };
+    let nodes: BTreeMap<String, Node> =
+        session::read_json(&session::session_value_path(&state, "components.json"))
+            .unwrap_or_default();
+    if let Some(ids) = prompt_component_ids(&vars)? {
+        if kind == PromptType::Cluster && !vars.contains_key("potential_core_components") {
+            let listing = prompts::format_component_listing(&ids, &nodes);
+            let codes = prompts::format_component_codes(&ids, &nodes);
+            vars.insert(
+                "potential_core_components".to_string(),
+                Value::String(format!("{listing}\n{codes}")),
+            );
+        }
+        if kind == PromptType::User && !vars.contains_key("formatted_core_component_codes") {
+            vars.insert(
+                "formatted_core_component_codes".to_string(),
+                Value::String(prompts::format_component_codes(&ids, &nodes)),
+            );
+        }
+    }
+    if matches!(kind, PromptType::User | PromptType::OverviewRepo)
+        && !vars.contains_key("artifact_index")
+    {
+        if let Some(artifact_index) = artifact_prompt_value(&state)? {
+            vars.insert("artifact_index".to_string(), artifact_index);
+        }
+    }
     let rendered = if matches!(kind, PromptType::User | PromptType::Cluster) {
         prompts::user_prompt_with_limits(kind, &vars)?
     } else {
@@ -570,11 +674,143 @@ fn get_prompt(args: GetPromptArgs) -> Result<Value> {
     }))
 }
 
+fn prompt_component_ids(vars: &BTreeMap<String, Value>) -> Result<Option<Vec<String>>> {
+    let Some(value) = vars.get("component_ids") else {
+        return Ok(None);
+    };
+    let ids = value
+        .as_array()
+        .ok_or_else(|| anyhow!("prompt variable 'component_ids' must be an array"))?
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::to_string)
+                .ok_or_else(|| anyhow!("prompt variable 'component_ids' must contain strings"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Some(ids))
+}
+
+fn artifact_prompt_value(state: &SessionState) -> Result<Option<Value>> {
+    let path = session::session_value_path(state, "artifact_index.json");
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let value: Value = session::read_json(&path)?;
+    let has_files = value
+        .get("files")
+        .and_then(Value::as_object)
+        .is_some_and(|files| !files.is_empty());
+    Ok(has_files.then_some(value))
+}
+
 fn save_tree(args: SaveTreeArgs) -> Result<Value> {
     let state = load_session(&args.session)?;
     let mut tree: ModuleTree = docs::read_tree_file(&args.tree_file)?;
     normalize_tree_component_ids(&state, &mut tree)?;
-    Ok(json!({"ok": true, "result": docs::save_module_tree(&state, &tree, args.first)?}))
+    let rescued_artifacts = docs::ensure_artifact_coverage(&state, &mut tree)?;
+    let result = docs::save_module_tree(&state, &tree, args.first)?;
+    Ok(json!({
+        "ok": true,
+        "result": result,
+        "rescued_artifact_ids": rescued_artifacts,
+    }))
+}
+
+fn apply_cluster(args: ApplyClusterArgs) -> Result<Value> {
+    let state = load_session(&args.session)?;
+    let mut tree = docs::read_tree_file(&args.tree_file)?;
+    let response = fs::read_to_string(&args.response_file)
+        .with_context(|| format!("read cluster response {}", args.response_file.display()))?;
+    let input_ids = read_string_list(&args.input_ids_file)?;
+    let parent_path = if let Some(path) = args.parent_path_file.as_ref() {
+        read_string_list(path)?
+    } else {
+        Vec::new()
+    };
+    let diagnostics = docs::apply_cluster_response(
+        &state,
+        &mut tree,
+        &response,
+        &input_ids,
+        &args.scope,
+        &parent_path,
+    )?;
+    let output = args.output_tree_file.unwrap_or(args.tree_file);
+    session::write_json(&output, &tree)?;
+    Ok(json!({
+        "ok": true,
+        "tree_path": output,
+        "diagnostics": diagnostics,
+    }))
+}
+
+fn apply_super_group(args: ApplySuperGroupArgs) -> Result<Value> {
+    let _state = load_session(&args.session)?;
+    let mut tree = docs::read_tree_file(&args.tree_file)?;
+    let response = fs::read_to_string(&args.response_file)
+        .with_context(|| format!("read super-group response {}", args.response_file.display()))?;
+    let diagnostics = docs::apply_super_group_response(&mut tree, &response)?;
+    let output = args.output_tree_file.unwrap_or(args.tree_file);
+    session::write_json(&output, &tree)?;
+    Ok(json!({
+        "ok": true,
+        "tree_path": output,
+        "diagnostics": diagnostics,
+    }))
+}
+
+fn overview_context(args: OverviewContextArgs) -> Result<Value> {
+    let state = load_session(&args.session)?;
+    let tree_path = args
+        .tree_file
+        .unwrap_or_else(|| session::module_tree_path(&state));
+    let tree = docs::read_tree_file(&tree_path)?;
+    let target_path = args
+        .target_path_file
+        .as_ref()
+        .map(|path| read_string_list(path))
+        .transpose()?
+        .unwrap_or_default();
+    let context = docs::overview_context(&tree, &target_path, &session::output_dir(&state))?;
+    let output = args.output_file.unwrap_or_else(|| {
+        let suffix = if target_path.is_empty() {
+            "repo".to_string()
+        } else {
+            target_path
+                .iter()
+                .map(|name| {
+                    docs::module_page_filename(name)
+                        .strip_suffix(".md")
+                        .unwrap_or("module")
+                        .to_string()
+                })
+                .collect::<Vec<_>>()
+                .join("__")
+        };
+        session::session_value_path(&state, &format!("overview_context_{suffix}.json"))
+    });
+    session::write_json(&output, &context)?;
+    Ok(json!({
+        "ok": true,
+        "context_path": output,
+        "target_path": target_path,
+    }))
+}
+
+fn read_string_list(path: &Path) -> Result<Vec<String>> {
+    let contents =
+        fs::read_to_string(path).with_context(|| format!("read string list {}", path.display()))?;
+    if let Ok(values) = serde_json::from_str::<Vec<String>>(&contents) {
+        return Ok(values);
+    }
+    Ok(contents
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect())
 }
 
 fn normalize_tree_component_ids(state: &SessionState, tree: &mut ModuleTree) -> Result<()> {

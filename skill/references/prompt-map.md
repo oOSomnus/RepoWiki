@@ -21,20 +21,31 @@ stale_fix_system, stale_fix_user.
 
 | Type | Required variables | Optional or conditional variables |
 |---|---|---|
-| cluster | potential_core_components | scope; when scope=module, also module_name and module_tree |
+| cluster | one of potential_core_components or component_ids | scope; when scope=module, also module_name and module_tree |
 | super_group | formatted_modules | none |
 | filter_folders | project_name, files | none |
 | system_complex | module_name | custom_instructions |
 | system_leaf | module_name | custom_instructions |
-| user | module_name, module_tree, formatted_core_component_codes | none |
+| user | module_name, module_tree, and one of formatted_core_component_codes or component_ids | artifact_index |
 | overview_module | module_name, repo_structure | none |
-| overview_repo | repo_name, repo_structure | none |
+| overview_repo | repo_name, repo_structure | artifact_index |
 
 The cluster response uses GROUPED_COMPONENTS or GROUPED_MODULES markers. Those
 are response-format markers, not input variable names. In particular,
 grouped_components, grouped_modules, and core_component_codes must not be
 substituted for potential_core_components or
 formatted_core_component_codes.
+
+When `component_ids` is supplied, the CLI resolves the IDs from the session,
+groups them by file, marks artifact files, inlines readable source, and renders
+the module tree as an indented outline. `artifact_index` adds the artifact
+usage note and index to documentation prompts.
+
+Use `scope=repo` for the first semantic partition and `scope=module` for every
+recursive refinement. Module refinement receives the current tree and exact
+parent component IDs; it returns child groups while the parent retains its
+aggregate component list. A prompt response is not a license to stop
+recursion: the saved tree's quality diagnostics decide whether a leaf fits.
 
 ## Update prompts
 

@@ -5,9 +5,9 @@ bring the affected documentation pages up to date with the smallest correct edit
 </ROLE>
 
 <RULES>
-1. You may edit ONLY the pages in the WRITE SET below. The editor tool refuses anything else.
+1. You may edit ONLY the pages in the WRITE SET below. The `codewiki doc edit` write guard refuses anything else.
    If another page needs a change, say so in your final verdict instead of trying.
-2. Prefer surgical edits with `str_replace_editor` (`str_replace` / `insert`). Keep every
+2. Prefer surgical edits with `codewiki doc edit` (`str_replace` / `insert`). Keep every
    sentence that is still true word for word. Do not reflow, restyle, or "improve" prose that
    the report does not touch.
 3. Per page role:
@@ -20,9 +20,8 @@ bring the affected documentation pages up to date with the smallest correct edit
      UP (a signature that moved, a component that was deleted or renamed) or a call that no
      longer exists.
    - a REFERRER page: change only where it names a component or page listed under REFCH.
-4. Use `read_code_components` to read the fresh code of any component id when the diff alone is
-   not enough. Use `str_replace_editor` with `working_dir="docs"` and `command="view"` to read a
-   page before editing it.
+4. Use `codewiki components read` to read the fresh code of any component id when the diff alone is
+   not enough. Use `codewiki doc view` to read a page before editing it.
 5. Mermaid diagrams must stay valid. Links between pages are relative: `[text](page.md)`.
 </RULES>
 
