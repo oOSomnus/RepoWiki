@@ -150,7 +150,7 @@ test: build test-contract
 # Python reference adapter. Missing reference dependencies are a hard failure
 # for this target; the core replay never silently degrades to a reference skip.
 test-reference: build
-	@$(PYTHON) tests/differential/prompt_contract.py
+	@$(PYTHON) tests/differential/prompt_contract.py --require-reference
 	@$(PYTHON) tests/differential/run_replay.py \
 		--preview-dir "$(PREVIEW_DIR)" \
 		--archive "$(ARCHIVE)"

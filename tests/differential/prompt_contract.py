@@ -9,6 +9,7 @@ machine-readable responses.  It deliberately does not compare prose bytes.
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
@@ -29,7 +30,18 @@ def require(text: str, fragments: list[str], label: str) -> None:
         raise PromptContractFailure(f"{label} is missing: {missing}")
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--require-reference",
+        action="store_true",
+        help="fail when the pinned reference prompt sources are unavailable",
+    )
+    return parser.parse_args()
+
+
 def main() -> int:
+    args = parse_args()
     compatibility = json.loads(COMPATIBILITY.read_text(encoding="utf-8"))
     if len(compatibility["common_analysis_languages"]) != 11:
         raise PromptContractFailure("common reference language allowlist changed unexpectedly")
@@ -109,32 +121,48 @@ def main() -> int:
             if legacy in text:
                 raise PromptContractFailure(f"current/{name} contains legacy tool {legacy}")
 
-    reference_template = (REFERENCE / "prompt_template.py").read_text(encoding="utf-8")
-    require(
-        reference_template,
-        [
-            "CLUSTER_REPO_PROMPT",
-            "CLUSTER_MODULE_PROMPT",
-            "SUPER_GROUP_PROMPT",
-            "<GROUPED_COMPONENTS>",
-            "<GROUPED_MODULES>",
-            "Each component ID has the form",
-            "REPO_OVERVIEW_PROMPT",
-            "MODULE_OVERVIEW_PROMPT",
-        ],
-        "reference/prompt_template.py",
+    reference_template_path = REFERENCE / "prompt_template.py"
+    reference_updater_path = REFERENCE / "updater" / "prompts.py"
+    reference_available = (
+        reference_template_path.is_file() and reference_updater_path.is_file()
     )
-    reference_updater = (REFERENCE / "updater" / "prompts.py").read_text(encoding="utf-8")
-    require(
-        reference_updater,
-        ["WRITE_SET", "CHANGE_REPORT", "verdicts", "routing"],
-        "reference/updater/prompts.py",
-    )
+    if not reference_available:
+        if args.require_reference:
+            raise PromptContractFailure(
+                "pinned reference prompt sources are unavailable; initialize "
+                "reference/CodeWiki before running the reference gate"
+            )
+    else:
+        reference_template = reference_template_path.read_text(encoding="utf-8")
+        require(
+            reference_template,
+            [
+                "CLUSTER_REPO_PROMPT",
+                "CLUSTER_MODULE_PROMPT",
+                "SUPER_GROUP_PROMPT",
+                "<GROUPED_COMPONENTS>",
+                "<GROUPED_MODULES>",
+                "Each component ID has the form",
+                "REPO_OVERVIEW_PROMPT",
+                "MODULE_OVERVIEW_PROMPT",
+            ],
+            "reference/prompt_template.py",
+        )
+        reference_updater = reference_updater_path.read_text(encoding="utf-8")
+        require(
+            reference_updater,
+            ["WRITE_SET", "CHANGE_REPORT", "verdicts", "routing"],
+            "reference/updater/prompts.py",
+        )
     exact_rules = compatibility.get("exact_parity", [])
-    if not isinstance(exact_rules, list) or not all(isinstance(rule, str) for rule in exact_rules):
+    if not isinstance(exact_rules, list) or not all(
+        isinstance(rule, str) for rule in exact_rules
+    ):
         raise PromptContractFailure("compatibility exact_parity must be a list of strings")
     divergences = compatibility.get("intentional_divergence", [])
-    if not isinstance(divergences, list) or not all(isinstance(item, str) for item in divergences):
+    if not isinstance(divergences, list) or not all(
+        isinstance(item, str) for item in divergences
+    ):
         raise PromptContractFailure(
             "compatibility intentional_divergence must be a list of strings"
         )
@@ -144,6 +172,11 @@ def main() -> int:
         f"{len(required_current)}/{len(current)} current prompts, "
         f"{len(compatibility['exact_parity'])} exact parity rules, "
         f"{len(compatibility['intentional_divergence'])} documented divergences"
+        + (
+            "; reference prompt sources checked"
+            if reference_available
+            else "; reference prompt sources not present"
+        )
     )
     return 0
 

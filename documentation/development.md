@@ -54,9 +54,11 @@ unzip dist/RepoWiki-*.zip -d ~/.agents/skills/RepoWiki
 
 `make test` runs the layered offline gate:
 
-- `test-contract` checks prompt semantics against the pinned reference source,
-  validates the declared compatibility matrix, and rejects legacy tool names or
-  missing recursive/overview obligations;
+- `test-contract` checks the local prompt semantics, validates the declared
+  compatibility matrix, and rejects legacy tool names or missing
+  recursive/overview obligations. If the reference checkout is present it also
+  checks reference prompt anchors; the offline gate does not require the
+  optional submodule;
 - the replay drives the real packaged CLI through analysis, prompt rendering,
   recursive tree saving, leaf-first ordering, overview-context generation,
   document writes, session close, and ZIP extraction, then compares the full
@@ -84,8 +86,9 @@ pinned Python reference implementation. It compares a normalized analyzer
 contract (component IDs, locations, languages, dependencies, and leaves) plus
 deterministic workflow semantics: leaf-first processing order and the
 component-free, target-marked overview context with child `docs_path` fields.
-It also runs the static prompt contract against both prompt trees. Missing
-reference dependencies are a hard failure for this opt-in gate, never a skip.
+It also runs the static prompt contract against both prompt trees with
+`--require-reference`. Missing reference sources or dependencies are a hard
+failure for this opt-in gate, never a skip.
 Reference setup and its isolated environment are documented in
 [`reference/README.md`](../reference/README.md).
 
