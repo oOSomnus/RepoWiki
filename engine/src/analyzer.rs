@@ -273,6 +273,8 @@ fn extension_map() -> HashMap<&'static str, &'static str> {
         ("mjs", "JavaScript"),
         ("ts", "TypeScript"),
         ("tsx", "TypeScript"),
+        ("go", "Go"),
+        ("rs", "Rust"),
         ("c", "C"),
         ("h", "C"),
         ("cc", "C++"),
@@ -471,6 +473,7 @@ struct ClassScope {
     indent: usize,
     open_depth: usize,
     pending_brace: bool,
+    is_interface: bool,
 }
 
 fn extract_components(
@@ -481,13 +484,32 @@ fn extract_components(
     artifact: Option<&str>,
 ) -> Vec<Node> {
     let class_re = Regex::new(
-        r"(?i)^(?:export\s+)?(?:default\s+)?(?:(?:public|private|protected|internal|final|abstract|sealed)\s+)*(class|interface|struct|enum|trait|object|module)\s+([A-Za-z_][A-Za-z0-9_]*)",
+        r"(?i)^(?:(?:export|default|public|pub(?:\([^)]*\))?|private|protected|internal|final|abstract|sealed)\s+)*(class|interface|struct|enum|trait|union|object|module)\s+([A-Za-z_][A-Za-z0-9_]*)",
     )
     .expect("class regex");
     let function_re = Regex::new(
-        r"(?i)^(?:async\s+)?(?:export\s+)?(?:public\s+|private\s+|protected\s+|static\s+|final\s+|suspend\s+|internal\s+)*\b(def|function|fn|fun|func|proc|method)\s+([A-Za-z_][A-Za-z0-9_!?]*)\s*(?:<[^>]*>)?\s*(?:\(([^)]*)\))?",
+        r#"(?i)^(?:(?:async|export|default|public|pub(?:\([^)]*\))?|private|protected|static|final|suspend|internal|unsafe|const|extern(?:\s+"[^"]+")?)\s+)*\b(def|function|fn|fun|func|proc|method)\s+([A-Za-z_][A-Za-z0-9_!?]*)\s*(?:<[^>]*>)?\s*(?:\(([^)]*)\))?"#,
     )
     .expect("function regex");
+    let go_type_re = Regex::new(
+        r"^type\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*=)?\s*(?:(struct|interface)\b|[A-Za-z_][A-Za-z0-9_.*\[\]]*)",
+    )
+    .expect("Go type regex");
+    let go_function_re =
+        Regex::new(r"^func\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*\[[^\]]+\])?\s*\(([^)]*)\)")
+            .expect("Go function regex");
+    let go_method_re = Regex::new(
+        r"^func\s*\(\s*[A-Za-z_][A-Za-z0-9_]*\s+\*?(?:[A-Za-z_][A-Za-z0-9_]*\.)?([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*([A-Za-z_][A-Za-z0-9_]*)(?:\s*\[[^\]]+\])?\s*\(([^)]*)\)",
+    )
+    .expect("Go method regex");
+    let go_interface_method_re =
+        Regex::new(r"^([A-Za-z_][A-Za-z0-9_]*)(?:\s*\[[^\]]+\])?\s*\(([^)]*)\)")
+            .expect("Go interface method regex");
+    let rust_impl_re =
+        Regex::new(r"^impl(?:\s*<[^>]*>)?\s+(?:[^{}]+\s+for\s+)?([A-Za-z_][A-Za-z0-9_:]*)")
+            .expect("Rust impl regex");
+    let rust_mod_re = Regex::new(r"^(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\b")
+        .expect("Rust module regex");
     let declaration_re = Regex::new(
         r"(?i)^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_][A-Za-z0-9_]*)\s*=>",
     )
@@ -544,14 +566,109 @@ fn extract_components(
             .last()
             .map(|scope| scope.path.clone())
             .unwrap_or_default();
+
+        if language == "Rust" {
+            if let Some(caps) = rust_impl_re.captures(code_trimmed) {
+                let impl_name = caps[1]
+                    .split("::")
+                    .last()
+                    .unwrap_or(&caps[1])
+                    .split('<')
+                    .next()
+                    .unwrap_or(&caps[1])
+                    .to_string();
+                let mut impl_path = containing_class.clone();
+                impl_path.push(impl_name);
+                class_stack.push(ClassScope {
+                    path: impl_path,
+                    indent: indentation_width(line),
+                    open_depth: brace_depth,
+                    pending_brace: !code_line.contains('{'),
+                    is_interface: false,
+                });
+                brace_depth = update_brace_depth(brace_depth, code_line);
+                continue;
+            }
+            if let Some(caps) = rust_mod_re.captures(code_trimmed) {
+                let module_name = caps[1].to_string();
+                let mut module_path = containing_class.clone();
+                module_path.push(module_name.clone());
+                candidates.push(Candidate {
+                    start: index,
+                    name: module_name,
+                    component_type: "module".to_string(),
+                    parameters: Vec::new(),
+                    class_path: containing_class.clone(),
+                });
+                if code_line.contains('{') || !code_line.trim_end().ends_with(';') {
+                    class_stack.push(ClassScope {
+                        path: module_path,
+                        indent: indentation_width(line),
+                        open_depth: brace_depth,
+                        pending_brace: !code_line.contains('{'),
+                        is_interface: false,
+                    });
+                }
+                brace_depth = update_brace_depth(brace_depth, code_line);
+                continue;
+            }
+        }
+
+        if language == "Go" {
+            if let Some(caps) = go_type_re.captures(code_trimmed) {
+                let type_name = caps[1].to_string();
+                let component_type = caps
+                    .get(2)
+                    .map(|value| value.as_str().to_ascii_lowercase())
+                    .unwrap_or_else(|| "type".to_string());
+                let mut type_path = containing_class.clone();
+                type_path.push(type_name.clone());
+                candidates.push(Candidate {
+                    start: index,
+                    name: type_name,
+                    component_type: component_type.clone(),
+                    parameters: Vec::new(),
+                    class_path: containing_class.clone(),
+                });
+                if caps.get(2).is_some() {
+                    class_stack.push(ClassScope {
+                        path: type_path,
+                        indent: indentation_width(line),
+                        open_depth: brace_depth,
+                        pending_brace: !code_line.contains('{'),
+                        is_interface: component_type == "interface",
+                    });
+                }
+                brace_depth = update_brace_depth(brace_depth, code_line);
+                continue;
+            }
+            if let Some(caps) = go_method_re.captures(code_trimmed) {
+                let receiver = caps[1].to_string();
+                let mut class_path = containing_class.clone();
+                class_path.push(receiver);
+                candidates.push(Candidate {
+                    start: index,
+                    name: caps[2].to_string(),
+                    component_type: "method".to_string(),
+                    parameters: split_parameters(
+                        caps.get(3).expect("Go method parameters").as_str(),
+                    ),
+                    class_path,
+                });
+                brace_depth = update_brace_depth(brace_depth, code_line);
+                continue;
+            }
+        }
+
         if let Some(caps) = class_re.captures(code_trimmed) {
             let class_name = caps[2].to_string();
             let mut class_path = containing_class.clone();
             class_path.push(class_name.clone());
+            let component_type = caps[1].to_lowercase();
             candidates.push(Candidate {
                 start: index,
                 name: class_name.clone(),
-                component_type: caps[1].to_lowercase(),
+                component_type: component_type.clone(),
                 parameters: Vec::new(),
                 class_path: containing_class,
             });
@@ -559,13 +676,18 @@ fn extract_components(
                 path: class_path,
                 indent: indentation_width(line),
                 open_depth: brace_depth,
-                pending_brace: !indentation_scoped && !code_line.contains('{'),
+                pending_brace: !(indentation_scoped
+                    || code_line.contains('{')
+                    || (language == "Rust" && code_line.trim_end().ends_with(';'))),
+                is_interface: component_type == "interface",
             });
             brace_depth = update_brace_depth(brace_depth, code_line);
             continue;
         }
 
-        let function_match = if language == "Python" {
+        let function_match = if language == "Go" {
+            None
+        } else if language == "Python" {
             python_re.captures(code_trimmed)
         } else if language == "Ruby" {
             ruby_re.captures(code_trimmed)
@@ -608,6 +730,25 @@ fn extract_components(
             brace_depth = update_brace_depth(brace_depth, code_line);
             continue;
         }
+        if language == "Go" {
+            if let Some(caps) = go_function_re.captures(code_trimmed) {
+                candidates.push(Candidate {
+                    start: index,
+                    name: caps[1].to_string(),
+                    component_type: if containing_class.is_empty() {
+                        "function".to_string()
+                    } else {
+                        "method".to_string()
+                    },
+                    parameters: split_parameters(
+                        caps.get(2).expect("Go function parameters").as_str(),
+                    ),
+                    class_path: containing_class.clone(),
+                });
+                brace_depth = update_brace_depth(brace_depth, code_line);
+                continue;
+            }
+        }
         if let Some(caps) = declaration_re.captures(code_trimmed) {
             candidates.push(Candidate {
                 start: index,
@@ -648,8 +789,15 @@ fn extract_components(
                 }
             }
         }
-        if matches!(language, "JavaScript" | "TypeScript") {
-            if let Some(caps) = method_re.captures(code_trimmed) {
+        if matches!(language, "JavaScript" | "TypeScript")
+            || (language == "Go" && class_stack.last().is_some_and(|scope| scope.is_interface))
+        {
+            let method_match = if language == "Go" {
+                go_interface_method_re.captures(code_trimmed)
+            } else {
+                method_re.captures(code_trimmed)
+            };
+            if let Some(caps) = method_match {
                 let name = caps[1].to_string();
                 if !is_control_call(&name) {
                     candidates.push(Candidate {
@@ -660,12 +808,9 @@ fn extract_components(
                         } else {
                             "method".to_string()
                         },
-                        parameters: caps[2]
-                            .split(',')
-                            .map(str::trim)
-                            .filter(|item| !item.is_empty())
-                            .map(str::to_string)
-                            .collect(),
+                        parameters: split_parameters(
+                            caps.get(2).expect("interface method parameters").as_str(),
+                        ),
                         class_path: containing_class,
                     });
                 }
@@ -748,6 +893,15 @@ fn extract_components(
         .collect()
 }
 
+fn split_parameters(parameters: &str) -> Vec<String> {
+    parameters
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 fn qualified_candidate_name(candidate: &Candidate) -> String {
     if candidate.class_path.is_empty() {
         candidate.name.clone()
@@ -818,6 +972,7 @@ fn strip_comments_and_strings(source: &str) -> String {
     let mut line_comment = false;
     let mut block_comment = false;
     let mut quote: Option<(char, bool)> = None;
+    let mut raw_string_hashes: Option<usize> = None;
 
     while index < chars.len() {
         let character = chars[index];
@@ -837,6 +992,26 @@ fn strip_comments_and_strings(source: &str) -> String {
                 output.push(' ');
                 index += 2;
                 block_comment = false;
+            } else if character == '\n' {
+                output.push('\n');
+                index += 1;
+            } else {
+                output.push(' ');
+                index += 1;
+            }
+            continue;
+        }
+        if let Some(hashes) = raw_string_hashes {
+            let closing = character == '"'
+                && (0..hashes).all(|offset| chars.get(index + 1 + offset) == Some(&'#'));
+            if closing {
+                output.push(' ');
+                index += 1;
+                for _ in 0..hashes {
+                    output.push(' ');
+                    index += 1;
+                }
+                raw_string_hashes = None;
             } else if character == '\n' {
                 output.push('\n');
                 index += 1;
@@ -876,7 +1051,11 @@ fn strip_comments_and_strings(source: &str) -> String {
             continue;
         }
 
-        if character == '/' && chars.get(index + 1) == Some(&'/') {
+        if let Some((consumed, hashes)) = raw_string_start(&chars, index) {
+            output.extend(std::iter::repeat_n(' ', consumed));
+            index += consumed;
+            raw_string_hashes = Some(hashes);
+        } else if character == '/' && chars.get(index + 1) == Some(&'/') {
             output.push(' ');
             output.push(' ');
             index += 2;
@@ -909,8 +1088,26 @@ fn strip_comments_and_strings(source: &str) -> String {
     output
 }
 
+fn raw_string_start(chars: &[char], start: usize) -> Option<(usize, usize)> {
+    let marker_len = if chars.get(start) == Some(&'r') {
+        1
+    } else if chars.get(start) == Some(&'b') && chars.get(start + 1) == Some(&'r') {
+        2
+    } else {
+        return None;
+    };
+    let mut index = start + marker_len;
+    let mut hashes = 0usize;
+    while chars.get(index) == Some(&'#') {
+        hashes += 1;
+        index += 1;
+    }
+    (chars.get(index) == Some(&'"')).then_some((index - start + 1, hashes))
+}
+
 fn resolve_dependencies(nodes: &mut BTreeMap<String, Node>) {
     let mut by_name: HashMap<String, Vec<String>> = HashMap::new();
+    let mut by_language_name: HashMap<(String, String), Vec<String>> = HashMap::new();
     for node in nodes.values() {
         let mut names = vec![node.name.clone()];
         if let Some(simple_name) = node.name.rsplit('.').next() {
@@ -919,26 +1116,50 @@ fn resolve_dependencies(nodes: &mut BTreeMap<String, Node>) {
             }
         }
         for name in names {
-            let candidates = by_name.entry(name).or_default();
+            let candidates = by_name.entry(name.clone()).or_default();
             if !candidates.contains(&node.id) {
                 candidates.push(node.id.clone());
+            }
+            let language_candidates = by_language_name
+                .entry((node.language.clone(), name.clone()))
+                .or_default();
+            if !language_candidates.contains(&node.id) {
+                language_candidates.push(node.id.clone());
             }
         }
     }
     for candidates in by_name.values_mut() {
         candidates.sort();
     }
+    for candidates in by_language_name.values_mut() {
+        candidates.sort();
+    }
     let token_re = Regex::new(r"[A-Za-z_][A-Za-z0-9_!?]*").expect("token regex");
     let ids: Vec<String> = nodes.keys().cloned().collect();
     for id in ids {
-        let (source, name) = nodes
+        let (source, name, language) = nodes
             .get(&id)
-            .map(|node| (node.source_code.clone(), node.name.clone()))
+            .map(|node| {
+                (
+                    node.source_code.clone(),
+                    node.name.clone(),
+                    node.language.clone(),
+                )
+            })
             .unwrap_or_default();
         let code = strip_comments_and_strings(&source);
         let code = mask_definition_token(&code, &name, &token_re);
         let mut dependencies = BTreeSet::new();
         for token in token_re.find_iter(&code).map(|value| value.as_str()) {
+            let language_candidates = by_language_name.get(&(language.clone(), token.to_string()));
+            if let Some(candidates) = language_candidates {
+                for candidate in candidates {
+                    if candidate != &id {
+                        dependencies.insert(candidate.clone());
+                    }
+                }
+                continue;
+            }
             if let Some(candidates) = by_name.get(token) {
                 for candidate in candidates {
                     if candidate != &id {
@@ -962,7 +1183,16 @@ fn resolve_dependencies(nodes: &mut BTreeMap<String, Node>) {
 /// build/deploy/configuration behaviour cannot disappear from the wiki.
 fn select_leaf_nodes(nodes: &BTreeMap<String, Node>) -> Vec<String> {
     const LEAF_REDUCTION_THRESHOLD: usize = 400;
-    const OOP_TYPES: &[&str] = &["class", "interface", "struct"];
+    const OOP_TYPES: &[&str] = &[
+        "class",
+        "interface",
+        "struct",
+        "enum",
+        "trait",
+        "union",
+        "module",
+        "type",
+    ];
 
     let oop_count = nodes
         .values()
@@ -1033,6 +1263,7 @@ fn artifact_class(relative: &str) -> Option<String> {
     }
     if [
         "cargo.toml",
+        "go.mod",
         "pyproject.toml",
         "package.json",
         "pom.xml",
@@ -1068,6 +1299,8 @@ fn artifact_class(relative: &str) -> Option<String> {
         return Some("test_infra".to_string());
     }
     if [
+        "cargo.lock",
+        "go.sum",
         "requirements.txt",
         "poetry.lock",
         "package-lock.json",
@@ -1291,8 +1524,30 @@ mod tests {
     }
 
     #[test]
+    fn rust_raw_strings_and_comments_do_not_hide_real_dependencies() {
+        let nodes = extract_components(
+            "fn outer() -> i32 {\n    let text = r#\"helper()\"#;\n    // helper()\n    helper()\n}\nfn helper() -> i32 { 1 }\n",
+            "service.rs",
+            Path::new("service.rs"),
+            "Rust",
+            None,
+        );
+        let mut indexed = nodes
+            .into_iter()
+            .map(|node| (node.id.clone(), node))
+            .collect::<BTreeMap<_, _>>();
+        resolve_dependencies(&mut indexed);
+        assert_eq!(
+            indexed["service.rs::outer"].depends_on,
+            vec!["service.rs::helper".to_string()]
+        );
+    }
+
+    #[test]
     fn artifact_classifies_manifests() {
         assert_eq!(artifact_class("package.json"), Some("manifest".to_string()));
+        assert_eq!(artifact_class("go.mod"), Some("manifest".to_string()));
+        assert_eq!(artifact_class("go.sum"), Some("packaging".to_string()));
         assert_eq!(
             artifact_class(".github/workflows/test.yml"),
             Some("ci".to_string())

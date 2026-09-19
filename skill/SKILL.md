@@ -102,4 +102,4 @@ The task is complete only when the requested pages and JSON artifacts are presen
 
 ## Boundaries
 
-The CLI does not call an LLM, store provider credentials, start an MCP server, or run the reference web application. The supported input languages remain Python, Java, JavaScript, TypeScript, C, C++, C#, Kotlin, PHP, Ruby, and Scala. The `reference/CodeWiki` directory is read-only reference material and is excluded from the Skill package.
+The CLI does not call an LLM, store provider credentials, start an MCP server, or run the reference web application. The supported input languages are Python, Java, JavaScript, TypeScript, Go, Rust, C, C++, C#, Kotlin, PHP, Ruby, and Scala. The `reference/CodeWiki` directory is read-only reference material and is excluded from the Skill package.

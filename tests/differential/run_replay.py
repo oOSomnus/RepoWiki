@@ -41,12 +41,14 @@ LANGUAGES = [
     "C",
     "C#",
     "C++",
+    "Go",
     "Java",
     "JavaScript",
     "Kotlin",
     "PHP",
     "Python",
     "Ruby",
+    "Rust",
     "Scala",
     "TypeScript",
 ]
@@ -251,7 +253,7 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
         summary = analysis["summary"]
         if sorted(summary["languages"]) != LANGUAGES:
             raise ReplayFailure(
-                f"11-language coverage mismatch: expected {LANGUAGES}, got {summary['languages']}"
+                f"13-language coverage mismatch: expected {LANGUAGES}, got {summary['languages']}"
             )
         if summary["supported_files"] != len(LANGUAGES):
             raise ReplayFailure(

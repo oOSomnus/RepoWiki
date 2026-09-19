@@ -15,6 +15,11 @@
       "components": ["cpp/service.cpp::CppService"],
       "children": {}
     },
+    "Go": {
+      "path": "go",
+      "components": ["go/service.go::GoService"],
+      "children": {}
+    },
     "Java": {
       "path": "java",
       "components": ["java/Service.java::JavaService"],
@@ -45,6 +50,11 @@
       "components": ["ruby/service.rb::RubyService"],
       "children": {}
     },
+    "Rust": {
+      "path": "rust",
+      "components": ["rust/service.rs::RustService"],
+      "children": {}
+    },
     "Scala": {
       "path": "scala",
       "components": ["scala/Service.scala::ScalaService"],
@@ -60,12 +70,14 @@
     "C": "# C\n\nReplay documentation for C.\n",
     "C#": "# C#\n\nReplay documentation for C#.\n",
     "C++": "# C++\n\nReplay documentation for C++.\n",
+    "Go": "# Go\n\nReplay documentation for Go.\n",
     "Java": "# Java\n\nReplay documentation for Java.\n",
     "JavaScript": "# JavaScript\n\nReplay documentation for JavaScript.\n",
     "Kotlin": "# Kotlin\n\nReplay documentation for Kotlin.\n",
     "PHP": "# PHP\n\nReplay documentation for PHP.\n",
     "Python": "# Python\n\nReplay documentation for Python.\n",
     "Ruby": "# Ruby\n\nReplay documentation for Ruby.\n",
+    "Rust": "# Rust\n\nReplay documentation for Rust.\n",
     "Scala": "# Scala\n\nReplay documentation for Scala.\n",
     "TypeScript": "# TypeScript\n\nReplay documentation for TypeScript.\n"
   },

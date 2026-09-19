@@ -52,6 +52,14 @@ def canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
+def copy_reference_fixture(destination: Path) -> None:
+    """Keep this opt-in comparison on the languages implemented by reference."""
+
+    shutil.copytree(FIXTURE, destination)
+    for language in ("go", "rust"):
+        shutil.rmtree(destination / language, ignore_errors=True)
+
+
 def resolve_binary(location: Path) -> Path:
     if location.is_file():
         return location.resolve()
@@ -187,8 +195,8 @@ def main() -> int:
             temporary_root = Path(temporary)
             skill_repo = temporary_root / "skill-repo"
             reference_repo = temporary_root / "reference-repo"
-            shutil.copytree(FIXTURE, skill_repo)
-            shutil.copytree(FIXTURE, reference_repo)
+            copy_reference_fixture(skill_repo)
+            copy_reference_fixture(reference_repo)
             skill = skill_contract(binary, skill_repo, temporary_root / "skill-output")
             reference = reference_contract(reference_root, reference_repo)
             compare(skill, reference)

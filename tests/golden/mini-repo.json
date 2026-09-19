@@ -32,6 +32,16 @@
         "start_line": 1
       },
       {
+        "component_type": "struct",
+        "end_line": 3,
+        "file_path": "<repo>/go/service.go",
+        "id": "go/service.go::GoService",
+        "language": "Go",
+        "name": "GoService",
+        "relative_path": "go/service.go",
+        "start_line": 3
+      },
+      {
         "component_type": "class",
         "end_line": 2,
         "file_path": "<repo>/java/Service.java",
@@ -89,6 +99,16 @@
         "language": "Ruby",
         "name": "RubyService",
         "relative_path": "ruby/service.rb",
+        "start_line": 1
+      },
+      {
+        "component_type": "struct",
+        "end_line": 1,
+        "file_path": "<repo>/rust/service.rs",
+        "id": "rust/service.rs::RustService",
+        "language": "Rust",
+        "name": "RustService",
+        "relative_path": "rust/service.rs",
         "start_line": 1
       },
       {
@@ -169,6 +189,25 @@
         "relative_path": "csharp/Service.cs",
         "source_code": "class CSharpService {\n}",
         "start_line": 1
+      },
+      "go/service.go::GoService": {
+        "base_classes": [],
+        "component_id": "go/service.go::GoService",
+        "component_type": "struct",
+        "depends_on": [],
+        "display_name": "struct GoService",
+        "end_line": 3,
+        "file_path": "<repo>/go/service.go",
+        "has_docstring": false,
+        "id": "go/service.go::GoService",
+        "language": "Go",
+        "name": "GoService",
+        "node_type": "struct",
+        "parameters": [],
+        "qualified_name": "go/service.go::GoService",
+        "relative_path": "go/service.go",
+        "source_code": "type GoService struct{}",
+        "start_line": 3
       },
       "java/Service.java::JavaService": {
         "base_classes": [],
@@ -285,6 +324,25 @@
         "source_code": "class RubyService\nend",
         "start_line": 1
       },
+      "rust/service.rs::RustService": {
+        "base_classes": [],
+        "component_id": "rust/service.rs::RustService",
+        "component_type": "struct",
+        "depends_on": [],
+        "display_name": "struct RustService",
+        "end_line": 1,
+        "file_path": "<repo>/rust/service.rs",
+        "has_docstring": false,
+        "id": "rust/service.rs::RustService",
+        "language": "Rust",
+        "name": "RustService",
+        "node_type": "struct",
+        "parameters": [],
+        "qualified_name": "rust/service.rs::RustService",
+        "relative_path": "rust/service.rs",
+        "source_code": "pub struct RustService;",
+        "start_line": 1
+      },
       "scala/Service.scala::ScalaService": {
         "base_classes": [],
         "component_id": "scala/Service.scala::ScalaService",
@@ -328,12 +386,14 @@
       "c/service.c::CService",
       "cpp/service.cpp::CppService",
       "csharp/Service.cs::CSharpService",
+      "go/service.go::GoService",
       "java/Service.java::JavaService",
       "javascript/service.js::JavaScriptService",
       "kotlin/Service.kt::KotlinService",
       "php/Service.php::PhpService",
       "python/service.py::PythonService",
       "ruby/service.rb::RubyService",
+      "rust/service.rs::RustService",
       "scala/Service.scala::ScalaService",
       "typescript/service.ts::TypeScriptService"
     ],
@@ -342,19 +402,21 @@
         "C",
         "C#",
         "C++",
+        "Go",
         "Java",
         "JavaScript",
         "Kotlin",
         "PHP",
         "Python",
         "Ruby",
+        "Rust",
         "Scala",
         "TypeScript"
       ],
-      "leaf_nodes": 11,
+      "leaf_nodes": 13,
       "max_depth": 2,
-      "supported_files": 11,
-      "total_components": 11,
+      "supported_files": 13,
+      "total_components": 13,
       "warnings": []
     }
   },
@@ -366,12 +428,14 @@
     "C.md": "# C\n\nReplay documentation for C.\n",
     "C_.md": "# C#\n\nReplay documentation for C#.\n",
     "C__.md": "# C++\n\nReplay documentation for C++.\n",
+    "Go.md": "# Go\n\nReplay documentation for Go.\n",
     "Java.md": "# Java\n\nReplay documentation for Java.\n",
     "JavaScript.md": "# JavaScript\n\nReplay documentation for JavaScript.\n",
     "Kotlin.md": "# Kotlin\n\nReplay documentation for Kotlin.\n",
     "PHP.md": "# PHP\n\nReplay documentation for PHP.\n",
     "Python.md": "# Python\n\nReplay documentation for Python.\n",
     "Ruby.md": "# Ruby\n\nReplay documentation for Ruby.\n",
+    "Rust.md": "# Rust\n\nReplay documentation for Rust.\n",
     "Scala.md": "# Scala\n\nReplay documentation for Scala.\n",
     "TypeScript.md": "# TypeScript\n\nReplay documentation for TypeScript.\n",
     "overview.md": "# Replay Wiki\n\nThis overview was produced by the fixed replay transcript.\n"
@@ -398,6 +462,13 @@
       ],
       "path": "cpp"
     },
+    "Go": {
+      "children": {},
+      "components": [
+        "go/service.go::GoService"
+      ],
+      "path": "go"
+    },
     "Java": {
       "children": {},
       "components": [
@@ -439,6 +510,13 @@
         "ruby/service.rb::RubyService"
       ],
       "path": "ruby"
+    },
+    "Rust": {
+      "children": {},
+      "components": [
+        "rust/service.rs::RustService"
+      ],
+      "path": "rust"
     },
     "Scala": {
       "children": {},
@@ -463,12 +541,14 @@
       "C.md",
       "C_.md",
       "C__.md",
+      "Go.md",
       "Java.md",
       "JavaScript.md",
       "Kotlin.md",
       "PHP.md",
       "Python.md",
       "Ruby.md",
+      "Rust.md",
       "Scala.md",
       "TypeScript.md"
     ],
@@ -479,9 +559,9 @@
       "repo_path": "<repo>"
     },
     "statistics": {
-      "leaf_nodes": 11,
+      "leaf_nodes": 13,
       "max_depth": 1,
-      "total_components": 11
+      "total_components": 13
     }
   },
   "module_tree": {
@@ -505,6 +585,13 @@
         "cpp/service.cpp::CppService"
       ],
       "path": "cpp"
+    },
+    "Go": {
+      "children": {},
+      "components": [
+        "go/service.go::GoService"
+      ],
+      "path": "go"
     },
     "Java": {
       "children": {},
@@ -548,6 +635,13 @@
       ],
       "path": "ruby"
     },
+    "Rust": {
+      "children": {},
+      "components": [
+        "rust/service.rs::RustService"
+      ],
+      "path": "rust"
+    },
     "Scala": {
       "children": {},
       "components": [
@@ -567,12 +661,14 @@
     "C.md",
     "C_.md",
     "C__.md",
+    "Go.md",
     "Java.md",
     "JavaScript.md",
     "Kotlin.md",
     "PHP.md",
     "Python.md",
     "Ruby.md",
+    "Rust.md",
     "Scala.md",
     "TypeScript.md",
     "first_module_tree.json",
@@ -611,6 +707,16 @@
       "module": "C++",
       "path": [
         "C++"
+      ]
+    },
+    {
+      "components": [
+        "go/service.go::GoService"
+      ],
+      "is_leaf": true,
+      "module": "Go",
+      "path": [
+        "Go"
       ]
     },
     {
@@ -675,6 +781,16 @@
     },
     {
       "components": [
+        "rust/service.rs::RustService"
+      ],
+      "is_leaf": true,
+      "module": "Rust",
+      "path": [
+        "Rust"
+      ]
+    },
+    {
+      "components": [
         "scala/Service.scala::ScalaService"
       ],
       "is_leaf": true,
@@ -699,39 +815,43 @@
       "e1ac444ba09837fbd78e2fb6fb7927f52ea06a2ecb940f7a835da13e6d607c79"
     ],
     "overview_repo": [
-      "5e655552e4b9d70a707655325621ba3ea20e4f0257e6890d8e72382d3fbb9f4c"
+      "ee49c72a8a587e7ea58633b8955656e886da2c0795de53cfb4d017f5be0004d6"
     ],
     "system_leaf": [
       "d491c103e467a32986266cf9a4f2e0ac1b168076d5c8769b5a2ff0685d8c6118",
       "c07056c9cf8c0fccb79a8ca880b2d6b1dcbffd44e75322a483d786c49aa3baab",
       "92cca4a22cf732c04eb50572de23dcc641c1a61cdca704112d823563f4921883",
+      "8302fad5310c6300fac39be8fab0f822dcd5e817c91c3f25a32e213a853666a9",
       "5f8720662580376c49eea2bd0b9682192280b08927846cba17cd3d590de579bd",
       "ab150c8756c2586389ed967fe183c099ab9f0dcc3d27e823e34082ed13dbb4d9",
       "b4036db7cb2441adb902f845ecc00cd766dfa9f63e5320b1fdd13adca93be69d",
       "b71027c91b1b048b5ab0923398ddb7ee2b87a67fa64d7afad39937dfbf50474c",
       "50128bb4b518bc7b441be1f92a68068e5f0bf2f9b595d2f61eff162914d6c436",
       "46bce14ccb56a3bcd9fddd3d82786d7312867ff7909fbc168626636973620fae",
+      "309079bcbbed530f4dc3028af026ce7773691a138a75790be8efde3bf1d4dd9f",
       "24c4c54b1018e3c7a8c06da8994620bc0ecbfca4f5a0da4ca57d7ac4e90d54e4",
       "78b50b58f1299d5f1437785b21253bf5babaa7f4c38481f263d2a8b56225d4e7"
     ],
     "user": [
-      "462edd80c8f20555c703e8bcf8154de803183d2c271c74757d60e69b208e2790",
-      "e21d5e492323461b7b2a875e2f5cf62769ca8c95fbb5e93ed7128662d2438305",
-      "097da6d5fbae24c71ecab5e97745a636ab06683d2f2b61e7ee27180f125cc1c1",
-      "ddb9abb26618ce2e60b29e3d4b8f08b374d8b685b96615a4a771d5cba7cedfcb",
-      "896e9a1a537be7e6d7eb31a21b9fdb105d73a61e985094b0af8bd6a8638943d1",
-      "8317eb09d4b0d1ff163bfbcb94406a4f08cacdb19b6854c2503592c12863d17c",
-      "cc7b69d5b41eeee204d838b12ea88422cbc7431982f75a5ce82c76dba8aa5efa",
-      "206bc38b574172a675c03751a76a32b954ecee8c5b63b15c5a0902bb4ad5aad7",
-      "7e5df4c4c19cde99d4866123d7aa22d037bbc0b5aa3fda0421255ecc6f0bea98",
-      "479a70f6a5985a9a311107807e7111742a767a098596f3c1f915f010558acf35",
-      "ab7315821aa5526c5c25f5956d68a253175d6963cfca7962d18783d867a89d80"
+      "a4101745f838de5a0ccc76aa2c8e552e4842fbcb6ac3ac35af8d6a593e5ee093",
+      "f6475913767f249a067960b9d5b3198fb58809665885370b663d410995e6828d",
+      "eefb8cbea44d5c7f3bd4b7c62e60a5626ae49fd1b9fc1261062ced2419e9cc93",
+      "9aa888da60e6bf15b2c24175b5cd20e82893b555bb04238a788f84e737b6ce8a",
+      "cb131f3aed769a2cd5d5d2f57ddb657929f6ad49e493b9acc4a56d7788e8b07e",
+      "a9a0ad8b01a2d25acd9b2f85e7b29fa669f9479d0c5e0575da6aabafd474c9cf",
+      "270bc03e5ca7e1b09c54db5aa4596fee6a668e8f7c071c3b2c836b4ff37119ff",
+      "141fb7d16277dfd339ef32cd3d321e759b5d14143fd9d25f022660f223d6ab18",
+      "d278d41ac4a37febdffe0ab65f5491aa8bb1407b22c81fb46ccd86ce63cbf44a",
+      "aa66fdf357599e30ea7d905e3300e640d426e71f6a83f5bf88765ecb2727fd56",
+      "ee7224e43a7da1bae12f3197f1e5cb1dc5ed1909814740e9f04e7bfc75464029",
+      "66cd507c62762cc2529400aa9492115fef5dc7afab860d58eac0448c0907f6c2",
+      "636ddb95c4635d31289cb0fc37aed70c8d4757d2a511a0c044c1537f691bb5d9"
     ]
   },
   "validation": {
-    "leaf_count": 11,
+    "leaf_count": 13,
     "leftover_candidate_ids": [],
-    "module_count": 11,
+    "module_count": 13,
     "unmatched_component_ids": [],
     "valid": true
   }

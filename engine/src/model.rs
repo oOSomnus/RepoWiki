@@ -6,6 +6,8 @@ pub const SUPPORTED_LANGUAGES: &[&str] = &[
     "Java",
     "JavaScript",
     "TypeScript",
+    "Go",
+    "Rust",
     "C",
     "C++",
     "C#",

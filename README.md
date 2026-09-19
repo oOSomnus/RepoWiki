@@ -57,7 +57,7 @@ make test-reference
 ## 离线回放与差分验证
 
 `make test` 不需要实时 LLM、MCP、API key 或 reference Python 依赖。它会使用
-`tests/differential/fixture/` 中覆盖当前 11 种语言的固定仓库和
+`tests/differential/fixture/` 中覆盖当前 13 种语言的固定仓库和
 `tests/differential/transcript.json`，通过公开 CLI 顺序回放：分析、prompt 获取、模块树保存与排序、组件读取、文档写入和 session close。
 运行结果会经过稳定 canonicalization，与受版本控制的
 `tests/golden/mini-repo.json` 比较；随后还会解压刚生成的 ZIP，用安装目录中的
@@ -72,6 +72,8 @@ python3 tests/differential/run_replay.py \
 ```
 
 只有在有意接受新运行时契约变化时，才使用 `--update-golden` 更新 golden。
+
+`make test-reference` 仍使用 reference 实现已有的 11 种语言基线；Rust/Go 的新契约由主离线回放和 Rust 分析器测试覆盖，`reference/CodeWiki` 不参与扩展。
 
 `make test-reference` 是额外的真实 reference differential gate。它调用
 `tools/reference_probe.py` 加载 `reference/CodeWiki` 的 parser，并比较固定 fixture
