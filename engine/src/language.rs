@@ -567,19 +567,18 @@ impl<'a> Collector<'a> {
             }
             "type_declaration" => DeclKind::Type,
             "property_declaration" => DeclKind::Property,
-            "variable_declarator" => {
-                if self.language == LanguageId::JavaScript
-                    || self.language == LanguageId::TypeScript
+            "variable_declarator"
+                if matches!(
+                    self.language,
+                    LanguageId::JavaScript | LanguageId::TypeScript
+                ) =>
+            {
+                if has_descendant_kind(node, "arrow_function")
+                    || has_descendant_kind(node, "function_expression")
                 {
-                    if has_descendant_kind(node, "arrow_function")
-                        || has_descendant_kind(node, "function_expression")
-                    {
-                        DeclKind::Function
-                    } else {
-                        DeclKind::Variable
-                    }
+                    DeclKind::Function
                 } else {
-                    return None;
+                    DeclKind::Variable
                 }
             }
             _ => return None,

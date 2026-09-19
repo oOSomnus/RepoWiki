@@ -71,3 +71,42 @@ fn all_supported_language_extensions_survive_analysis() {
 
     session::cleanup(repo.path(), &state.session_id).expect("clean test session");
 }
+
+#[test]
+fn javascript_variable_declarators_keep_function_and_variable_kinds() {
+    for (language, relative_path, source) in [
+        (
+            "javascript",
+            "sample.js",
+            "const callback = () => 1;\nconst value = 1;\n",
+        ),
+        (
+            "typescript",
+            "sample.ts",
+            "const callback = (value: number) => value;\nconst value: number = 1;\n",
+        ),
+    ] {
+        let analysis = codewiki::language::analyze_file(
+            source,
+            relative_path,
+            Path::new(relative_path),
+            language,
+            None,
+        )
+        .expect("JavaScript and TypeScript should analyze");
+
+        let callback = analysis
+            .nodes
+            .iter()
+            .find(|node| node.name == "callback")
+            .expect("callback declaration should be extracted");
+        assert_eq!(callback.component_type, "function");
+
+        let value = analysis
+            .nodes
+            .iter()
+            .find(|node| node.name == "value")
+            .expect("value declaration should be extracted");
+        assert_eq!(value.component_type, "variable");
+    }
+}

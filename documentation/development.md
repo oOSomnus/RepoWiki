@@ -38,6 +38,14 @@ scripts/codewiki                  # or scripts/codewiki.exe
 
 The Rust prompt sources are embedded into the executable during the build.
 
+Rust commands use the repository's latest Stable toolchain through
+`rust-toolchain.toml`. Refresh it before verification with:
+
+```bash
+rustup update stable
+rustup show active-toolchain
+```
+
 `make install` builds the package, validates it, and installs it below
 `INSTALL_DIR` (default: `~/.agents/skills`). Installation is staged and
 validated before the existing `<INSTALL_DIR>/RepoWiki` directory is replaced.
