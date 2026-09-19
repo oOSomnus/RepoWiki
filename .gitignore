@@ -5,6 +5,7 @@
 /skill/.codewiki-build/
 /preview/
 /dist/
+/graphify-out/
 /reference/.venv/
 **/__pycache__/
 *.pyc
