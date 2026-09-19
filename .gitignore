@@ -1,0 +1,12 @@
+/**/target/
+/.build/
+/.codewiki/
+**/.codewiki/
+/skill/.codewiki-build/
+/preview/
+/dist/
+**/__pycache__/
+*.pyc
+/.codewiki-build/
+/docs/
+*.rs.bk

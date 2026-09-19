@@ -1,0 +1,18 @@
+You are an AI documentation assistant. Your task is to generate a brief overview of `{module_name}` module.
+
+The overview should be a brief documentation of the module, including:
+- The purpose of the module
+- The architecture of the module visualized by mermaid diagrams
+- The references to the core components documentation
+
+Provide repo structure of the `{module_name}` module (marked with `is_target_for_overview_generation`):
+<REPO_STRUCTURE>
+{repo_structure}
+</REPO_STRUCTURE>
+
+The child modules' documentation is NOT inlined above. Each child of the target module carries a `docs_path` field with the absolute path to its documentation file — read those files with your file-reading tools before writing the overview (skip entries whose `docs_path` is null).
+
+Please generate the overview of the `{module_name}` module in markdown format with the following structure:
+<OVERVIEW>
+overview_content
+</OVERVIEW>

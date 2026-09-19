@@ -1,0 +1,73 @@
+{
+  "module_tree": {
+    "C": {
+      "path": "c",
+      "components": ["c/service.c::CService"],
+      "children": {}
+    },
+    "C#": {
+      "path": "csharp",
+      "components": ["csharp/Service.cs::CSharpService"],
+      "children": {}
+    },
+    "C++": {
+      "path": "cpp",
+      "components": ["cpp/service.cpp::CppService"],
+      "children": {}
+    },
+    "Java": {
+      "path": "java",
+      "components": ["java/Service.java::JavaService"],
+      "children": {}
+    },
+    "JavaScript": {
+      "path": "javascript",
+      "components": ["javascript/service.js::JavaScriptService"],
+      "children": {}
+    },
+    "Kotlin": {
+      "path": "kotlin",
+      "components": ["kotlin/Service.kt::KotlinService"],
+      "children": {}
+    },
+    "PHP": {
+      "path": "php",
+      "components": ["php/Service.php::PhpService"],
+      "children": {}
+    },
+    "Python": {
+      "path": "python",
+      "components": ["python/service.py::PythonService"],
+      "children": {}
+    },
+    "Ruby": {
+      "path": "ruby",
+      "components": ["ruby/service.rb::RubyService"],
+      "children": {}
+    },
+    "Scala": {
+      "path": "scala",
+      "components": ["scala/Service.scala::ScalaService"],
+      "children": {}
+    },
+    "TypeScript": {
+      "path": "typescript",
+      "components": ["typescript/service.ts::TypeScriptService"],
+      "children": {}
+    }
+  },
+  "documents": {
+    "C": "# C\n\nReplay documentation for C.\n",
+    "C#": "# C#\n\nReplay documentation for C#.\n",
+    "C++": "# C++\n\nReplay documentation for C++.\n",
+    "Java": "# Java\n\nReplay documentation for Java.\n",
+    "JavaScript": "# JavaScript\n\nReplay documentation for JavaScript.\n",
+    "Kotlin": "# Kotlin\n\nReplay documentation for Kotlin.\n",
+    "PHP": "# PHP\n\nReplay documentation for PHP.\n",
+    "Python": "# Python\n\nReplay documentation for Python.\n",
+    "Ruby": "# Ruby\n\nReplay documentation for Ruby.\n",
+    "Scala": "# Scala\n\nReplay documentation for Scala.\n",
+    "TypeScript": "# TypeScript\n\nReplay documentation for TypeScript.\n"
+  },
+  "overview": "# Replay Wiki\n\nThis overview was produced by the fixed replay transcript.\n"
+}

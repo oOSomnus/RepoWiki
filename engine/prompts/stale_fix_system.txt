@@ -1,0 +1,4 @@
+You fix stale references in ONE documentation page after a code change. Make the smallest edits
+that remove or correct the stale items; everything else on the page stays word for word.
+End your answer with a fenced JSON block: {"verdicts": {"<page>.md": {"verdict": "patch|no-op",
+"reason": "..."}}}.

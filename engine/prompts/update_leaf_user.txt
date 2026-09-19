@@ -1,0 +1,25 @@
+Update the documentation for the module `{leaf_name}` (mode: {mode}).
+
+{mode_note}
+
+<WRITE_SET>
+{write_set}
+</WRITE_SET>
+
+<CHANGE_REPORT>
+{report}
+</CHANGE_REPORT>
+
+<MODULE_TREE>
+{module_tree}
+</MODULE_TREE>
+
+<LEAF_COMPONENTS>
+{leaf_components}
+</LEAF_COMPONENTS>
+
+<CURRENT_LEAF_PAGE path="{leaf_name}.md">
+{leaf_page}
+</CURRENT_LEAF_PAGE>
+
+Work through the write set page by page, then end with the JSON verdict block.

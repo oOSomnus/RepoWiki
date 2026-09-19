@@ -1,0 +1,23 @@
+The repository changed and these new components could not be placed by rules (same file,
+same directory, or majority of graph neighbours). Place each one.
+
+<MODULE_TREE>
+{module_tree}
+</MODULE_TREE>
+
+<ORPHANS>
+{orphans}
+</ORPHANS>
+
+For each orphan choose exactly one action:
+- "place": add it to an existing leaf module ("leaf": exact module name from the tree).
+- "create": create a new leaf module ("new_leaf": short snake_case name, "parent": exact name of an
+  existing module that has children, or null for top level). Use the same new_leaf name for
+  orphans that belong together; a new subsystem landing in one commit should become one new leaf.
+- "untracked": leave it out of the wiki (tests, throwaway scripts, trivial helpers).
+
+Return exactly one fenced JSON block:
+```json
+{{"decisions": [{{"component_id": "...", "action": "place|create|untracked", "leaf": "...",
+                 "new_leaf": "...", "parent": "...", "reason": "<one line>"}}]}}
+```

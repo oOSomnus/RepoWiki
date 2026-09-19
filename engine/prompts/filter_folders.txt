@@ -1,0 +1,11 @@
+
+Here is the list of relative paths of files, folders in 2-depth of project {project_name}:
+```
+{files}
+```
+
+In order to analyze the core functionality of the project, we need to analyze the files, folders representing the core functionality of the project.
+
+Please shortlist the files, folders representing the core functionality and ignore the files, folders that are not essential to the core functionality of the project (e.g. test files, documentation files, etc.) from the list above.
+
+Reasoning at first, then return the list of relative paths in JSON format.

@@ -1,0 +1,1 @@
+NOTE: per-module component listings were omitted because the full module tree exceeds the model input limit. Module names and hierarchy are complete; read the referenced modules' documentation files or use your code-reading tools when you need component-level detail.

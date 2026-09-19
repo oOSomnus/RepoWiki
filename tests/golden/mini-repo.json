@@ -1,0 +1,738 @@
+{
+  "analysis": {
+    "components": [
+      {
+        "component_type": "struct",
+        "end_line": 2,
+        "file_path": "<repo>/c/service.c",
+        "id": "c/service.c::CService",
+        "language": "C",
+        "name": "CService",
+        "relative_path": "c/service.c",
+        "start_line": 1
+      },
+      {
+        "component_type": "struct",
+        "end_line": 2,
+        "file_path": "<repo>/cpp/service.cpp",
+        "id": "cpp/service.cpp::CppService",
+        "language": "C++",
+        "name": "CppService",
+        "relative_path": "cpp/service.cpp",
+        "start_line": 1
+      },
+      {
+        "component_type": "class",
+        "end_line": 2,
+        "file_path": "<repo>/csharp/Service.cs",
+        "id": "csharp/Service.cs::CSharpService",
+        "language": "C#",
+        "name": "CSharpService",
+        "relative_path": "csharp/Service.cs",
+        "start_line": 1
+      },
+      {
+        "component_type": "class",
+        "end_line": 2,
+        "file_path": "<repo>/java/Service.java",
+        "id": "java/Service.java::JavaService",
+        "language": "Java",
+        "name": "JavaService",
+        "relative_path": "java/Service.java",
+        "start_line": 1
+      },
+      {
+        "component_type": "class",
+        "end_line": 2,
+        "file_path": "<repo>/javascript/service.js",
+        "id": "javascript/service.js::JavaScriptService",
+        "language": "JavaScript",
+        "name": "JavaScriptService",
+        "relative_path": "javascript/service.js",
+        "start_line": 1
+      },
+      {
+        "component_type": "class",
+        "end_line": 1,
+        "file_path": "<repo>/kotlin/Service.kt",
+        "id": "kotlin/Service.kt::KotlinService",
+        "language": "Kotlin",
+        "name": "KotlinService",
+        "relative_path": "kotlin/Service.kt",
+        "start_line": 1
+      },
+      {
+        "component_type": "class",
+        "end_line": 3,
+        "file_path": "<repo>/php/Service.php",
+        "id": "php/Service.php::PhpService",
+        "language": "PHP",
+        "name": "PhpService",
+        "relative_path": "php/Service.php",
+        "start_line": 2
+      },
+      {
+        "component_type": "class",
+        "end_line": 2,
+        "file_path": "<repo>/python/service.py",
+        "id": "python/service.py::PythonService",
+        "language": "Python",
+        "name": "PythonService",
+        "relative_path": "python/service.py",
+        "start_line": 1
+      },
+      {
+        "component_type": "class",
+        "end_line": 2,
+        "file_path": "<repo>/ruby/service.rb",
+        "id": "ruby/service.rb::RubyService",
+        "language": "Ruby",
+        "name": "RubyService",
+        "relative_path": "ruby/service.rb",
+        "start_line": 1
+      },
+      {
+        "component_type": "class",
+        "end_line": 1,
+        "file_path": "<repo>/scala/Service.scala",
+        "id": "scala/Service.scala::ScalaService",
+        "language": "Scala",
+        "name": "ScalaService",
+        "relative_path": "scala/Service.scala",
+        "start_line": 1
+      },
+      {
+        "component_type": "class",
+        "end_line": 2,
+        "file_path": "<repo>/typescript/service.ts",
+        "id": "typescript/service.ts::TypeScriptService",
+        "language": "TypeScript",
+        "name": "TypeScriptService",
+        "relative_path": "typescript/service.ts",
+        "start_line": 1
+      }
+    ],
+    "graph": {
+      "c/service.c::CService": {
+        "base_classes": [],
+        "component_id": "c/service.c::CService",
+        "component_type": "struct",
+        "depends_on": [],
+        "display_name": "struct CService",
+        "end_line": 2,
+        "file_path": "<repo>/c/service.c",
+        "has_docstring": false,
+        "id": "c/service.c::CService",
+        "language": "C",
+        "name": "CService",
+        "node_type": "struct",
+        "parameters": [],
+        "qualified_name": "c/service.c::CService",
+        "relative_path": "c/service.c",
+        "source_code": "struct CService {\n};",
+        "start_line": 1
+      },
+      "cpp/service.cpp::CppService": {
+        "base_classes": [],
+        "component_id": "cpp/service.cpp::CppService",
+        "component_type": "struct",
+        "depends_on": [],
+        "display_name": "struct CppService",
+        "end_line": 2,
+        "file_path": "<repo>/cpp/service.cpp",
+        "has_docstring": false,
+        "id": "cpp/service.cpp::CppService",
+        "language": "C++",
+        "name": "CppService",
+        "node_type": "struct",
+        "parameters": [],
+        "qualified_name": "cpp/service.cpp::CppService",
+        "relative_path": "cpp/service.cpp",
+        "source_code": "struct CppService {\n};",
+        "start_line": 1
+      },
+      "csharp/Service.cs::CSharpService": {
+        "base_classes": [],
+        "component_id": "csharp/Service.cs::CSharpService",
+        "component_type": "class",
+        "depends_on": [],
+        "display_name": "class CSharpService",
+        "end_line": 2,
+        "file_path": "<repo>/csharp/Service.cs",
+        "has_docstring": false,
+        "id": "csharp/Service.cs::CSharpService",
+        "language": "C#",
+        "name": "CSharpService",
+        "node_type": "class",
+        "parameters": [],
+        "qualified_name": "csharp/Service.cs::CSharpService",
+        "relative_path": "csharp/Service.cs",
+        "source_code": "class CSharpService {\n}",
+        "start_line": 1
+      },
+      "java/Service.java::JavaService": {
+        "base_classes": [],
+        "component_id": "java/Service.java::JavaService",
+        "component_type": "class",
+        "depends_on": [],
+        "display_name": "class JavaService",
+        "end_line": 2,
+        "file_path": "<repo>/java/Service.java",
+        "has_docstring": false,
+        "id": "java/Service.java::JavaService",
+        "language": "Java",
+        "name": "JavaService",
+        "node_type": "class",
+        "parameters": [],
+        "qualified_name": "java/Service.java::JavaService",
+        "relative_path": "java/Service.java",
+        "source_code": "class JavaService {\n}",
+        "start_line": 1
+      },
+      "javascript/service.js::JavaScriptService": {
+        "base_classes": [],
+        "component_id": "javascript/service.js::JavaScriptService",
+        "component_type": "class",
+        "depends_on": [],
+        "display_name": "class JavaScriptService",
+        "end_line": 2,
+        "file_path": "<repo>/javascript/service.js",
+        "has_docstring": false,
+        "id": "javascript/service.js::JavaScriptService",
+        "language": "JavaScript",
+        "name": "JavaScriptService",
+        "node_type": "class",
+        "parameters": [],
+        "qualified_name": "javascript/service.js::JavaScriptService",
+        "relative_path": "javascript/service.js",
+        "source_code": "class JavaScriptService {\n}",
+        "start_line": 1
+      },
+      "kotlin/Service.kt::KotlinService": {
+        "base_classes": [],
+        "component_id": "kotlin/Service.kt::KotlinService",
+        "component_type": "class",
+        "depends_on": [],
+        "display_name": "class KotlinService",
+        "end_line": 1,
+        "file_path": "<repo>/kotlin/Service.kt",
+        "has_docstring": false,
+        "id": "kotlin/Service.kt::KotlinService",
+        "language": "Kotlin",
+        "name": "KotlinService",
+        "node_type": "class",
+        "parameters": [],
+        "qualified_name": "kotlin/Service.kt::KotlinService",
+        "relative_path": "kotlin/Service.kt",
+        "source_code": "class KotlinService",
+        "start_line": 1
+      },
+      "php/Service.php::PhpService": {
+        "base_classes": [],
+        "component_id": "php/Service.php::PhpService",
+        "component_type": "class",
+        "depends_on": [],
+        "display_name": "class PhpService",
+        "end_line": 3,
+        "file_path": "<repo>/php/Service.php",
+        "has_docstring": false,
+        "id": "php/Service.php::PhpService",
+        "language": "PHP",
+        "name": "PhpService",
+        "node_type": "class",
+        "parameters": [],
+        "qualified_name": "php/Service.php::PhpService",
+        "relative_path": "php/Service.php",
+        "source_code": "class PhpService {\n}",
+        "start_line": 2
+      },
+      "python/service.py::PythonService": {
+        "base_classes": [],
+        "component_id": "python/service.py::PythonService",
+        "component_type": "class",
+        "depends_on": [],
+        "display_name": "class PythonService",
+        "docstring": "pass",
+        "end_line": 2,
+        "file_path": "<repo>/python/service.py",
+        "has_docstring": true,
+        "id": "python/service.py::PythonService",
+        "language": "Python",
+        "name": "PythonService",
+        "node_type": "class",
+        "parameters": [],
+        "qualified_name": "python/service.py::PythonService",
+        "relative_path": "python/service.py",
+        "source_code": "class PythonService:\n    pass",
+        "start_line": 1
+      },
+      "ruby/service.rb::RubyService": {
+        "base_classes": [],
+        "component_id": "ruby/service.rb::RubyService",
+        "component_type": "class",
+        "depends_on": [],
+        "display_name": "class RubyService",
+        "end_line": 2,
+        "file_path": "<repo>/ruby/service.rb",
+        "has_docstring": false,
+        "id": "ruby/service.rb::RubyService",
+        "language": "Ruby",
+        "name": "RubyService",
+        "node_type": "class",
+        "parameters": [],
+        "qualified_name": "ruby/service.rb::RubyService",
+        "relative_path": "ruby/service.rb",
+        "source_code": "class RubyService\nend",
+        "start_line": 1
+      },
+      "scala/Service.scala::ScalaService": {
+        "base_classes": [],
+        "component_id": "scala/Service.scala::ScalaService",
+        "component_type": "class",
+        "depends_on": [],
+        "display_name": "class ScalaService",
+        "end_line": 1,
+        "file_path": "<repo>/scala/Service.scala",
+        "has_docstring": false,
+        "id": "scala/Service.scala::ScalaService",
+        "language": "Scala",
+        "name": "ScalaService",
+        "node_type": "class",
+        "parameters": [],
+        "qualified_name": "scala/Service.scala::ScalaService",
+        "relative_path": "scala/Service.scala",
+        "source_code": "class ScalaService",
+        "start_line": 1
+      },
+      "typescript/service.ts::TypeScriptService": {
+        "base_classes": [],
+        "component_id": "typescript/service.ts::TypeScriptService",
+        "component_type": "class",
+        "depends_on": [],
+        "display_name": "class TypeScriptService",
+        "end_line": 2,
+        "file_path": "<repo>/typescript/service.ts",
+        "has_docstring": false,
+        "id": "typescript/service.ts::TypeScriptService",
+        "language": "TypeScript",
+        "name": "TypeScriptService",
+        "node_type": "class",
+        "parameters": [],
+        "qualified_name": "typescript/service.ts::TypeScriptService",
+        "relative_path": "typescript/service.ts",
+        "source_code": "class TypeScriptService {\n}",
+        "start_line": 1
+      }
+    },
+    "leaf_nodes": [
+      "c/service.c::CService",
+      "cpp/service.cpp::CppService",
+      "csharp/Service.cs::CSharpService",
+      "java/Service.java::JavaService",
+      "javascript/service.js::JavaScriptService",
+      "kotlin/Service.kt::KotlinService",
+      "php/Service.php::PhpService",
+      "python/service.py::PythonService",
+      "ruby/service.rb::RubyService",
+      "scala/Service.scala::ScalaService",
+      "typescript/service.ts::TypeScriptService"
+    ],
+    "summary": {
+      "languages": [
+        "C",
+        "C#",
+        "C++",
+        "Java",
+        "JavaScript",
+        "Kotlin",
+        "PHP",
+        "Python",
+        "Ruby",
+        "Scala",
+        "TypeScript"
+      ],
+      "leaf_nodes": 11,
+      "max_depth": 2,
+      "supported_files": 11,
+      "total_components": 11,
+      "warnings": []
+    }
+  },
+  "close": {
+    "cleaned": true,
+    "metadata_present": true
+  },
+  "documents": {
+    "C.md": "# C\n\nReplay documentation for C.\n",
+    "C_.md": "# C#\n\nReplay documentation for C#.\n",
+    "C__.md": "# C++\n\nReplay documentation for C++.\n",
+    "Java.md": "# Java\n\nReplay documentation for Java.\n",
+    "JavaScript.md": "# JavaScript\n\nReplay documentation for JavaScript.\n",
+    "Kotlin.md": "# Kotlin\n\nReplay documentation for Kotlin.\n",
+    "PHP.md": "# PHP\n\nReplay documentation for PHP.\n",
+    "Python.md": "# Python\n\nReplay documentation for Python.\n",
+    "Ruby.md": "# Ruby\n\nReplay documentation for Ruby.\n",
+    "Scala.md": "# Scala\n\nReplay documentation for Scala.\n",
+    "TypeScript.md": "# TypeScript\n\nReplay documentation for TypeScript.\n",
+    "overview.md": "# Replay Wiki\n\nThis overview was produced by the fixed replay transcript.\n"
+  },
+  "first_module_tree": {
+    "C": {
+      "children": {},
+      "components": [
+        "c/service.c::CService"
+      ],
+      "path": "c"
+    },
+    "C#": {
+      "children": {},
+      "components": [
+        "csharp/Service.cs::CSharpService"
+      ],
+      "path": "csharp"
+    },
+    "C++": {
+      "children": {},
+      "components": [
+        "cpp/service.cpp::CppService"
+      ],
+      "path": "cpp"
+    },
+    "Java": {
+      "children": {},
+      "components": [
+        "java/Service.java::JavaService"
+      ],
+      "path": "java"
+    },
+    "JavaScript": {
+      "children": {},
+      "components": [
+        "javascript/service.js::JavaScriptService"
+      ],
+      "path": "javascript"
+    },
+    "Kotlin": {
+      "children": {},
+      "components": [
+        "kotlin/Service.kt::KotlinService"
+      ],
+      "path": "kotlin"
+    },
+    "PHP": {
+      "children": {},
+      "components": [
+        "php/Service.php::PhpService"
+      ],
+      "path": "php"
+    },
+    "Python": {
+      "children": {},
+      "components": [
+        "python/service.py::PythonService"
+      ],
+      "path": "python"
+    },
+    "Ruby": {
+      "children": {},
+      "components": [
+        "ruby/service.rb::RubyService"
+      ],
+      "path": "ruby"
+    },
+    "Scala": {
+      "children": {},
+      "components": [
+        "scala/Service.scala::ScalaService"
+      ],
+      "path": "scala"
+    },
+    "TypeScript": {
+      "children": {},
+      "components": [
+        "typescript/service.ts::TypeScriptService"
+      ],
+      "path": "typescript"
+    }
+  },
+  "metadata": {
+    "files_generated": [
+      "overview.md",
+      "module_tree.json",
+      "first_module_tree.json",
+      "C.md",
+      "C_.md",
+      "C__.md",
+      "Java.md",
+      "JavaScript.md",
+      "Kotlin.md",
+      "PHP.md",
+      "Python.md",
+      "Ruby.md",
+      "Scala.md",
+      "TypeScript.md"
+    ],
+    "generation_info": {
+      "commit_id": null,
+      "generator_version": "0.1.0",
+      "main_model": "replay-model",
+      "repo_path": "<repo>"
+    },
+    "statistics": {
+      "leaf_nodes": 11,
+      "max_depth": 1,
+      "total_components": 11
+    }
+  },
+  "module_tree": {
+    "C": {
+      "children": {},
+      "components": [
+        "c/service.c::CService"
+      ],
+      "path": "c"
+    },
+    "C#": {
+      "children": {},
+      "components": [
+        "csharp/Service.cs::CSharpService"
+      ],
+      "path": "csharp"
+    },
+    "C++": {
+      "children": {},
+      "components": [
+        "cpp/service.cpp::CppService"
+      ],
+      "path": "cpp"
+    },
+    "Java": {
+      "children": {},
+      "components": [
+        "java/Service.java::JavaService"
+      ],
+      "path": "java"
+    },
+    "JavaScript": {
+      "children": {},
+      "components": [
+        "javascript/service.js::JavaScriptService"
+      ],
+      "path": "javascript"
+    },
+    "Kotlin": {
+      "children": {},
+      "components": [
+        "kotlin/Service.kt::KotlinService"
+      ],
+      "path": "kotlin"
+    },
+    "PHP": {
+      "children": {},
+      "components": [
+        "php/Service.php::PhpService"
+      ],
+      "path": "php"
+    },
+    "Python": {
+      "children": {},
+      "components": [
+        "python/service.py::PythonService"
+      ],
+      "path": "python"
+    },
+    "Ruby": {
+      "children": {},
+      "components": [
+        "ruby/service.rb::RubyService"
+      ],
+      "path": "ruby"
+    },
+    "Scala": {
+      "children": {},
+      "components": [
+        "scala/Service.scala::ScalaService"
+      ],
+      "path": "scala"
+    },
+    "TypeScript": {
+      "children": {},
+      "components": [
+        "typescript/service.ts::TypeScriptService"
+      ],
+      "path": "typescript"
+    }
+  },
+  "output_files": [
+    "C.md",
+    "C_.md",
+    "C__.md",
+    "Java.md",
+    "JavaScript.md",
+    "Kotlin.md",
+    "PHP.md",
+    "Python.md",
+    "Ruby.md",
+    "Scala.md",
+    "TypeScript.md",
+    "first_module_tree.json",
+    "metadata.json",
+    "module_tree.json",
+    "overview.md",
+    "temp/artifact_index.json",
+    "temp/dependency_graphs/repo_dependency_graph.json"
+  ],
+  "processing_order": [
+    {
+      "components": [
+        "c/service.c::CService"
+      ],
+      "is_leaf": true,
+      "module": "C",
+      "path": [
+        "C"
+      ]
+    },
+    {
+      "components": [
+        "csharp/Service.cs::CSharpService"
+      ],
+      "is_leaf": true,
+      "module": "C#",
+      "path": [
+        "C#"
+      ]
+    },
+    {
+      "components": [
+        "cpp/service.cpp::CppService"
+      ],
+      "is_leaf": true,
+      "module": "C++",
+      "path": [
+        "C++"
+      ]
+    },
+    {
+      "components": [
+        "java/Service.java::JavaService"
+      ],
+      "is_leaf": true,
+      "module": "Java",
+      "path": [
+        "Java"
+      ]
+    },
+    {
+      "components": [
+        "javascript/service.js::JavaScriptService"
+      ],
+      "is_leaf": true,
+      "module": "JavaScript",
+      "path": [
+        "JavaScript"
+      ]
+    },
+    {
+      "components": [
+        "kotlin/Service.kt::KotlinService"
+      ],
+      "is_leaf": true,
+      "module": "Kotlin",
+      "path": [
+        "Kotlin"
+      ]
+    },
+    {
+      "components": [
+        "php/Service.php::PhpService"
+      ],
+      "is_leaf": true,
+      "module": "PHP",
+      "path": [
+        "PHP"
+      ]
+    },
+    {
+      "components": [
+        "python/service.py::PythonService"
+      ],
+      "is_leaf": true,
+      "module": "Python",
+      "path": [
+        "Python"
+      ]
+    },
+    {
+      "components": [
+        "ruby/service.rb::RubyService"
+      ],
+      "is_leaf": true,
+      "module": "Ruby",
+      "path": [
+        "Ruby"
+      ]
+    },
+    {
+      "components": [
+        "scala/Service.scala::ScalaService"
+      ],
+      "is_leaf": true,
+      "module": "Scala",
+      "path": [
+        "Scala"
+      ]
+    },
+    {
+      "components": [
+        "typescript/service.ts::TypeScriptService"
+      ],
+      "is_leaf": true,
+      "module": "TypeScript",
+      "path": [
+        "TypeScript"
+      ]
+    }
+  ],
+  "prompt_hashes": {
+    "cluster": [
+      "e1ac444ba09837fbd78e2fb6fb7927f52ea06a2ecb940f7a835da13e6d607c79"
+    ],
+    "overview_repo": [
+      "5e655552e4b9d70a707655325621ba3ea20e4f0257e6890d8e72382d3fbb9f4c"
+    ],
+    "system_leaf": [
+      "d491c103e467a32986266cf9a4f2e0ac1b168076d5c8769b5a2ff0685d8c6118",
+      "c07056c9cf8c0fccb79a8ca880b2d6b1dcbffd44e75322a483d786c49aa3baab",
+      "92cca4a22cf732c04eb50572de23dcc641c1a61cdca704112d823563f4921883",
+      "5f8720662580376c49eea2bd0b9682192280b08927846cba17cd3d590de579bd",
+      "ab150c8756c2586389ed967fe183c099ab9f0dcc3d27e823e34082ed13dbb4d9",
+      "b4036db7cb2441adb902f845ecc00cd766dfa9f63e5320b1fdd13adca93be69d",
+      "b71027c91b1b048b5ab0923398ddb7ee2b87a67fa64d7afad39937dfbf50474c",
+      "50128bb4b518bc7b441be1f92a68068e5f0bf2f9b595d2f61eff162914d6c436",
+      "46bce14ccb56a3bcd9fddd3d82786d7312867ff7909fbc168626636973620fae",
+      "24c4c54b1018e3c7a8c06da8994620bc0ecbfca4f5a0da4ca57d7ac4e90d54e4",
+      "78b50b58f1299d5f1437785b21253bf5babaa7f4c38481f263d2a8b56225d4e7"
+    ],
+    "user": [
+      "462edd80c8f20555c703e8bcf8154de803183d2c271c74757d60e69b208e2790",
+      "e21d5e492323461b7b2a875e2f5cf62769ca8c95fbb5e93ed7128662d2438305",
+      "097da6d5fbae24c71ecab5e97745a636ab06683d2f2b61e7ee27180f125cc1c1",
+      "ddb9abb26618ce2e60b29e3d4b8f08b374d8b685b96615a4a771d5cba7cedfcb",
+      "896e9a1a537be7e6d7eb31a21b9fdb105d73a61e985094b0af8bd6a8638943d1",
+      "8317eb09d4b0d1ff163bfbcb94406a4f08cacdb19b6854c2503592c12863d17c",
+      "cc7b69d5b41eeee204d838b12ea88422cbc7431982f75a5ce82c76dba8aa5efa",
+      "206bc38b574172a675c03751a76a32b954ecee8c5b63b15c5a0902bb4ad5aad7",
+      "7e5df4c4c19cde99d4866123d7aa22d037bbc0b5aa3fda0421255ecc6f0bea98",
+      "479a70f6a5985a9a311107807e7111742a767a098596f3c1f915f010558acf35",
+      "ab7315821aa5526c5c25f5956d68a253175d6963cfca7962d18783d867a89d80"
+    ]
+  },
+  "validation": {
+    "leaf_count": 11,
+    "leftover_candidate_ids": [],
+    "module_count": 11,
+    "unmatched_component_ids": [],
+    "valid": true
+  }
+}

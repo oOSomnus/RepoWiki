@@ -1,0 +1,66 @@
+use codewiki::analyzer::{self, AnalyzeOptions};
+use codewiki::session;
+use std::fs;
+use std::path::Path;
+use tempfile::tempdir;
+
+#[test]
+fn all_supported_language_extensions_survive_analysis() {
+    let repo = tempdir().expect("fixture directory");
+    let files = [
+        ("service.py", "def run(x):\n    return x\n"),
+        ("Service.java", "class Service { void run() {} }\n"),
+        ("app.js", "function run(x) { return x; }\n"),
+        ("app.ts", "function run(x: number) { return x; }\n"),
+        ("main.c", "int run(int x) { return x; }\n"),
+        ("main.cpp", "int run(int x) { return x; }\n"),
+        ("Program.cs", "class Program { void Run() {} }\n"),
+        ("Main.kt", "fun run(x: Int): Int = x\n"),
+        ("index.php", "<?php function run($x) { return $x; }\n"),
+        ("lib.rb", "def run(x)\n  x\nend\n"),
+        ("Main.scala", "def run(x: Int): Int = x\n"),
+    ];
+    for (name, source) in files {
+        fs::write(repo.path().join(name), source).expect("fixture source");
+    }
+
+    let output = repo.path().join("docs");
+    let options = AnalyzeOptions {
+        gitignore: false,
+        artifacts: false,
+        ..Default::default()
+    };
+    let (state, result, nodes) = analyzer::analyze(repo.path(), &output, &options, None)
+        .expect("language matrix should analyze");
+
+    assert_eq!(result.summary.supported_files, files.len());
+    assert_eq!(result.summary.languages.len(), files.len());
+    assert_eq!(nodes.len(), files.len());
+    for (name, _) in files {
+        let path = Path::new(name);
+        let expected = match path.extension().and_then(|extension| extension.to_str()) {
+            Some("py") => "Python",
+            Some("java") => "Java",
+            Some("js") => "JavaScript",
+            Some("ts") => "TypeScript",
+            Some("c") => "C",
+            Some("cpp") => "C++",
+            Some("cs") => "C#",
+            Some("kt") => "Kotlin",
+            Some("php") => "PHP",
+            Some("rb") => "Ruby",
+            Some("scala") => "Scala",
+            _ => unreachable!(),
+        };
+        assert!(
+            result
+                .summary
+                .languages
+                .iter()
+                .any(|language| language == expected),
+            "missing language {expected}"
+        );
+    }
+
+    session::cleanup(repo.path(), &state.session_id).expect("clean test session");
+}

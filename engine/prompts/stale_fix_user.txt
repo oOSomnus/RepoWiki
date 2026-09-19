@@ -1,0 +1,9 @@
+Page to fix: `{page}.md` (view it with str_replace_editor, working_dir="docs").
+
+<STALE_ITEMS>
+{items}
+</STALE_ITEMS>
+
+Rules: a renamed component gets its new id/name; a deleted component or page is removed from
+prose, tables, lists and diagrams (or the sentence is rephrased so it stays true); a link to a
+page that no longer exists is removed or repointed to the page listed as its replacement.
