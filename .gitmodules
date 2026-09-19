@@ -1,0 +1,3 @@
+[submodule "reference/CodeWiki"]
+	path = reference/CodeWiki
+	url = git@github.com:FSoft-AI4Code/CodeWiki.git

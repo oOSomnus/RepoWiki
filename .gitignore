@@ -5,6 +5,7 @@
 /skill/.codewiki-build/
 /preview/
 /dist/
+/reference/.venv/
 **/__pycache__/
 *.pyc
 /.codewiki-build/
