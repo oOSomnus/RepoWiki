@@ -38,19 +38,19 @@ FIXTURE = Path(__file__).resolve().parent / "fixture"
 TRANSCRIPT_PATH = Path(__file__).resolve().parent / "transcript.json"
 GOLDEN_PATH = Path(__file__).resolve().parent.parent / "golden" / "mini-repo.json"
 LANGUAGES = [
-    "C",
-    "C#",
-    "C++",
-    "Go",
-    "Java",
-    "JavaScript",
-    "Kotlin",
-    "PHP",
-    "Python",
-    "Ruby",
-    "Rust",
-    "Scala",
-    "TypeScript",
+    "c",
+    "cpp",
+    "csharp",
+    "go",
+    "java",
+    "javascript",
+    "kotlin",
+    "php",
+    "python",
+    "ruby",
+    "rust",
+    "scala",
+    "typescript",
 ]
 RESERVED_DOCUMENT_STEMS = {
     "overview",

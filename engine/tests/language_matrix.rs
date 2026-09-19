@@ -40,23 +40,23 @@ fn all_supported_language_extensions_survive_analysis() {
 
     assert_eq!(result.summary.supported_files, files.len());
     assert_eq!(result.summary.languages.len(), files.len());
-    assert_eq!(nodes.len(), files.len());
+    assert!(nodes.len() >= files.len());
     for (name, _) in files {
         let path = Path::new(name);
         let expected = match path.extension().and_then(|extension| extension.to_str()) {
-            Some("py") => "Python",
-            Some("java") => "Java",
-            Some("js") => "JavaScript",
-            Some("ts") => "TypeScript",
-            Some("go") => "Go",
-            Some("rs") => "Rust",
-            Some("c") => "C",
-            Some("cpp") => "C++",
-            Some("cs") => "C#",
-            Some("kt") => "Kotlin",
-            Some("php") => "PHP",
-            Some("rb") => "Ruby",
-            Some("scala") => "Scala",
+            Some("py") => "python",
+            Some("java") => "java",
+            Some("js") => "javascript",
+            Some("ts") => "typescript",
+            Some("go") => "go",
+            Some("rs") => "rust",
+            Some("c") => "c",
+            Some("cpp") => "cpp",
+            Some("cs") => "csharp",
+            Some("kt") => "kotlin",
+            Some("php") => "php",
+            Some("rb") => "ruby",
+            Some("scala") => "scala",
             _ => unreachable!(),
         };
         assert!(

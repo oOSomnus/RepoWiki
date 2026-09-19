@@ -51,7 +51,7 @@ fn module(components: &[&str], children: BTreeMap<String, Module>) -> Module {
 #[test]
 fn tree_validation_separates_unknown_ids_from_leaf_coverage() {
     let (_repo, state) = prepared_session(
-        &[("known-leaf", "Python"), ("known-parent", "Python")],
+        &[("known-leaf", "python"), ("known-parent", "python")],
         &["known-leaf"],
     );
     let mut children = BTreeMap::new();
@@ -109,18 +109,18 @@ fn tree_validation_separates_unknown_ids_from_leaf_coverage() {
 #[test]
 fn languages_are_written_as_stable_component_counts() {
     let (_repo, state) = prepared_session(
-        &[("z", "Python"), ("a", "Python"), ("m", "JavaScript")],
+        &[("z", "python"), ("a", "python"), ("m", "javascript")],
         &["z", "a", "m"],
     );
     let languages: Value =
         session::read_json(&session::session_value_path(&state, "languages.json"))
             .expect("read language counts");
-    assert_eq!(languages, json!({"JavaScript": 1, "Python": 2}));
+    assert_eq!(languages, json!({"javascript": 1, "python": 2}));
 }
 
 #[test]
 fn processing_order_accepts_legacy_item_names() {
-    let (_repo, state) = prepared_session(&[("leaf", "Python")], &["leaf"]);
+    let (_repo, state) = prepared_session(&[("leaf", "python")], &["leaf"]);
     let path = session::session_value_path(&state, "processing_order.json");
     session::write_json(
         &path,
@@ -201,7 +201,7 @@ fn edit_insert_is_multiline_and_undo_pops_each_saved_version() {
 
 #[test]
 fn component_and_candidate_order_is_deterministic() {
-    let (_repo, state) = prepared_session(&[("b", "Python"), ("a", "Python")], &["b", "a"]);
+    let (_repo, state) = prepared_session(&[("b", "python"), ("a", "python")], &["b", "a"]);
     let components: Value =
         session::read_json(&session::session_value_path(&state, "components.json"))
             .expect("read components");

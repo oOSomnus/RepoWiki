@@ -2,19 +2,19 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub const SUPPORTED_LANGUAGES: &[&str] = &[
-    "Python",
-    "Java",
-    "JavaScript",
-    "TypeScript",
-    "Go",
-    "Rust",
-    "C",
-    "C++",
-    "C#",
-    "Kotlin",
-    "PHP",
-    "Ruby",
-    "Scala",
+    "python",
+    "java",
+    "javascript",
+    "typescript",
+    "go",
+    "rust",
+    "c",
+    "cpp",
+    "csharp",
+    "kotlin",
+    "php",
+    "ruby",
+    "scala",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

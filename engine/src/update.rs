@@ -672,7 +672,7 @@ mod tests {
             id: "a.py::old".to_string(),
             name: "old".to_string(),
             component_type: "function".to_string(),
-            language: "Python".to_string(),
+            language: "python".to_string(),
             source_code: "def old(): return alpha + beta + gamma".to_string(),
             ..Default::default()
         };
@@ -680,7 +680,7 @@ mod tests {
             id: "a.py::new".to_string(),
             name: "new".to_string(),
             component_type: "function".to_string(),
-            language: "Python".to_string(),
+            language: "python".to_string(),
             source_code: "def new(): return alpha + beta + delta".to_string(),
             ..Default::default()
         };

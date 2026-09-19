@@ -23,17 +23,17 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "differential" / "fixture"
 PROBE = Path(__file__).resolve().with_name("reference_probe.py")
 EXPECTED_LANGUAGES = [
-    "C",
-    "C#",
-    "C++",
-    "Java",
-    "JavaScript",
-    "Kotlin",
-    "PHP",
-    "Python",
-    "Ruby",
-    "Scala",
-    "TypeScript",
+    "c",
+    "cpp",
+    "csharp",
+    "java",
+    "javascript",
+    "kotlin",
+    "php",
+    "python",
+    "ruby",
+    "scala",
+    "typescript",
 ]
 
 

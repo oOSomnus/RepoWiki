@@ -126,19 +126,19 @@ fn all_supported_languages_and_dependency_order_are_stable() {
     assert_eq!(
         result.summary.languages,
         vec![
-            "C",
-            "C#",
-            "C++",
-            "Go",
-            "Java",
-            "JavaScript",
-            "Kotlin",
-            "PHP",
-            "Python",
-            "Ruby",
-            "Rust",
-            "Scala",
-            "TypeScript",
+            "c",
+            "cpp",
+            "csharp",
+            "go",
+            "java",
+            "javascript",
+            "kotlin",
+            "php",
+            "python",
+            "ruby",
+            "rust",
+            "scala",
+            "typescript",
         ]
     );
     for node in nodes.values() {
@@ -203,6 +203,40 @@ fn rust_impl_and_go_receiver_components_are_qualified() {
     assert!(go_method
         .depends_on
         .contains(&"go/service.go::helper".to_string()));
+}
+
+#[test]
+fn duplicate_symbols_do_not_create_dependency_fanout() {
+    let repo = tempdir().expect("repo tempdir");
+    let output = tempdir().expect("output tempdir");
+
+    for index in 0..32 {
+        let source = if index == 0 {
+            "fn helper() -> i32 { 1 }\nfn unique() -> i32 { 2 }\n".to_string()
+        } else {
+            format!("fn helper() -> i32 {{ {index} }}\n")
+        };
+        fs::write(repo.path().join(format!("module_{index}.rs")), source)
+            .expect("duplicate symbol fixture");
+    }
+    fs::write(
+        repo.path().join("caller.rs"),
+        "fn caller() -> i32 { helper() + unique() }\n",
+    )
+    .expect("caller fixture");
+
+    let (_, _, nodes) = analyze(repo.path(), output.path(), &options(), None)
+        .expect("analyze duplicate symbol repository");
+    let caller = nodes.get("caller.rs::caller").expect("caller component");
+
+    assert_eq!(caller.depends_on, vec!["module_0.rs::unique".to_string()]);
+    assert_eq!(
+        nodes
+            .values()
+            .map(|node| node.depends_on.len())
+            .sum::<usize>(),
+        1
+    );
 }
 
 #[test]
