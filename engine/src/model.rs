@@ -208,6 +208,11 @@ pub struct Metadata {
     pub generation_info: GenerationInfo,
     pub statistics: Statistics,
     pub files_generated: Vec<String>,
+    /// Semantic documentation checks are kept with the published metadata so
+    /// a cleaned session still records whether the generated pages explain
+    /// the repository rather than merely listing parsed components.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub documentation_quality: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_update: Option<serde_json::Value>,
 }

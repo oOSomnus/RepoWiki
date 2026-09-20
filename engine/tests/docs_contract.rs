@@ -1,5 +1,5 @@
 use codewiki::docs::{self, EditOperation};
-use codewiki::model::{ArtifactIndex, ChangeSet, Module, Node, Summary};
+use codewiki::model::{ArtifactIndex, ChangeSet, Module, ModuleTree, Node, Summary};
 use codewiki::session;
 use codewiki::update;
 use serde_json::{json, Value};
@@ -357,6 +357,40 @@ fn oversized_singleton_is_a_warning_but_remains_documentable() {
 }
 
 #[test]
+fn documentation_quality_rejects_component_list_templates() {
+    let (_repo, mut state) = prepared_session(&[("src/lib.rs::run", "rust")], &["src/lib.rs::run"]);
+    let mut tree = BTreeMap::new();
+    tree.insert(
+        "Leaf".to_string(),
+        module(&["src/lib.rs::run"], BTreeMap::new()),
+    );
+    docs::save_module_tree(&state, &tree, true).expect("save documentation tree");
+    docs::write_document(
+        &mut state,
+        "Leaf.md",
+        "# Leaf\n\n## Module location\n- src/lib.rs\n\n## Source files\n- src/lib.rs\n\n## Key components\n- src/lib.rs::run\n\n## Integration notes\nThis leaf documents a cohesive implementation area.\n",
+    )
+    .expect("write template page");
+    docs::write_document(&mut state, "overview.md", "# Overview\n").expect("write overview page");
+
+    let report =
+        docs::validate_documentation_report(&state).expect("documentation report should render");
+    assert_eq!(report["valid"], json!(false));
+    assert_eq!(
+        report["pages"]["Leaf.md"]["boilerplate_detected"],
+        json!(true)
+    );
+    assert!(report["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|error| error
+            .as_str()
+            .unwrap_or_default()
+            .contains("component-list template")));
+}
+
+#[test]
 fn cluster_response_is_applied_recursively_with_structural_fallback() {
     let (_repo, state) = prepared_session(
         &[("a", "rust"), ("b", "rust"), ("c", "rust")],
@@ -396,6 +430,48 @@ fn cluster_response_is_applied_recursively_with_structural_fallback() {
     assert_eq!(tree["Core"].components, vec!["a", "b"]);
     assert!(tree["Core"].children.contains_key("API"));
     assert!(tree["Core"].children.contains_key("Runtime"));
+}
+
+#[test]
+fn unresolved_cluster_fallback_blocks_tree_quality_until_retry() {
+    let (_repo, state) = prepared_session(&[("a", "rust"), ("b", "rust")], &["a", "b"]);
+    let input = vec!["a".to_string(), "b".to_string()];
+    docs::record_cluster_diagnostics(
+        &state,
+        &input,
+        "repo",
+        &[],
+        &json!({
+            "fallback_used": true,
+            "diagnostics": ["structural fallback assigned omitted components"]
+        }),
+    )
+    .expect("record failed clustering response");
+
+    let tree = ModuleTree::from([
+        ("A".to_string(), module(&["a"], BTreeMap::new())),
+        ("B".to_string(), module(&["b"], BTreeMap::new())),
+    ]);
+    let saved = docs::save_module_tree(&state, &tree, true).expect("save fallback tree");
+    assert!(!saved.quality_valid);
+    assert!(saved
+        .quality_errors
+        .iter()
+        .any(|error| error.contains("unresolved clustering fallback")));
+
+    docs::record_cluster_diagnostics(
+        &state,
+        &input,
+        "repo",
+        &[],
+        &json!({
+            "fallback_used": false,
+            "diagnostics": []
+        }),
+    )
+    .expect("record successful retry");
+    let retried = docs::save_module_tree(&state, &tree, false).expect("save retried tree");
+    assert!(retried.quality_valid);
 }
 
 #[test]

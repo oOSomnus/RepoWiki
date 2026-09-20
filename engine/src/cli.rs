@@ -279,6 +279,7 @@ enum DocCommand {
     Write(WriteDocArgs),
     Edit(EditDocArgs),
     View(ViewDocArgs),
+    Validate(ValidateDocArgs),
 }
 
 #[derive(Debug, Args)]
@@ -309,6 +310,12 @@ struct ViewDocArgs {
     session: String,
     #[arg(long)]
     path: String,
+}
+
+#[derive(Debug, Args)]
+struct ValidateDocArgs {
+    #[arg(long)]
+    session: String,
 }
 
 #[derive(Debug, Subcommand)]
@@ -437,6 +444,7 @@ fn dispatch(command: Command) -> Result<()> {
             DocCommand::Write(args) => write_doc(args)?,
             DocCommand::Edit(args) => edit_doc(args)?,
             DocCommand::View(args) => view_doc(args)?,
+            DocCommand::Validate(args) => validate_doc(args)?,
         },
         Command::Update { command } => match command {
             UpdateCommand::Plan(args) => update_plan(args)?,
@@ -536,7 +544,11 @@ fn analyze_command(
                 "candidate_tree_is_final": false,
                 "recursive_module_clustering": true,
                 "cluster_batch_size": crate::model::DEFAULT_CLUSTER_BATCH_SIZE,
-                "quality_gate": "session_close"
+                "quality_gate": "session_close",
+                "requires_host_model": true,
+                "static_synthesis_forbidden": true,
+                "subagents_allowed": true,
+                "host_writes_are_serialized": true
             },
             "artifact_token_budget": artifact_token_budget,
             "artifact_exclude": artifact_exclude,
@@ -554,7 +566,15 @@ fn analyze_command(
                 "get_processing_order": "codewiki tree order",
                 "write_doc_file": "codewiki doc write",
                 "edit_doc_file": "codewiki doc edit",
+                "validate_doc": "codewiki doc validate",
                 "close_session": "codewiki session close"
+            },
+            "generation_contract": {
+                "prompt_get_is_transport_only": true,
+                "model_must_return_cluster_or_markdown": true,
+                "host_must_read_component_sources": true,
+                "host_must_validate_before_close": true,
+                "template_only_pages_are_rejected": true
             },
             "next": if update_options.is_some() {
                 vec!["codewiki update plan", "codewiki update route", "host-agent routing_user decision", "codewiki update route-apply", "codewiki update context", "codewiki update stale-scan", "host-agent document edits", "codewiki update finalize"]
@@ -671,6 +691,8 @@ fn get_prompt(args: GetPromptArgs) -> Result<Value> {
         "path": path,
         "chars": rendered.chars().count(),
         "sha256": format!("{:x}", hasher.finalize()),
+        "requires_host_model": true,
+        "response_is_not_generated_by_cli": true,
     }))
 }
 
@@ -739,6 +761,7 @@ fn apply_cluster(args: ApplyClusterArgs) -> Result<Value> {
     )?;
     let output = args.output_tree_file.unwrap_or(args.tree_file);
     session::write_json(&output, &tree)?;
+    docs::record_cluster_diagnostics(&state, &input_ids, &args.scope, &parent_path, &diagnostics)?;
     Ok(json!({
         "ok": true,
         "tree_path": output,
@@ -878,6 +901,14 @@ fn edit_doc(args: EditDocArgs) -> Result<Value> {
 fn view_doc(args: ViewDocArgs) -> Result<Value> {
     let state = load_session(&args.session)?;
     Ok(json!({"ok": true, "result": docs::view_document(&state, &args.path)?}))
+}
+
+fn validate_doc(args: ValidateDocArgs) -> Result<Value> {
+    let state = load_session(&args.session)?;
+    Ok(json!({
+        "ok": true,
+        "result": docs::validate_documentation_report(&state)?
+    }))
 }
 
 fn update_plan(args: UpdatePlanArgs) -> Result<Value> {

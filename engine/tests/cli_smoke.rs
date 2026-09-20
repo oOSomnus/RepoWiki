@@ -178,7 +178,7 @@ fn file_side_workflow_creates_reference_artifacts() {
         "--path",
         "Service.md",
         "--content",
-        "# Service\n",
+        "# Service\n\n## Purpose\n\nThe Service class in app.py is the small application entry point. It coordinates the public run operation with the shared helper function, so callers can request work without knowing how the result is assembled. This page explains the behavior represented by those analyzed components.\n\n## Architecture\n\nA caller enters through Service.run, which delegates the reusable calculation to helper and returns the value to the caller. The implementation is intentionally synchronous and keeps the orchestration in one module.\n\n## Responsibilities\n\nThe module owns the entry-point contract, the delegation relationship, and the source-level behavior documented from app.py.\n",
     ]);
     assert!(written["result"]["path"]
         .as_str()
@@ -197,8 +197,18 @@ fn file_side_workflow_creates_reference_artifacts() {
         "--path",
         "overview.md",
         "--content",
-        "# Overview\n",
+        "# Overview\n\n## Purpose\n\nThis repository contains a compact service example whose analyzed Python components demonstrate an entry point, a delegation helper, and the documentation workflow around them. The wiki explains how those pieces fit together and where to start reading the source.\n\n## Architecture\n\n\x60\x60\x60mermaid\nflowchart LR\n  caller --> Service --> helper\n\x60\x60\x60\n\nThe [Service module](Service.md) describes the source-level implementation and its responsibilities. Use that page for the detailed component behavior.\n",
     ]);
+
+    let report = run([
+        "doc",
+        "validate",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        session,
+    ]);
+    assert_eq!(report["result"]["valid"], true, "{report}");
 
     let closed = run([
         "session",
@@ -385,6 +395,12 @@ fn recursive_tree_commands_are_file_side_and_work_outside_repo_cwd() {
     );
 
     for page in ["API.md", "Runtime.md", "Platform.md", "overview.md"] {
+        let content = match page {
+            "API.md" => "# API\n\n## Purpose\n\nThe API module owns the public Rust entry point in src/api.rs and presents a stable request surface to callers. Its implementation keeps request decoding and dispatch close together so the runtime can depend on a small, understandable interface.\n\n## Architecture\n\nThe src/api.rs entry point validates a request and hands it to the runtime contract described by this module. The page is grounded in the analyzed Api component.\n\n## Responsibilities\n\nIt exposes the API contract and coordinates the first step of request handling.\n",
+            "Runtime.md" => "# Runtime\n\n## Purpose\n\nThe Runtime module implements the execution path in src/runtime.rs. It receives work from the API layer, performs the runtime operation, and returns a result while keeping execution details hidden behind a narrow module interface.\n\n## Architecture\n\nThe src/runtime.rs implementation is the downstream execution node for the request flow. The page is grounded in the analyzed Runtime component and explains how the module participates in the parent subsystem.\n\n## Responsibilities\n\nIt owns execution behavior, runtime state transitions, and the result returned to the API layer.\n",
+            "Platform.md" => "# Platform\n\n## Purpose\n\nPlatform is the parent subsystem that connects the API and Runtime modules into one request path. It provides the architectural context for the child pages while keeping their detailed implementation explanations in separate documents.\n\n## Architecture\n\n\x60\x60\x60mermaid\nflowchart LR\n  API --> Runtime\n\x60\x60\x60\n\nThe parent page summarizes the relationship between the [API module](API.md) and the [Runtime module](Runtime.md). Read those child pages for source-level details.\n\n## Responsibilities\n\nPlatform defines the subsystem shape, child ownership, and the integration path between the public interface and execution implementation.\n",
+            _ => "# Overview\n\n## Purpose\n\nThis repository demonstrates a two-stage Rust request path. The API module accepts work and the Runtime module executes it; the wiki organizes both implementations under the Platform subsystem so a developer can move from the end-to-end shape to the source details.\n\n## Architecture\n\n\x60\x60\x60mermaid\nflowchart LR\n  caller --> Platform --> API --> Runtime\n\x60\x60\x60\n\nThe [Platform module](Platform.md) is the starting point for the subsystem. Its child pages explain the [API](API.md) and [Runtime](Runtime.md) responsibilities and source locations.\n\n## Responsibilities\n\nThe repository-level overview identifies the execution path, navigation order, and module relationships without duplicating the child documentation.\n",
+        };
         run_from(
             scratch.path(),
             [
@@ -397,7 +413,7 @@ fn recursive_tree_commands_are_file_side_and_work_outside_repo_cwd() {
                 "--path",
                 page,
                 "--content",
-                "# page\n",
+                content,
             ],
         );
     }

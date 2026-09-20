@@ -293,7 +293,17 @@ pub fn save_module_tree(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let quality_valid = quality["quality_valid"].as_bool().unwrap_or(false);
+    let unresolved_fallbacks = unresolved_cluster_fallbacks(state)?;
+    let mut quality_errors = quality_errors;
+    quality_errors.extend(unresolved_fallbacks.iter().map(|record| {
+        format!(
+            "unresolved clustering fallback for {} component(s) in {} scope",
+            record["input_ids"].as_array().map_or(0, Vec::len),
+            record["scope"].as_str().unwrap_or("unknown")
+        )
+    }));
+    let quality_valid =
+        quality["quality_valid"].as_bool().unwrap_or(false) && unresolved_fallbacks.is_empty();
     let validation = json!({
         "valid": unmatched.is_empty(),
         "complete": unmatched.is_empty() && leftover.is_empty() && quality_valid,
@@ -308,6 +318,7 @@ pub fn save_module_tree(
         "max_depth": quality["max_depth"],
         "quality_valid": quality_valid,
         "quality_errors": quality_errors,
+        "unresolved_cluster_fallbacks": unresolved_fallbacks,
         "oversized_leaf_modules": quality["oversized_leaf_modules"],
         "oversized_leaf_warnings": quality["oversized_leaf_warnings"],
         "orphaned_candidate_ids": quality["orphaned_candidate_ids"],
@@ -403,6 +414,7 @@ pub fn apply_cluster_response(
     let parsed = parse_grouped_components(response, &mut diagnostics);
     let mut groups = Vec::<(String, Module)>::new();
     let mut claimed = BTreeSet::new();
+    let mut fallback_used = false;
     if let Some(parsed) = parsed {
         for (name, mut module) in parsed {
             let original = module.components.len();
@@ -433,6 +445,7 @@ pub fn apply_cluster_response(
 
     let missing = requested.difference(&claimed).cloned().collect::<Vec<_>>();
     if !missing.is_empty() {
+        fallback_used = true;
         diagnostics.push(format!(
             "structural fallback assigned {} omitted component(s)",
             missing.len()
@@ -448,6 +461,7 @@ pub fn apply_cluster_response(
         ));
     }
     if groups.is_empty() {
+        fallback_used = true;
         diagnostics.push("empty clustering response; created a structural fallback".to_string());
         let all = requested.into_iter().collect::<Vec<_>>();
         let name = fallback_module_name(&all, &nodes, tree);
@@ -488,8 +502,57 @@ pub fn apply_cluster_response(
         "input_count": input_ids.len(),
         "group_count": if scope == "repo" { tree.len() } else { module_at_path(tree, parent_path).map(|module| module.children.len()).unwrap_or_default() },
         "diagnostics": diagnostics,
-        "fallback_used": !diagnostics.is_empty(),
+        "fallback_used": fallback_used,
     }))
+}
+
+/// Keep structural clustering fallbacks visible until the host successfully
+/// retries the exact request.  The parser still returns a deterministic tree
+/// for recovery, but a fallback is not allowed to become a final wiki by
+/// accident.
+pub fn record_cluster_diagnostics(
+    state: &SessionState,
+    input_ids: &[String],
+    scope: &str,
+    parent_path: &[String],
+    diagnostics: &Value,
+) -> Result<()> {
+    let path = session::session_value_path(state, "cluster_diagnostics.json");
+    let mut records: Vec<Value> = if path.is_file() {
+        session::read_json(&path)?
+    } else {
+        Vec::new()
+    };
+    let key = cluster_request_key(input_ids, scope, parent_path);
+    records.retain(|record| record["key"].as_str() != Some(&key));
+    records.push(json!({
+        "key": key,
+        "scope": scope,
+        "parent_path": parent_path,
+        "input_ids": input_ids,
+        "fallback_used": diagnostics["fallback_used"].as_bool().unwrap_or(false),
+        "resolved": diagnostics["fallback_used"].as_bool() != Some(true),
+        "diagnostics": diagnostics["diagnostics"].clone(),
+    }));
+    session::write_json(&path, &records)
+}
+
+fn unresolved_cluster_fallbacks(state: &SessionState) -> Result<Vec<Value>> {
+    let path = session::session_value_path(state, "cluster_diagnostics.json");
+    if !path.is_file() {
+        return Ok(Vec::new());
+    }
+    let records: Vec<Value> = session::read_json(&path)?;
+    Ok(records
+        .into_iter()
+        .filter(|record| record["resolved"] != Value::Bool(true))
+        .collect())
+}
+
+fn cluster_request_key(input_ids: &[String], scope: &str, parent_path: &[String]) -> String {
+    let mut ids = input_ids.to_vec();
+    ids.sort();
+    format!("{scope}|{}|{}", parent_path.join("/"), ids.join("\\n"))
 }
 
 /// Apply a super-group response by making the existing top-level modules
@@ -916,6 +979,11 @@ pub fn finalize_metadata(state: &SessionState, model: &str) -> Result<Metadata> 
             max_depth,
         },
         files_generated,
+        documentation_quality: session::read_json(&session::session_value_path(
+            state,
+            "documentation_validation.json",
+        ))
+        .ok(),
         last_update: output
             .join("update_record.json")
             .is_file()
@@ -933,6 +1001,28 @@ pub fn finalize_metadata(state: &SessionState, model: &str) -> Result<Metadata> 
 /// session would otherwise make a failed generation indistinguishable from a
 /// successful one because the workspace is cleaned immediately afterwards.
 pub fn validate_documentation(state: &SessionState) -> Result<()> {
+    let report = validate_documentation_report(state)?;
+    if report["valid"] != Value::Bool(true) {
+        let errors = report["errors"]
+            .as_array()
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })
+            .unwrap_or_else(|| "documentation quality gate failed".to_string());
+        return Err(anyhow!("incomplete documentation: {errors}"));
+    }
+    Ok(())
+}
+
+/// Produce the file-side and semantic documentation report without deleting
+/// the session.  This is intentionally a separate operation from the close
+/// gate: the host agent and its review subagents need actionable diagnostics
+/// before they can repair a page.
+pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
     let output = session::output_dir(state);
     for required in ["overview.md", "module_tree.json", "first_module_tree.json"] {
         if !output.join(required).is_file() {
@@ -990,7 +1080,48 @@ pub fn validate_documentation(state: &SessionState) -> Result<()> {
             missing.join(", ")
         ));
     }
-    Ok(())
+
+    let nodes: BTreeMap<String, Node> =
+        session::read_json(&session::session_value_path(state, "components.json"))
+            .unwrap_or_default();
+    let mut builder = DocumentationReportBuilder::new(&output, &nodes);
+    builder.visit_modules(&tree);
+    let overview_path = output.join("overview.md");
+    let overview = fs::read_to_string(&overview_path).unwrap_or_default();
+    builder.visit_overview(&tree, &overview);
+    let DocumentationReportBuilder {
+        pages,
+        errors,
+        page_count,
+        valid_page_count,
+        explanatory_page_count,
+        mermaid_page_count,
+        grounded_page_count,
+        ..
+    } = builder;
+
+    let report = json!({
+        "valid": errors.is_empty(),
+        "errors": errors,
+        "page_count": page_count,
+        "valid_page_count": valid_page_count,
+        "explanatory_page_count": explanatory_page_count,
+        "mermaid_page_count": mermaid_page_count,
+        "grounded_page_count": grounded_page_count,
+        "pages": Value::Object(pages),
+        "checks": {
+            "source_grounding": true,
+            "semantic_sections": true,
+            "parent_child_links": true,
+            "architecture_diagrams": true,
+            "template_only_rejection": true,
+        },
+    });
+    session::write_json(
+        &session::session_value_path(state, "documentation_validation.json"),
+        &report,
+    )?;
+    Ok(report)
 }
 
 pub fn validate_mermaid(content: &str) -> MermaidReport {
@@ -1010,6 +1141,300 @@ pub fn validate_mermaid(content: &str) -> MermaidReport {
         balanced: !open,
         validator: "side-channel-best-effort".to_string(),
     }
+}
+
+struct DocumentationReportBuilder<'a> {
+    output: &'a Path,
+    nodes: &'a BTreeMap<String, Node>,
+    pages: serde_json::Map<String, Value>,
+    errors: Vec<String>,
+    page_count: usize,
+    valid_page_count: usize,
+    explanatory_page_count: usize,
+    mermaid_page_count: usize,
+    grounded_page_count: usize,
+}
+
+impl<'a> DocumentationReportBuilder<'a> {
+    fn new(output: &'a Path, nodes: &'a BTreeMap<String, Node>) -> Self {
+        Self {
+            output,
+            nodes,
+            pages: serde_json::Map::new(),
+            errors: Vec::new(),
+            page_count: 0,
+            valid_page_count: 0,
+            explanatory_page_count: 0,
+            mermaid_page_count: 0,
+            grounded_page_count: 0,
+        }
+    }
+
+    fn visit_modules(&mut self, modules: &ModuleTree) {
+        for (name, module) in modules {
+            let page = module_page_filename(name);
+            let path = self.output.join(&page);
+            let content = fs::read_to_string(&path).unwrap_or_default();
+            let required_links = module
+                .children
+                .keys()
+                .map(|child| module_page_filename(child))
+                .collect::<Vec<_>>();
+            let result = assess_page(
+                name,
+                module,
+                &content,
+                self.nodes,
+                module.children.is_empty(),
+                false,
+                &required_links,
+            );
+            self.record_page(&page, result);
+            self.visit_modules(&module.children);
+        }
+    }
+
+    fn visit_overview(&mut self, tree: &ModuleTree, content: &str) {
+        let overview_links = tree
+            .keys()
+            .map(|name| module_page_filename(name))
+            .collect::<Vec<_>>();
+        let result = assess_page(
+            "Repository overview",
+            &Module::default(),
+            content,
+            self.nodes,
+            false,
+            true,
+            &overview_links,
+        );
+        self.record_page("overview.md", result);
+    }
+
+    fn record_page(&mut self, page: &str, result: Value) {
+        if result["valid"].as_bool() == Some(true) {
+            self.valid_page_count += 1;
+        }
+        if result["explanatory"].as_bool() == Some(true) {
+            self.explanatory_page_count += 1;
+        }
+        if result["mermaid_blocks"].as_u64().unwrap_or_default() > 0 {
+            self.mermaid_page_count += 1;
+        }
+        if result["grounded_components"].as_u64().unwrap_or_default() > 0 {
+            self.grounded_page_count += 1;
+        }
+        if let Some(page_errors) = result["errors"].as_array() {
+            for error in page_errors.iter().filter_map(Value::as_str) {
+                self.errors.push(format!("{page}: {error}"));
+            }
+        }
+        self.page_count += 1;
+        self.pages.insert(page.to_string(), result);
+    }
+}
+
+/// Check whether a generated page contains an explanation grounded in the
+/// analyzed repository. This is deliberately a small structural heuristic,
+/// not an attempt to judge prose with another model. It catches the failure
+/// mode where a host calls prompt get but then writes a fixed component list
+/// or a one-line overview instead of using the model response.
+fn assess_page(
+    name: &str,
+    module: &Module,
+    content: &str,
+    nodes: &BTreeMap<String, Node>,
+    is_leaf: bool,
+    is_overview: bool,
+    required_links: &[String],
+) -> Value {
+    let headings = markdown_headings(content);
+    let lower = content.to_ascii_lowercase();
+    let mermaid = validate_mermaid(content);
+    let prose_words = markdown_prose_word_count(content);
+    let purpose = has_heading_term(&headings, &["purpose", "scope", "role"]);
+    let architecture = has_heading_term(
+        &headings,
+        &[
+            "architecture",
+            "design",
+            "data flow",
+            "dataflow",
+            "dependencies",
+            "execution",
+            "lifecycle",
+            "component interaction",
+            "behavior",
+            "behaviour",
+        ],
+    );
+    let responsibilities = has_heading_term(
+        &headings,
+        &["responsibilities", "interfaces", "usage", "error"],
+    );
+    let semantic_sections =
+        usize::from(purpose) + usize::from(architecture) + usize::from(responsibilities);
+    let prose_limit = if is_overview {
+        50
+    } else if is_leaf {
+        60
+    } else {
+        50
+    };
+    let explanatory = prose_words >= prose_limit && semantic_sections >= 2;
+
+    let mut grounded_components = 0usize;
+    for component_id in &module.components {
+        let Some(node) = nodes.get(component_id) else {
+            continue;
+        };
+        let markers = [
+            component_id.as_str(),
+            node.relative_path.as_str(),
+            node.file_path.as_str(),
+            node.name.as_str(),
+        ];
+        if markers
+            .iter()
+            .filter(|marker| !marker.is_empty())
+            .any(|marker| content.contains(marker))
+        {
+            grounded_components += 1;
+        }
+    }
+
+    let template_sections = [
+        "module location",
+        "source files",
+        "key components",
+        "integration notes",
+    ];
+    let template_only = template_sections
+        .iter()
+        .all(|section| headings.iter().any(|heading| heading == section))
+        && mermaid.blocks == 0
+        && !architecture
+        && !responsibilities;
+
+    let mut page_errors = Vec::new();
+    if content.trim().is_empty() {
+        page_errors.push("page is empty".to_string());
+    }
+    if !purpose {
+        page_errors.push("missing a semantic Purpose/Scope section".to_string());
+    }
+    if !architecture {
+        page_errors
+            .push("missing a semantic Architecture/Data flow/Dependencies section".to_string());
+    }
+    if prose_words < prose_limit {
+        page_errors.push(format!(
+            "contains only {prose_words} explanatory words; add source-grounded prose"
+        ));
+    }
+    if is_leaf && grounded_components == 0 && !module.components.is_empty() {
+        page_errors.push("does not mention any analyzed component or source path".to_string());
+    }
+    if !mermaid.balanced {
+        page_errors.push("contains an unbalanced Mermaid fence".to_string());
+    }
+    if template_only {
+        page_errors.push(
+            "looks like a generated component-list template rather than an explanatory page"
+                .to_string(),
+        );
+    }
+    if !is_leaf && mermaid.blocks == 0 {
+        page_errors
+            .push("module overview needs at least one Mermaid architecture diagram".to_string());
+    }
+    if is_overview && mermaid.blocks == 0 {
+        page_errors.push("repository overview needs an end-to-end Mermaid diagram".to_string());
+    }
+    let mut missing_links = Vec::new();
+    for link in required_links {
+        if !contains_markdown_link(content, link) {
+            missing_links.push(link.clone());
+        }
+    }
+    if !missing_links.is_empty() {
+        page_errors.push(format!(
+            "does not link to child/module pages: {}",
+            missing_links.join(", ")
+        ));
+    }
+
+    json!({
+        "valid": page_errors.is_empty(),
+        "role": if is_overview { "repository_overview" } else if is_leaf { "leaf" } else { "module_overview" },
+        "module": name,
+        "errors": page_errors,
+        "explanatory": explanatory,
+        "prose_words": prose_words,
+        "semantic_sections": semantic_sections,
+        "grounded_components": grounded_components,
+        "component_count": module.components.len(),
+        "mermaid_blocks": mermaid.blocks,
+        "mermaid_balanced": mermaid.balanced,
+        "missing_links": missing_links,
+        "boilerplate_detected": template_only || lower.contains("this leaf documents a cohesive implementation area"),
+    })
+}
+
+fn markdown_headings(content: &str) -> Vec<String> {
+    content
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            let heading = trimmed.trim_start_matches('#');
+            if heading.len() == trimmed.len() || heading.trim().is_empty() {
+                None
+            } else {
+                Some(heading.trim().to_ascii_lowercase())
+            }
+        })
+        .collect()
+}
+
+fn has_heading_term(headings: &[String], terms: &[&str]) -> bool {
+    headings
+        .iter()
+        .any(|heading| terms.iter().any(|term| heading.contains(term)))
+}
+
+fn markdown_prose_word_count(content: &str) -> usize {
+    let mut in_fence = false;
+    let mut words = 0usize;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("\x60\x60\x60") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence
+            || trimmed.starts_with('#')
+            || trimmed.starts_with('-')
+            || trimmed.starts_with('*')
+            || trimmed.starts_with('>')
+            || trimmed.starts_with('|')
+            || trimmed.is_empty()
+        {
+            continue;
+        }
+        words += trimmed
+            .split_whitespace()
+            .map(|word| word.trim_matches(|ch: char| !ch.is_alphanumeric() && ch != '_'))
+            .filter(|word| !word.is_empty())
+            .count();
+    }
+    words
+}
+
+fn contains_markdown_link(content: &str, page: &str) -> bool {
+    content.contains(&format!("]({page})"))
+        || content.contains(&format!("](./{page})"))
+        || content.contains(&format!("]({page}#"))
+        || content.contains(&format!("](./{page}#"))
 }
 
 fn collect_processing(

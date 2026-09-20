@@ -28,7 +28,9 @@ Sessions live below the analyzed repository:
 ├── sources/<safe-id>.src
 ├── prompts/<prompt-type>-<timestamp>.txt
 ├── processing_order.json
-└── module_tree_validation.json
+├── cluster_diagnostics.json       # when clustering used the CLI
+├── module_tree_validation.json
+└── documentation_validation.json
 ```
 
 `components read` returns source paths for the requested IDs. The source files begin with component and language comments and are safe to read directly.
@@ -102,6 +104,9 @@ descendants. `tree save` additionally records these recursive quality fields in
   only and does not make a saved leaf invalid;
 - `tree_relationship_errors` reports child IDs missing from a parent's
   aggregate list or descendant IDs not represented by that aggregate;
+- `unresolved_cluster_fallbacks` records malformed/partial model responses
+  that were structurally rescued; a successful retry of the exact request
+  clears that record before the tree can pass quality validation;
 - `quality_valid` is false when either condition needs another recursive
   clustering pass, and `complete` is true only when ID coverage and quality
   checks both pass.
@@ -139,3 +144,21 @@ Metadata statistics distinguish `analysis_leaf_candidates` from generated
 `leaf_nodes`; the latter is the number of final module-tree leaves. `module_count`
 and `max_depth` describe the documentation tree rather than the analyzer's
 candidate selection.
+
+## Documentation quality
+
+After all pages have been written, run:
+
+~~~text
+codewiki doc validate --repo-root <repo> --session <session_id>
+~~~
+
+The command writes the session-side documentation validation report and
+returns per-page roles, explanatory prose counts, semantic section checks,
+source grounding, Mermaid status, and required child links. A valid report has
+valid: true. It rejects list-only or fixed-template pages, pages without a
+Purpose/Scope and Architecture/Data flow explanation, parent pages without
+Mermaid diagrams or child links, and a repository overview without an
+end-to-end diagram and top-level links. The report is copied into metadata.json
+when the session closes. session close runs the same check as a hard gate, so a
+page file existing on disk is not sufficient.

@@ -10,10 +10,22 @@ Create a comprehensive documentation that helps developers and maintainers under
 </OBJECTIVES>
 
 <DOCUMENTATION_REQUIREMENTS>
-Generate documentation following the following requirements:
-1. Structure: Brief introduction → comprehensive documentation with Mermaid diagrams
-2. Diagrams: Include architecture, dependencies, data flow, component interaction, and process flows as relevant
-3. References: Link to other module documentation instead of duplicating information
+Generate documentation following these requirements:
+1. Begin with a concise purpose statement, then explain responsibilities,
+   architecture/data flow, important interfaces, and behavior using the
+   supplied source rather than repeating component names.
+2. Use semantic headings such as `## Purpose`, `## Responsibilities`,
+   `## Architecture`, `## Data flow`, `## Dependencies`, or
+   `## Usage` as appropriate. The page must contain explanatory prose, not
+   only tables, bullets, source paths, or a generic template.
+3. Include Mermaid architecture, dependency, data-flow, component-interaction,
+   or process diagrams when the source relationships make them useful. Keep
+   every diagram grounded in the supplied code.
+4. Mention the relevant source paths and component names while explaining what
+   they do and how they collaborate. Do not claim behavior that is not
+   supported by the source.
+5. Link to other module documentation instead of duplicating information when
+   the module tree identifies a related page.
 </DOCUMENTATION_REQUIREMENTS>
 
 <WORKFLOW>

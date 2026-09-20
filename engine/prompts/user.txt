@@ -1,5 +1,13 @@
 Generate comprehensive documentation for the {module_name} module using the provided module tree and core components.
 
+The result must be a source-grounded explanatory Markdown page, not a
+directory listing. Explain the module's purpose, responsibilities, control or
+data flow, important interfaces, and relationships to neighboring modules.
+Use semantic headings and include at least one concrete explanation tied to
+the supplied file paths and component names. Add Mermaid diagrams when they
+clarify architecture or execution. Do not invent behavior, omit all prose, or
+fill the page with a repeated template.
+
 <MODULE_TREE>
 {module_tree}
 </MODULE_TREE>

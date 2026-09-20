@@ -12,23 +12,29 @@ Create documentation that helps developers and maintainers understand:
 
 <DOCUMENTATION_STRUCTURE>
 Generate the requested main page (`{module_name}.md`) with:
-- a concise purpose and scope;
-- responsibilities of the supplied components;
-- architecture and dependency Mermaid diagrams where useful;
+- a concise purpose and scope with source-grounded explanation;
+- responsibilities and important interfaces of the supplied components;
+- architecture, dependency, and data-flow Mermaid diagrams where useful;
+- enough prose to explain the module's control flow and design decisions;
 - links to child pages when the module has children, without duplicating
   their full documentation;
 - links to related sibling or repository pages when the supplied context
   supports them.
 </DOCUMENTATION_STRUCTURE>
 
+Do not return a component inventory disguised as documentation. A page made
+only of source paths, symbol names, or fixed boilerplate is incomplete.
+
 <WORKFLOW>
 1. Read the supplied module tree and component sources.
 2. Document this module only. Child pages are generated separately in
-   leaf-first processing order.
-3. Do not create files directly and do not spawn sub-module agents. The host
+  leaf-first processing order.
+3. Explain why the components form one module and how data/control moves
+   between them. Cite concrete source paths and names from the input.
+4. Do not create files directly and do not spawn sub-module agents. The host
    writes the returned Markdown through `codewiki doc write`.
-4. Keep page names and child links aligned with the flat names reported by the
-   processing order.
+5. Keep page names and child links aligned with the flat names reported by the
+  processing order.
 </WORKFLOW>
 
 {custom_instructions}

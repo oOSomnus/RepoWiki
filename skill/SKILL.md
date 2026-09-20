@@ -7,7 +7,21 @@ metadata:
 
 # RepoWiki wiki generation
 
-Use this skill when the requested result is a repository-level wiki, architecture documentation, or an incremental wiki update. The host agent owns prose generation; the bundled Rust CLI owns repository analysis, session files, prompt transport, safe document edits, module-tree validation, and bookkeeping.
+Use this skill when the requested result is a repository-level wiki, architecture documentation, or an incremental wiki update. The host agent owns semantic clustering and prose generation; the bundled Rust CLI owns repository analysis, session files, prompt transport, safe document edits, module-tree validation, and bookkeeping.
+
+The host must actually invoke its model for every clustering and documentation
+request. The prompt command only renders a prompt into a session file; it does
+not call a model and its result is never a documentation answer. A host that
+renders a prompt and then constructs a response, Markdown page, or overview
+with a fixed string/template has not completed this workflow. The close gate
+rejects template-only pages, missing explanations, missing source grounding,
+and missing architecture links/diagrams.
+
+The host may use subagents to parallelize independent work. Subagents return
+cluster JSON or Markdown to the host; the host remains the single writer of
+the module tree and documentation through the CLI. Do not let concurrent
+workers mutate the same session, and do not let a worker invent a second page
+name or bypass the document write/edit commands.
 
 ## Runtime
 
@@ -31,6 +45,7 @@ apply_super_group     -> codewiki tree apply-super-group
 overview_context      -> codewiki tree overview-context
 write_doc_file        -> codewiki doc write
 edit_doc_file         -> codewiki doc edit
+validate_doc          -> codewiki doc validate
 close_session         -> codewiki session close
 ```
 
@@ -86,6 +101,36 @@ commands, html, and session close.
 
    Also confirm the final validation reports `quality_valid: true`, a depth greater than one when the repository has oversized multi-component modules, and module/leaf counts that match the recursively saved tree. Optionally run `codewiki html --repo-root <repo> --session <session_id>`. Then close the session with `codewiki session close --repo-root <repo> --session <session_id>`. Close is a hard quality gate: it refuses to clean the session when required pages, IDs, or recursive leaf limits are incomplete. A successful run has written pages, metadata, and a cleaned session workspace.
 
+## Host-agent execution contract
+
+The rendered prompt is an input to the host model, not a model response.
+For every cluster, leaf, parent, and repository-overview task:
+
+1. Render the prompt with the CLI.
+2. Read the rendered prompt and the referenced source/page files.
+3. Ask the host model or a subagent to produce the response.
+4. Validate the response shape, exact component IDs, source grounding, and
+   page links before handing it to the CLI.
+
+For large repositories, use independent subagents for component batches, leaf
+pages, and parent overviews. The main host merges cluster responses, owns the
+working tree, serializes all CLI writes, and performs the final review. A
+subagent may never replace a failed model call with a directory bucket,
+hard-coded JSON, or a Markdown template. A page is not complete because its
+file exists: it must explain purpose, responsibilities, architecture or data
+flow, and the behavior of the analyzed source.
+
+Before session close, run:
+
+```text
+codewiki doc validate --repo-root <repo> --session <session_id>
+```
+
+Repair every reported error and repeat the validation. Parent pages need
+Mermaid architecture diagrams and links to every child page. The repository
+overview needs an end-to-end diagram and links to every top-level module.
+Only a report with valid: true may be passed to session close.
+
 ## Incremental update
 
 Run `codewiki generate --update` with the same repository and output directory. The default update rung is `3`; accepted values are `0`, `1`, `2`, `3`, and `3b`. Invalid rung or threshold values fail before an update plan is written. Then execute the returned update plan, route, routing prompt/decision application, context, and stale-scan commands with `--repo-root <repo>`. Use the generated reports and write sets to decide which existing pages need edits. Route every host-agent edit through the CLI so the write guard, edit history, and Mermaid report remain authoritative.
@@ -107,6 +152,11 @@ Use rung `1` for safe incremental edits, `2` for leaf rewrites, `3` for the full
 ## Completion criteria
 
 The task is complete only when the requested pages and JSON artifacts are present, `module_tree_validation.json` has no invalid IDs or quality errors, `quality_valid` is true, the processing order has been consumed, every intended page write was made through the CLI, and metadata/update records describe the run. Generated prose may differ from the reference wording; artifact names, structural fields, dependency IDs, module relationships, recursive depth, and lifecycle semantics are the compatibility target.
+
+The session-side documentation_validation.json report must contain valid:
+true, and metadata.json must retain its quality summary after the session is
+closed. Generated prose may differ from the reference wording, but it must be
+model-produced and grounded in the analyzed source.
 
 ## Boundaries
 
