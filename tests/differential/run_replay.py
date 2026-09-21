@@ -163,6 +163,7 @@ def prompt_vars(
     if prompt_type == "system_leaf":
         return {
             "module_name": module_name,
+            "doc_path": document_path_for(module_name),
             "custom_instructions": "offline replay",
             "few_shot_examples": FEW_SHOT_EXAMPLES,
         }
@@ -264,9 +265,14 @@ def expected_component_ids(tree: dict[str, Any]) -> list[str]:
 def document_path_for(module_name: str) -> str:
     """Mirror the documented module-page naming convention for new runtimes."""
 
+    if not module_name or any(
+        not (character.isascii() and (character.isalnum() or character in "_-"))
+        for character in module_name
+    ):
+        raise ReplayFailure(f"replay module name is not page-safe: {module_name}")
     stem = "".join(
         character
-        if character.isascii() and (character.isalnum() or character in "_-&")
+        if character.isascii() and (character.isalnum() or character in "_-")
         else "_"
         for character in module_name
     ) or "module"

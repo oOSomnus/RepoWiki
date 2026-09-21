@@ -16,7 +16,8 @@ child and neighboring modules.
 <GUIDANCE>
 Read the supplied module tree and source evidence. Choose a structure that
 matches the implementation; do not copy the examples' headings or prose.
-The host will write this response to `{module_name}.md`.
+The host will write this response to the exact canonical path `{doc_path}`.
+Do not substitute a localized module label or invent another filename.
 Explain why the selected components form one module instead of presenting an
 inventory. Use concrete source paths, types, functions, and relationships.
 

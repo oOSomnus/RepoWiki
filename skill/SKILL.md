@@ -44,6 +44,7 @@ codewiki tree order
 codewiki doc write
 codewiki doc edit
 codewiki doc validate
+codewiki doc reconcile
 codewiki session close
 ```
 
@@ -108,7 +109,10 @@ repository is not the current working directory. Read
    The final tree is intentionally lossy with respect to low-level analysis
    components. Its quality gate checks valid evidence IDs, meaningful module
    structure, depth, and page relationships; it does not require exhaustive
-   candidate coverage.
+   candidate coverage. Use only non-empty ASCII module keys containing letters,
+   digits, `_`, or `-`; the processing order exposes the canonical `doc_path`
+   that every page writer must use. `first_module_tree.json` is an initial
+   snapshot only and must not drive final page generation.
 
 7. Before each overview prompt, run:
 
@@ -133,7 +137,9 @@ repository is not the current working directory. Read
    The prompts deliberately do not prescribe a heading sequence. The model
    must choose a structure that fits the source. A page must explain purpose,
    interfaces, behavior, and relationships in prose; a component list is not
-   documentation.
+   documentation. Pass each module's exact `doc_path` to the system prompt and
+   write only that path. Keep Chinese prose natural; never add spaces solely
+   to inflate the prose count.
 
 ## Mermaid requirements
 
@@ -172,6 +178,11 @@ Before close, run:
 codewiki doc validate --repo-root <repo> --session <session_id>
 codewiki session close --repo-root <repo> --session <session_id>
 ```
+
+If migrating an older output with Chinese or underscore alias pages, first run
+`codewiki doc reconcile` as a dry run, provide an explicit aliases JSON map,
+apply it, then run validation. The migration backs up mapped pages and keeps
+unmapped extras for manual review.
 
 The report must be valid. It checks that every architecture module has a page,
 pages contain source-grounded explanation, parent links are complete, and

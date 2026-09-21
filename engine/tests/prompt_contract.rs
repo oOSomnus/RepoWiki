@@ -19,7 +19,7 @@ fn renderable_vars(kind: PromptType) -> BTreeMap<String, Value> {
         PromptType::SuperGroup => string_vars(&[("formatted_modules", "API\nRuntime")]),
         PromptType::FilterFolders => string_vars(&[("project_name", "fixture"), ("files", "src")]),
         PromptType::SystemComplex | PromptType::SystemLeaf => {
-            string_vars(&[("module_name", "Runtime")])
+            string_vars(&[("module_name", "Runtime"), ("doc_path", "Runtime.md")])
         }
         PromptType::User => string_vars(&[
             ("module_name", "Runtime"),

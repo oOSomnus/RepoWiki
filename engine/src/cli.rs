@@ -280,6 +280,7 @@ enum DocCommand {
     Edit(EditDocArgs),
     View(ViewDocArgs),
     Validate(ValidateDocArgs),
+    Reconcile(ReconcileDocArgs),
 }
 
 #[derive(Debug, Args)]
@@ -316,6 +317,20 @@ struct ViewDocArgs {
 struct ValidateDocArgs {
     #[arg(long)]
     session: String,
+}
+
+#[derive(Debug, Args)]
+struct ReconcileDocArgs {
+    #[arg(long, default_value = ".repowiki")]
+    output: PathBuf,
+    #[arg(long)]
+    tree_file: Option<PathBuf>,
+    #[arg(long)]
+    metadata_file: Option<PathBuf>,
+    #[arg(long)]
+    aliases_file: Option<PathBuf>,
+    #[arg(long, default_value_t = false)]
+    apply: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -445,6 +460,7 @@ fn dispatch(command: Command) -> Result<()> {
             DocCommand::Edit(args) => edit_doc(args)?,
             DocCommand::View(args) => view_doc(args)?,
             DocCommand::Validate(args) => validate_doc(args)?,
+            DocCommand::Reconcile(args) => reconcile_doc(args)?,
         },
         Command::Update { command } => match command {
             UpdateCommand::Plan(args) => update_plan(args)?,
@@ -567,6 +583,7 @@ fn analyze_command(
                 "write_doc_file": "codewiki doc write",
                 "edit_doc_file": "codewiki doc edit",
                 "validate_doc": "codewiki doc validate",
+                "reconcile_doc": "codewiki doc reconcile",
                 "close_session": "codewiki session close"
             },
             "generation_contract": {
@@ -574,6 +591,9 @@ fn analyze_command(
                 "model_must_return_cluster_or_markdown": true,
                 "host_must_read_component_sources": true,
                 "host_must_validate_before_close": true,
+                "module_keys_must_be_ascii_page_safe": true,
+                "page_writes_must_use_processing_order_doc_path": true,
+                "natural_cjk_prose_is_counted_without_inserted_spaces": true,
                 "template_only_pages_are_rejected": true
             },
             "next": if update_options.is_some() {
@@ -645,6 +665,25 @@ fn get_prompt(args: GetPromptArgs) -> Result<Value> {
     } else {
         BTreeMap::new()
     };
+    if matches!(kind, PromptType::SystemComplex | PromptType::SystemLeaf) {
+        if let Some(module_name) = vars.get("module_name").and_then(Value::as_str) {
+            let canonical = docs::module_page_filename(module_name)?;
+            match vars.get("doc_path").and_then(Value::as_str) {
+                Some(path) if path != canonical => {
+                    return Err(anyhow!(
+                        "prompt '{}' doc_path must be '{}', got '{}'",
+                        kind.as_str(),
+                        canonical,
+                        path
+                    ));
+                }
+                Some(_) => {}
+                None => {
+                    vars.insert("doc_path".to_string(), Value::String(canonical));
+                }
+            }
+        }
+    }
     let nodes: BTreeMap<String, Node> =
         session::read_json(&session::session_value_path(&state, "components.json"))
             .unwrap_or_default();
@@ -758,6 +797,7 @@ fn apply_cluster(args: ApplyClusterArgs) -> Result<Value> {
         &args.scope,
         &parent_path,
     )?;
+    docs::validate_module_page_paths(&tree)?;
     let output = args.output_tree_file.unwrap_or(args.tree_file);
     session::write_json(&output, &tree)?;
     Ok(json!({
@@ -773,6 +813,7 @@ fn apply_super_group(args: ApplySuperGroupArgs) -> Result<Value> {
     let response = fs::read_to_string(&args.response_file)
         .with_context(|| format!("read super-group response {}", args.response_file.display()))?;
     let diagnostics = docs::apply_super_group_response(&mut tree, &response)?;
+    docs::validate_module_page_paths(&tree)?;
     let output = args.output_tree_file.unwrap_or(args.tree_file);
     session::write_json(&output, &tree)?;
     Ok(json!({
@@ -800,7 +841,9 @@ fn overview_context(args: OverviewContextArgs) -> Result<Value> {
         &target_path,
         &session::output_dir(&state),
     )?;
-    let output = args.output_file.unwrap_or_else(|| {
+    let output = if let Some(path) = args.output_file {
+        path
+    } else {
         let suffix = if target_path.is_empty() {
             "repo".to_string()
         } else {
@@ -808,15 +851,13 @@ fn overview_context(args: OverviewContextArgs) -> Result<Value> {
                 .iter()
                 .map(|name| {
                     docs::module_page_filename(name)
-                        .strip_suffix(".md")
-                        .unwrap_or("module")
-                        .to_string()
+                        .map(|page| page.strip_suffix(".md").unwrap_or("module").to_string())
                 })
-                .collect::<Vec<_>>()
+                .collect::<Result<Vec<_>>>()?
                 .join("__")
         };
         session::session_value_path(&state, &format!("overview_context_{suffix}.json"))
-    });
+    };
     session::write_json(&output, &context)?;
     Ok(json!({
         "ok": true,
@@ -911,6 +952,25 @@ fn validate_doc(args: ValidateDocArgs) -> Result<Value> {
     Ok(json!({
         "ok": true,
         "result": docs::validate_documentation_report(&state)?
+    }))
+}
+
+fn reconcile_doc(args: ReconcileDocArgs) -> Result<Value> {
+    let tree_file = args
+        .tree_file
+        .unwrap_or_else(|| args.output.join("module_tree.json"));
+    let metadata_file = args
+        .metadata_file
+        .unwrap_or_else(|| args.output.join("metadata.json"));
+    Ok(json!({
+        "ok": true,
+        "result": docs::reconcile_output(
+            &args.output,
+            &tree_file,
+            Some(&metadata_file),
+            args.aliases_file.as_deref(),
+            args.apply,
+        )?
     }))
 }
 

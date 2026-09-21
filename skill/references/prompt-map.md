@@ -24,8 +24,8 @@ stale_fix_system, stale_fix_user.
 | cluster | one of potential_core_components or component_ids | scope; when scope=module, also module_name and module_tree |
 | super_group | formatted_modules | none |
 | filter_folders | project_name, files | none |
-| system_complex | module_name | custom_instructions, few_shot_examples |
-| system_leaf | module_name | custom_instructions, few_shot_examples |
+| system_complex | module_name, doc_path | custom_instructions, few_shot_examples |
+| system_leaf | module_name, doc_path | custom_instructions, few_shot_examples |
 | user | module_name, module_tree, and one of formatted_core_component_codes or component_ids | artifact_index, few_shot_examples, architecture_context |
 | overview_module | module_name, repo_structure | few_shot_examples, architecture_context |
 | overview_repo | repo_name, repo_structure | artifact_index, few_shot_examples, architecture_context |
@@ -61,6 +61,11 @@ recursion: the saved tree's quality diagnostics decide whether a leaf fits.
 Use the update prompts only with the reports and write sets produced by the
 update workflow. Preserve component IDs and the required fenced JSON verdict
 markers in Agent responses.
+
+Module keys are page identifiers, not display titles. They must be non-empty
+ASCII names containing only letters, digits, `_`, or `-`. The exact canonical
+Markdown filename is supplied as `doc_path` for architecture page prompts; use
+that value verbatim when calling `doc write`.
 
 ## Size and Unicode
 

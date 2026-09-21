@@ -13,6 +13,7 @@ followed by a tree save and validation, then leaf-first page generation.
 Guidelines:
 - Each subsystem is a set of modules that together fulfil one architectural responsibility (e.g. a processing pipeline, a user-facing interface layer, a shared platform/foundation).
 - Name each subsystem by its architectural role, not by a directory name.
+- Subsystem keys become canonical Markdown page names: use non-empty ASCII keys containing only letters, digits, `_`, or `-`.
 - There must be significantly fewer subsystems than modules; do not simply mirror the module list back.
 - Subsystems should contain multiple modules. A single-module subsystem is just a rename — keep a module alone ONLY when it truly shares no architectural responsibility with any other module.
 - Every module must be assigned to exactly one subsystem.

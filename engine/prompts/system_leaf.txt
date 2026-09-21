@@ -23,7 +23,8 @@ data flow, or dependency. Do not manufacture a diagram from generic labels.
 Use concrete source names and explain the relationship in prose around the
 diagram.
 
-The host writes the returned Markdown through codewiki doc write. Do not create
-files, invent child modules, or invent a different page name.
+The host writes the returned Markdown through codewiki doc write to the exact
+canonical path `{doc_path}`. Do not create files, invent child modules, or
+invent a different page name.
 </GUIDANCE>
 {custom_instructions}
