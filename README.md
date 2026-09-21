@@ -51,3 +51,16 @@ make test-install
 - [Development notes](documentation/development.md)
 - [Runtime Skill instructions](skill/SKILL.md)
 - [Reference-derived architecture examples](skill/references/few-shots/README.md)
+
+## Standalone reader
+
+Build and run the local read-only WebUI for an existing `.repowiki` directory:
+
+```bash
+make reader
+.build/cargo-target/release/repowiki-reader /path/to/project/.repowiki
+```
+
+The reader listens on loopback, opens the default browser, and does not modify
+the wiki. Use `--no-open` to print the URL without launching a browser or
+`--port <port>` to choose a port.

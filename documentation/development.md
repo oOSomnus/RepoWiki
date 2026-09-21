@@ -37,6 +37,23 @@ scripts/codewiki                  # or scripts/codewiki.exe
 
 The Rust prompt sources are embedded into the executable during the build.
 
+## Standalone reader
+
+The `repowiki-reader` binary is deliberately separate from the packaged Skill
+CLI. It embeds its HTML, CSS, Markdown renderer, Mermaid, syntax highlighting,
+and sanitizer assets, so runtime page loads do not depend on a CDN:
+
+```bash
+make reader
+.build/cargo-target/release/repowiki-reader /path/to/project/.repowiki
+```
+
+The server binds to loopback and chooses a free port by default. `--no-open`
+keeps the browser closed for headless environments, while `--port <port>`
+selects a fixed local port. The reader exposes only generated Markdown pages,
+the generated manifest, and embedded static assets; it does not write to the
+selected `.repowiki` directory.
+
 Rust commands use the repository's latest Stable toolchain through
 `rust-toolchain.toml`. Refresh it before verification with:
 

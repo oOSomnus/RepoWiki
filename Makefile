@@ -24,7 +24,7 @@ SKILL_VALIDATOR ?= $(if $(CODEX_HOME),$(CODEX_HOME),$(HOME)/.codex)/skills/.syst
 RUNTIME_PATHS := SKILL.md agents references
 PACKAGE_PATHS := SKILL.md agents references scripts
 
-.PHONY: build preview install test-install clean test test-contract
+.PHONY: build preview reader install test-install clean test test-contract
 
 ifeq ($(strip $(VERSION)),)
 $(error Could not read the package version from engine/Cargo.toml)
@@ -88,7 +88,7 @@ test-install: build
 preview:
 	@rm -rf "$(PREVIEW_DIR)"
 	@mkdir -p "$(PREVIEW_DIR)"
-	@$(CARGO) build --release --locked --manifest-path "$(ENGINE_DIR)/Cargo.toml" --target-dir "$(CARGO_TARGET_DIR)"
+	@$(CARGO) build --release --locked --manifest-path "$(ENGINE_DIR)/Cargo.toml" --target-dir "$(CARGO_TARGET_DIR)" --bin codewiki
 	@for path in $(RUNTIME_PATHS); do \
 		if [ ! -e "$(SKILL_DIR)/$$path" ]; then \
 			echo "missing runtime Skill source: skill/$$path" >&2; exit 2; \
@@ -115,6 +115,10 @@ preview:
 	esac
 	@$(PYTHON) tools/validate-skill-package.py "$(PREVIEW_DIR)"
 	@printf 'created preview at %s\n' "$(PREVIEW_DIR)"
+
+reader:
+	@$(CARGO) build --release --locked --manifest-path "$(ENGINE_DIR)/Cargo.toml" --target-dir "$(CARGO_TARGET_DIR)" --bin repowiki-reader
+	@printf 'created reader at %s\n' "$(CARGO_TARGET_DIR)/release/repowiki-reader"
 
 clean:
 	@rm -rf \

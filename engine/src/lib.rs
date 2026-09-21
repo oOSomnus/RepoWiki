@@ -5,6 +5,7 @@ pub mod html;
 pub mod language;
 pub mod model;
 pub mod prompts;
+pub mod reader;
 pub mod session;
 pub mod update;
 

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RepoWiki Reader</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+  <link rel="stylesheet" href="/assets/vendor/highlight-github.min.css" id="hljs-light">
+  <link rel="stylesheet" href="/assets/vendor/highlight-github-dark.min.css" id="hljs-dark" disabled>
+</head>
+<body>
+  <button class="mobile-menu" id="mobile-menu" type="button" aria-label="Open navigation">☰</button>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">▤</span>
+          <div>
+            <div class="brand-title" id="brand-title">RepoWiki</div>
+            <div class="brand-subtitle" id="brand-subtitle">Reader</div>
+          </div>
+        </div>
+        <button class="icon-button" id="theme-toggle" type="button" aria-label="Toggle theme">☾</button>
+      </div>
+
+      <div class="info-card" id="info-card" hidden></div>
+      <div class="warning-list" id="warning-list" hidden></div>
+
+      <label class="search-label" for="nav-filter" id="search-label">Filter pages</label>
+      <input class="nav-filter" id="nav-filter" type="search" autocomplete="off" spellcheck="false">
+
+      <nav class="navigation" id="navigation" aria-label="Wiki navigation"></nav>
+      <section class="extra-pages" id="extra-pages" hidden>
+        <h2 id="extra-pages-title">Other pages</h2>
+        <div id="extra-pages-list"></div>
+      </section>
+    </aside>
+
+    <main class="content-area">
+      <div class="content-inner">
+        <article class="document-column">
+          <div class="status-panel" id="loading" role="status">
+            <span class="spinner" aria-hidden="true"></span>
+            <span id="loading-text">Loading documentation…</span>
+          </div>
+          <div class="status-panel error-panel" id="error" role="alert" hidden></div>
+          <div class="markdown-content" id="content" hidden></div>
+          <nav class="pager" id="pager" aria-label="Page navigation" hidden></nav>
+        </article>
+        <aside class="toc" id="toc" aria-label="Table of contents" hidden></aside>
+      </div>
+    </main>
+  </div>
+
+  <script src="/assets/vendor/purify.min.js"></script>
+  <script src="/assets/vendor/marked.min.js"></script>
+  <script src="/assets/vendor/marked-gfm-heading-id.min.js"></script>
+  <script src="/assets/vendor/highlight.min.js"></script>
+  <script src="/assets/vendor/mermaid.min.js"></script>
+  <script src="/assets/app.js"></script>
+</body>
+</html>
