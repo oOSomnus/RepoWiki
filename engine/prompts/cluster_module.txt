@@ -15,6 +15,10 @@ interfaces, execution stages, state, storage, or integrations. Keep the tree
 shallow. Do not split a cohesive implementation merely because it contains
 many functions, tests, generated types, or files.
 
+Child keys become canonical Markdown page names. Use non-empty ASCII keys
+containing only letters, digits, `_`, or `-`; put localized wording in page
+titles and prose rather than in the key.
+
 Each child may select representative component IDs only. IDs must be copied
 exactly from the input. Components that are not selected remain available in
 the dependency graph and do not need a documentation page.

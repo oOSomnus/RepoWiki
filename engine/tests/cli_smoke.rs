@@ -101,6 +101,50 @@ fn default_output_dir_is_repowiki_and_document_prefixes_are_normalized() {
 }
 
 #[test]
+fn doc_reconcile_is_file_side_and_defaults_to_a_dry_run() {
+    let output = tempdir().expect("output tempdir");
+    let aliases = tempdir().expect("aliases tempdir");
+    fs::write(
+        output.path().join("module_tree.json"),
+        r#"{"API":{"components":[],"children":{}}}"#,
+    )
+    .expect("write tree");
+    fs::write(output.path().join("overview.md"), "# Overview\n").expect("write overview");
+    fs::write(output.path().join("API.md"), "# API\n\n[old](old.md)\n").expect("write page");
+    fs::write(output.path().join("old.md"), "# Old\n").expect("write alias");
+    let aliases_path = aliases.path().join("aliases.json");
+    fs::write(&aliases_path, r#"{"old.md":"API.md"}"#).expect("write aliases");
+    let output_arg = output.path().to_string_lossy().to_string();
+    let aliases_arg = aliases_path.to_string_lossy().to_string();
+
+    let dry_run = run([
+        "doc",
+        "reconcile",
+        "--output",
+        output_arg.as_str(),
+        "--aliases-file",
+        aliases_arg.as_str(),
+    ]);
+    assert_eq!(dry_run["result"]["applied"], json!(false));
+    assert!(output.path().join("old.md").exists());
+
+    let applied = run([
+        "doc",
+        "reconcile",
+        "--output",
+        output_arg.as_str(),
+        "--aliases-file",
+        aliases_arg.as_str(),
+        "--apply",
+    ]);
+    assert_eq!(applied["result"]["applied"], json!(true));
+    assert!(!output.path().join("old.md").exists());
+    assert!(fs::read_to_string(output.path().join("API.md"))
+        .expect("read rewritten page")
+        .contains("[old](API.md)"));
+}
+
+#[test]
 fn file_side_workflow_creates_reference_artifacts() {
     let repo = tempdir().expect("repo tempdir");
     let output = tempdir().expect("output tempdir");

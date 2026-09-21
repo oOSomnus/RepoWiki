@@ -18,7 +18,7 @@ Update the documentation for the module `{leaf_name}` (mode: {mode}).
 {leaf_components}
 </LEAF_COMPONENTS>
 
-<CURRENT_LEAF_PAGE path="{leaf_name}.md">
+<CURRENT_LEAF_PAGE path="the leaf page path listed in WRITE_SET">
 {leaf_page}
 </CURRENT_LEAF_PAGE>
 

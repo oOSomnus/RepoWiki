@@ -93,12 +93,14 @@ fn tree_validation_separates_unknown_ids_from_architecture_anchors() {
         json!([
             {
                 "module": "Leaf",
+                "doc_path": "Leaf.md",
                 "path": ["Root", "Leaf"],
                 "is_leaf": true,
                 "components": ["known-leaf"]
             },
             {
                 "module": "Root",
+                "doc_path": "Root.md",
                 "path": ["Root"],
                 "is_leaf": false,
                 "children": ["Leaf"],
@@ -159,6 +161,88 @@ fn processing_order_accepts_legacy_item_names() {
     assert_eq!(serialized[0]["is_leaf"], json!(true));
     assert_eq!(serialized[0]["components"], json!(["leaf"]));
     assert_eq!(serialized[0]["children"], Value::Null);
+}
+
+#[test]
+fn reconcile_dry_run_and_apply_rewrite_aliases_with_recoverable_backup() {
+    let (repo, state) = prepared_session(&[("api", "rust")], &["api"]);
+    let tree = ModuleTree::from([(
+        "API".to_string(),
+        Module {
+            components: vec!["api".to_string()],
+            ..Module::default()
+        },
+    )]);
+    docs::save_module_tree(&state, &tree, true).expect("save canonical tree");
+    let output = session::output_dir(&state);
+    fs::write(output.join("API.md"), "# API\n\n[old](旧.md#details)\n")
+        .expect("write canonical page");
+    fs::write(output.join("overview.md"), "# Overview\n").expect("write overview");
+    fs::write(output.join("旧.md"), "# Legacy\n").expect("write legacy page");
+    fs::write(output.join("keep.md"), "# Manual note\n").expect("write unknown extra");
+    session::write_json(
+        &output.join("metadata.json"),
+        &json!({"files_generated": ["overview.md", "API.md", "旧.md"]}),
+    )
+    .expect("write metadata fixture");
+    let aliases = repo.path().join("aliases.json");
+    session::write_json(&aliases, &json!({"旧.md": "API.md"})).expect("write aliases");
+
+    let dry_run = docs::reconcile_output(
+        &output,
+        &output.join("module_tree.json"),
+        Some(&output.join("metadata.json")),
+        Some(&aliases),
+        false,
+    )
+    .expect("reconcile dry run");
+    assert_eq!(dry_run["applied"], json!(false));
+    assert!(dry_run["extra_pages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|page| page == "旧.md"));
+    assert_eq!(dry_run["alias_links"][0]["to"], json!("API.md"));
+
+    let applied = docs::reconcile_output(
+        &output,
+        &output.join("module_tree.json"),
+        Some(&output.join("metadata.json")),
+        Some(&aliases),
+        true,
+    )
+    .expect("apply reconcile");
+    assert_eq!(applied["applied"], json!(true));
+    assert!(!output.join("旧.md").exists());
+    assert!(output.join("keep.md").exists());
+    assert!(fs::read_to_string(output.join("API.md"))
+        .expect("read rewritten page")
+        .contains("[old](API.md#details)"));
+    let backup = std::path::PathBuf::from(applied["backup_dir"].as_str().unwrap());
+    assert!(backup.join("旧.md").is_file());
+    assert!(backup.join("API.md").is_file());
+}
+
+#[test]
+fn document_writes_reject_known_legacy_module_aliases() {
+    let (_repo, mut state) = prepared_session(&[("api", "rust")], &["api"]);
+    let tree = ModuleTree::from([(
+        "API".to_string(),
+        Module {
+            components: vec!["api".to_string()],
+            ..Module::default()
+        },
+    )]);
+    docs::save_module_tree(&state, &tree, false).expect("save final tree");
+    session::write_json(
+        &session::output_dir(&state).join("first_module_tree.json"),
+        &ModuleTree::from([("中文模块".to_string(), Module::default())]),
+    )
+    .expect("write historical tree snapshot");
+
+    let error = docs::write_document(&mut state, "中文模块.md", "# legacy\n")
+        .expect_err("legacy alias must not be regenerated");
+    assert!(error.to_string().contains("legacy module page path"));
 }
 
 #[test]
@@ -365,10 +449,11 @@ fn documentation_quality_rejects_component_list_templates() {
     docs::write_document(
         &mut state,
         "Leaf.md",
-        "# Leaf\n\n## Module location\n- src/lib.rs\n\n## Source files\n- src/lib.rs\n\n## Key components\n- src/lib.rs::run\n\n## Integration notes\nThis leaf documents a cohesive implementation area.\n",
+        "# Leaf\n\n## Module location\n- src/lib.rs\n\n## Source files\n- src/lib.rs\n\n## Key components\n- src/lib.rs::run\n\n## Integration notes\nThis leaf documents a cohesive implementation area.\n\n[Missing](missing.md)\n",
     )
     .expect("write template page");
     docs::write_document(&mut state, "overview.md", "# Overview\n").expect("write overview page");
+    docs::write_document(&mut state, "extra.md", "# Extra\n").expect("write extra page");
 
     let report =
         docs::validate_documentation_report(&state).expect("documentation report should render");
@@ -385,6 +470,8 @@ fn documentation_quality_rejects_component_list_templates() {
             .as_str()
             .unwrap_or_default()
             .contains("component-list template")));
+    assert_eq!(report["extra_pages"], json!(["extra.md"]));
+    assert_eq!(report["broken_links"][0]["target"], json!("missing.md"));
 }
 
 #[test]
