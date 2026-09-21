@@ -49,3 +49,15 @@ make test-install
 - [开发说明](development.md)
 - [运行时 Skill 说明](../skill/SKILL.md)
 - [参考项目架构 few-shot 示例](../skill/references/few-shots/README.md)
+
+## 独立 Reader
+
+构建并运行已有 `.repowiki` 目录的本地只读 WebUI：
+
+```bash
+make reader
+.build/cargo-target/release/repowiki-reader /path/to/project/.repowiki
+```
+
+Reader 只监听本机、自动打开默认浏览器，并不会修改 Wiki。使用
+`--no-open` 只打印 URL，或使用 `--port <端口>` 指定端口。
