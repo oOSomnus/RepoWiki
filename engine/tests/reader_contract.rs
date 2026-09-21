@@ -190,6 +190,9 @@ fn binary_serves_offline_assets_manifest_pages_and_safe_errors() {
         );
     }
 
+    let styles = http_request(address, "GET", "/assets/styles.css");
+    assert!(response_body(&styles).contains("[hidden] { display: none !important; }"));
+
     let manifest = http_request(address, "GET", "/api/manifest");
     assert!(manifest.starts_with("HTTP/1.1 200 OK"));
     assert!(response_body(&manifest).contains("\"navigation\""));
