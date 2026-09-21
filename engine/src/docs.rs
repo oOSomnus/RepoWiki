@@ -24,6 +24,7 @@ const RESERVED_STEMS: &[&str] = &[
 pub struct WriteResult {
     pub path: String,
     pub created: bool,
+    pub reused: bool,
     pub mermaid: MermaidReport,
 }
 
@@ -160,9 +161,32 @@ pub fn write_document(
     requested: &str,
     content: &str,
 ) -> Result<WriteResult> {
+    write_document_with_policy(state, requested, content, false)
+}
+
+pub fn write_document_with_policy(
+    state: &mut SessionState,
+    requested: &str,
+    content: &str,
+    reuse_if_same: bool,
+) -> Result<WriteResult> {
     let path = document_path(state, requested)?;
     reject_known_legacy_module_page(state, &path)?;
     if path.exists() {
+        if reuse_if_same && session::read_text(&path)? == content {
+            return Ok(WriteResult {
+                path: path.to_string_lossy().into_owned(),
+                created: false,
+                reused: true,
+                mermaid: validate_mermaid(content),
+            });
+        }
+        if reuse_if_same {
+            return Err(anyhow!(
+                "document already exists with different content: {}",
+                path.display()
+            ));
+        }
         return Err(anyhow!("document already exists: {}", path.display()));
     }
     let mermaid = validate_mermaid(content);
@@ -172,6 +196,7 @@ pub fn write_document(
     Ok(WriteResult {
         path: path.to_string_lossy().into_owned(),
         created: true,
+        reused: false,
         mermaid,
     })
 }
@@ -260,6 +285,7 @@ pub fn edit_document(
     Ok(WriteResult {
         path: path.to_string_lossy().into_owned(),
         created: false,
+        reused: false,
         mermaid,
     })
 }

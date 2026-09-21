@@ -200,7 +200,7 @@ def get_prompt(
     variables: dict[str, Any],
     work: Path,
 ) -> str:
-    variables_path = work / f"{prompt_type}-{len(list(work.glob('*.json')))}.json"
+    variables_path = work / f"{prompt_type}.vars.{len(list(work.glob('*.json')))}.json"
     write_json(variables_path, variables)
     result = run_command(
         binary,
@@ -346,6 +346,16 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
             output,
             session,
         )
+        workflow = load_json(Path(analysis["workflow_path"]))
+        host_contract = workflow.get("host_contract", {})
+        if host_contract.get("session_writes") != "serialized":
+            raise ReplayFailure("workflow does not require serialized session writes")
+        if host_contract.get("retry_policy", {}).get("doc_write") != "same_content_only":
+            raise ReplayFailure("workflow does not define idempotent document retries")
+        if "response_file_before_tree_apply" not in host_contract.get(
+            "required_barriers", []
+        ):
+            raise ReplayFailure("workflow is missing the response-before-apply barrier")
 
         prompt_hashes: dict[str, list[str]] = {
             "cluster": [],
@@ -413,6 +423,7 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
             ["tree", "order", "--repo-root", str(repo), "--session", session_id],
         )["processing_order"]
         expected_documents = transcript["documents"]
+        written_documents: list[str] = []
         for item in ordered:
             module_name = item.get("module_name", item.get("module"))
             if not module_name:
@@ -484,10 +495,16 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
                     session_id,
                     "--path",
                     doc_path,
+                    "--if-existing",
+                    "same",
                     "--content-file",
                     str(content_path),
                 ],
             )
+            written_documents.append(doc_path)
+
+        if written_documents != [item["doc_path"] for item in ordered]:
+            raise ReplayFailure("document writes did not follow the CLI processing order")
 
         repo_context_path = work / "repo-overview-context.json"
         run_command(
@@ -539,6 +556,8 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
                 session_id,
                 "--path",
                 "overview.md",
+                "--if-existing",
+                "same",
                 "--content-file",
                 str(overview_path),
             ],

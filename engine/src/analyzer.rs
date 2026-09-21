@@ -63,9 +63,12 @@ pub fn analyze(
     } else {
         repo_path.join(output_dir)
     };
+    let _session_lock = session_id
+        .map(|id| session::SessionLock::acquire(&repo_path, id))
+        .transpose()?;
     fs::create_dir_all(&output_dir)?;
     let mut state = match session_id {
-        Some(id) => session::load(&repo_path, id)?,
+        Some(id) => session::load_unlocked(&repo_path, id)?,
         None => session::create(&repo_path, &output_dir)?,
     };
     if state.output_dir != output_dir.to_string_lossy() {

@@ -53,6 +53,32 @@ repository is not the current working directory. Read
 [references/cli-contract.md](references/cli-contract.md) and
 [references/prompt-map.md](references/prompt-map.md) for command details.
 
+## Host orchestration invariants
+
+The host may parallelize model calls, but it must serialize every CLI command
+that writes the session or output tree. In particular, never run concurrent
+`doc write`, `tree save`, `tree apply-*`, `tree overview-context`, validation,
+update, HTML, or close commands for the same session. The CLI also serializes
+these operations defensively; the host still owns the ordering contract.
+
+Keep refinement artifacts in separate files with explicit roles:
+
+```text
+<name>.vars.json       prompt variables (JSON object)
+<name>.ids.json        input component IDs (JSON string array or one per line)
+<name>.response.txt    model clustering response
+<name>.content.md      generated Markdown page
+```
+
+Before `tree apply-cluster`, confirm that the response file exists and is
+non-empty, and run `components read` against the exact input ID file. Never
+reuse a prompt-vars file as an ID file. If a page write must be retried, use
+`doc write --if-existing same`; it succeeds only when the existing bytes are
+identical and never overwrites a different page.
+
+Large prompts, contexts, source listings, and model responses stay in files.
+Print only paths, hashes, sizes, and small summaries in the host trace.
+
 ## Fresh architecture wiki
 
 1. Start analysis with the architecture-oriented depth:
@@ -64,6 +90,10 @@ repository is not the current working directory. Read
    Confirm that the session contains the component graph, source index,
    artifact index, languages, and analysis summary. These are evidence for the
    architecture writer, not pages to expose to readers.
+
+   Before analysis, read the target repository's root `AGENTS.md` when it
+   exists, and read nested `AGENTS.md` files that govern source directories
+   selected for documentation.
 
 2. Read the analysis summary, dependency graph, selected analysis candidates,
    and relevant source files. Select a small representative set of exact
@@ -92,6 +122,12 @@ repository is not the current working directory. Read
    failure if the retry also fails. Never promote an automatic directory
    bucket or hard-coded Markdown template as a successful model response.
 
+   Keep the prompt variables, exact input IDs, and model response in separate
+   files. Do not call `tree apply-cluster` until the response file has been
+   written and checked. The CLI's input-ID validation is authoritative, but
+   the host should fail earlier with `components read` so malformed IDs are
+   diagnosed before tree mutation.
+
 5. Refine only modules that are too broad or contain multiple architectural
    responsibilities. Use `scope=module`, but keep the tree shallow. A child
    must represent a distinct interface, execution stage, state/storage area,
@@ -113,6 +149,10 @@ repository is not the current working directory. Read
    digits, `_`, or `-`; the processing order exposes the canonical `doc_path`
    that every page writer must use. `first_module_tree.json` is an initial
    snapshot only and must not drive final page generation.
+
+   Treat the returned `tree order` JSON as the only source of page paths and
+   write order. Do not reconstruct paths from module names or read the raw
+   session file as a substitute for invoking the command.
 
 7. Before each overview prompt, run:
 
@@ -140,6 +180,11 @@ repository is not the current working directory. Read
    documentation. Pass each module's exact `doc_path` to the system prompt and
    write only that path. Keep Chinese prose natural; never add spaces solely
    to inflate the prose count.
+
+   Generate model content in parallel only when useful, then write pages one
+   at a time in the `tree order` sequence. Use the canonical `doc_path` from
+   each processing item. A retry of an ambiguous page write must use
+   `--if-existing same` and must not overwrite a different existing page.
 
 ## Mermaid requirements
 
@@ -178,6 +223,10 @@ Before close, run:
 codewiki doc validate --repo-root <repo> --session <session_id>
 codewiki session close --repo-root <repo> --session <session_id>
 ```
+
+If validation is structurally valid but reports fewer explanatory pages than
+total pages, surface that as a quality warning. It does not replace the hard
+validity gate, but it should trigger a review of short or list-like pages.
 
 If migrating an older output with Chinese or underscore alias pages, first run
 `codewiki doc reconcile` as a dry run, provide an explicit aliases JSON map,

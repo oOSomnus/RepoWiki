@@ -21,6 +21,11 @@ Do not substitute a localized module label or invent another filename.
 Explain why the selected components form one module instead of presenting an
 inventory. Use concrete source paths, types, functions, and relationships.
 
+Write several source-grounded prose paragraphs and include at least one
+descriptive section about responsibilities, interfaces, behavior, lifecycle,
+or data flow. Section names remain free-form; do not turn this requirement
+into a fixed template.
+
 Use one or more Mermaid diagrams only when they explain distinct architecture
 questions such as composition, execution sequence, or data movement. Every
 node and edge must be grounded. Do not use a generic placeholder graph.

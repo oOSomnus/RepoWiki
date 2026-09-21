@@ -70,12 +70,15 @@ unzip dist/RepoWiki-*.zip -d ~/.agents/skills/RepoWiki
   normalized result with `tests/golden/mini-repo.json`;
 - Rust integration contracts cover prompt variables and rendering, semantic
   architecture-anchor selection and quality diagnostics, update routing/stale
-  scans, and CLI behavior from a non-repository working directory;
+  scans, and CLI behavior from a non-repository working directory. The CLI
+  smoke layer also exercises cross-process session serialization, strict
+  input-artifact roles, and same-content document retries;
 - formatting, tests, Clippy, and runtime-package validation complete the gate.
 
-The replay does not call an LLM. Prompt hashes and fixed Markdown make changes
-to the host-agent architecture contract visible while the tree intentionally
-leaves low-level analysis candidates outside the published page hierarchy.
+The replay does not call an LLM. Prompt hashes, the generated workflow host
+contract, fixed Markdown, and processing-order assertions make changes to the
+host-agent architecture contract visible while the tree intentionally leaves
+low-level analysis candidates outside the published page hierarchy.
 
 Run the prompt/static layer alone with:
 

@@ -18,6 +18,12 @@ Read the supplied sources and choose a page structure that fits the module.
 Do not use a fixed heading sequence, repeat boilerplate, or turn the page into
 a list of symbols and paths. Mention only behavior supported by the source.
 
+Write several source-grounded prose paragraphs. Include at least one
+descriptive section about responsibilities, interfaces, behavior, lifecycle,
+or data flow, unless a meaningful Mermaid diagram already explains that
+interaction. The section names remain your choice; this is a quality floor,
+not a fixed template.
+
 Use a Mermaid diagram only when it clarifies a real interaction, lifecycle,
 data flow, or dependency. Do not manufacture a diagram from generic labels.
 Use concrete source names and explain the relationship in prose around the

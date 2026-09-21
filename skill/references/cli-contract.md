@@ -11,6 +11,14 @@ failure has this shape and exits non-zero:
 
 The commands use a file-side channel so large code and prompts do not need to travel through stdout. When the current working directory is not the analyzed repository, pass `--repo-root <repo>` to every session-based command: components, prompts, trees, documents, updates, html, and session close/info. `doc reconcile` is output-directory based and does not require a session.
 
+For one session, commands that write session or output state are serialized by
+the CLI with a cross-process session lock. The host must still issue these
+commands serially: `prompt get`, tree save/apply/context, document
+write/edit/validate, update writes, HTML generation, and session close. Model
+calls may run in parallel only when their CLI writes are not concurrent.
+The lock is bounded; a timeout is a JSON error and never silently drops a
+write.
+
 ## Session workspace
 
 Sessions live below the analyzed repository:
@@ -115,6 +123,12 @@ optional super-grouping, and recursive `scope=module` clustering, then save the
 expanded tree. `session close` refuses to remove the session workspace while
 the quality gate is false.
 
+The input-ID file must contain either a JSON array of strings or one exact
+component ID per line. A JSON object is a prompt-vars file, not an ID list,
+and is rejected with an input-format error. Before applying a model response,
+the host should run `components read` with the same ID file and confirm that
+the non-empty response file already exists.
+
 ## Update verdicts
 
 `update finalize` accepts `--verdicts-file <path>`. The file may contain either
@@ -124,7 +138,11 @@ value is a verdict string or an object containing `verdict` and optional
 
 ## Document editing
 
-`doc write` creates a new Markdown page and refuses to overwrite it. `doc edit` accepts a JSON array:
+`doc write` creates a new Markdown page and refuses to overwrite it. It also
+accepts `--if-existing same`: an existing page is treated as success only when
+its bytes exactly match the requested content; a different page remains an
+error. The result reports whether the page was `created` or `reused`. `doc edit`
+accepts a JSON array:
 
 ```json
 [
