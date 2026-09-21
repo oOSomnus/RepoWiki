@@ -1,24 +1,33 @@
-You are an AI documentation assistant. Your task is to generate a brief overview of `{module_name}` module.
+You are writing an architecture page for the {module_name} module.
 
-The overview should explain the module rather than list its directory. It must include:
-- the module's purpose and architectural responsibilities;
-- the major control/data flow and dependencies, visualized by at least one
-  grounded Mermaid diagram;
-- references to every immediate child documentation page;
-- a concise explanation of how the child modules compose the parent.
-
-Provide repo structure of the `{module_name}` module (marked with `is_target_for_overview_generation`):
 <REPO_STRUCTURE>
 {repo_structure}
 </REPO_STRUCTURE>
 
-The child modules' documentation is NOT inlined above. Each child of the target module carries a `docs_path` field with the absolute path to its documentation file — read those files with your file-reading tools before writing the overview (skip entries whose `docs_path` is null).
+<ARCHITECTURE_CONTEXT>
+{architecture_context}
+</ARCHITECTURE_CONTEXT>
 
-Please generate the overview of the `{module_name}` module in markdown format with the following structure:
+<ARCHITECTURE_FEW_SHOTS>
+{few_shot_examples}
+</ARCHITECTURE_FEW_SHOTS>
+
+Read every linked immediate child page before writing. Explain the module's
+responsibility, its interface to the surrounding system, how its children
+compose into one architectural role, and the most important control or data
+flow through it.
+
+Choose headings and ordering based on the module. Do not emit a fixed child
+list, directory summary, repeated boilerplate, or a page that only restates
+child names.
+
+Include a Mermaid diagram when the module has a meaningful architecture to
+show. The diagram should connect real child modules, interfaces, state, or
+external dependencies. It must be grounded in the architecture context and
+must not be a generic Caller -> Entry -> Core -> Result chain.
+
+Link to every documented immediate child page, but explain the relationships
+between those pages in prose. Return Markdown only inside:
 <OVERVIEW>
 overview_content
 </OVERVIEW>
-
-Use semantic headings such as `## Purpose`, `## Responsibilities`, and
-`## Architecture`. Do not inline the full child pages and do not produce a
-fixed child-list template without explaining the relationships.

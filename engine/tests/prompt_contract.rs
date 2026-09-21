@@ -109,6 +109,8 @@ fn every_prompt_renders_without_known_unresolved_placeholders_or_legacy_tools() 
         "{repo_structure}",
         "{leaf_name}",
         "{custom_instructions}",
+        "{few_shot_examples}",
+        "{architecture_context}",
         "{mode}",
         "{mode_note}",
         "{write_set}",
@@ -145,14 +147,15 @@ fn every_prompt_renders_without_known_unresolved_placeholders_or_legacy_tools() 
 }
 
 #[test]
-fn cluster_scope_selects_repository_or_recursive_module_contract() {
+fn cluster_scope_selects_repository_or_module_architecture_contract() {
     let mut repo = string_vars(&[
         ("potential_core_components", "src/lib.rs::run"),
         ("scope", "repo"),
     ]);
     let repo_prompt = prompts::render(PromptType::Cluster, &repo).expect("repo prompt");
-    assert!(repo_prompt.contains("repository-level clustering pass"));
-    assert!(!repo_prompt.contains("recursive refinement pass"));
+    assert!(repo_prompt.contains("architecture map"));
+    assert!(repo_prompt.contains("representative component IDs"));
+    assert!(repo_prompt.contains("directory classification"));
 
     repo.insert("scope".to_string(), Value::String("module".to_string()));
     repo.insert(
@@ -169,10 +172,10 @@ fn cluster_scope_selects_repository_or_recursive_module_contract() {
         }),
     );
     let module_prompt = prompts::render(PromptType::Cluster, &repo).expect("module prompt");
-    assert!(module_prompt.contains("recursive refinement pass"));
-    assert!(module_prompt.contains("Runtime (current module)"));
-    assert!(module_prompt.contains("child groups only"));
-    assert!(module_prompt.contains("parent keeps its aggregate component list"));
+    assert!(module_prompt.contains("existing module"));
+    assert!(module_prompt.contains("representative component IDs"));
+    assert!(module_prompt.contains("Keep the tree\nshallow"));
+    assert!(module_prompt.contains("Do not create a directory-shaped child"));
 }
 
 #[test]
@@ -253,6 +256,43 @@ fn artifact_context_is_opt_in_and_overview_explains_build_and_run() {
         prompts::render(PromptType::OverviewRepo, &overview).expect("overview prompt");
     assert!(repo_prompt.contains("How it is built and run"));
     assert!(repo_prompt.contains("Makefile (build)"));
+}
+
+#[test]
+fn architecture_context_and_few_shots_are_first_class_prompt_inputs() {
+    let vars = string_vars(&[
+        ("module_name", "Query Pipeline"),
+        ("module_tree", "Query Pipeline\n  Storage"),
+        ("formatted_core_component_codes", "src/query.rs::execute"),
+        (
+            "architecture_context",
+            "Query Pipeline -> Storage: reads parts",
+        ),
+        (
+            "few_shot_examples",
+            "A reference page explains one concrete data path.",
+        ),
+    ]);
+    let prompt = prompts::render(PromptType::User, &vars).expect("architecture user prompt");
+    assert!(prompt.contains("Query Pipeline -> Storage: reads parts"));
+    assert!(prompt.contains("A reference page explains one concrete data path."));
+
+    let overview_vars = string_vars(&[
+        ("repo_name", "fixture"),
+        ("repo_structure", "Query Pipeline"),
+        (
+            "architecture_context",
+            "Query Pipeline -> Storage: reads parts",
+        ),
+        (
+            "few_shot_examples",
+            "A reference page explains one concrete data path.",
+        ),
+    ]);
+    let overview =
+        prompts::render(PromptType::OverviewRepo, &overview_vars).expect("overview prompt");
+    assert!(overview.contains("Query Pipeline -> Storage: reads parts"));
+    assert!(overview.contains("primary Mermaid architecture diagram"));
 }
 
 #[test]

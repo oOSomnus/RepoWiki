@@ -1,26 +1,40 @@
-You are an AI documentation assistant. Your task is to generate a brief overview of the {repo_name} repository.
+You are writing the repository's architecture map for a developer who needs
+to understand how the system works before reading implementation details.
 
-The overview should explain the repository as an architecture, not as a flat
-directory listing. It must include:
-- the repository's purpose and major responsibilities;
-- an end-to-end request/data-flow architecture visualized by at least one
-  grounded Mermaid diagram;
-- references to every top-level module documentation page;
-- build/run or deployment context when artifact information is supplied.
-
-Provide `{repo_name}` repo structure:
 <REPO_STRUCTURE>
 {repo_structure}
 </REPO_STRUCTURE>
 
-The core modules' documentation is NOT inlined above. Each top-level module carries a `docs_path` field with the absolute path to its documentation file — read those files with your file-reading tools before writing the overview (skip entries whose `docs_path` is null).
+<ARCHITECTURE_CONTEXT>
+{architecture_context}
+</ARCHITECTURE_CONTEXT>
 
-Please generate the overview of the `{repo_name}` repository in markdown format with the following structure:
+<ARCHITECTURE_FEW_SHOTS>
+{few_shot_examples}
+</ARCHITECTURE_FEW_SHOTS>
+
+Read the linked top-level module pages before writing this overview. Explain
+the repository as a system: its purpose, the main external entry points, the
+important transformations and orchestration stages, the execution/state/
+storage boundaries, and how a result returns to the caller.
+
+Write a source-grounded overview in a structure that fits this repository.
+Do not use a fixed heading order, repeat a page template, or produce a flat
+module list. The module links are navigation; the prose must explain why the
+modules are connected.
+
+The overview must contain one primary Mermaid architecture diagram. It must
+show a concrete end-to-end path with meaningful module or interface names,
+grounded relationships, and a visible endpoint such as a result, persisted
+state, external system, or storage layer. Do not use generic placeholders such
+as Entry, Core, Result, Other, or All. Keep build/test/release details out of
+the primary runtime diagram; mention them separately when artifact context is
+available.
+
+When a diagram would otherwise be speculative, use the supplied architecture
+context and source evidence to narrow it or omit the speculative relationship.
+
+Return Markdown only inside:
 <OVERVIEW>
 overview_content
 </OVERVIEW>
-
-Use semantic headings such as `## Purpose`, `## Architecture`, `## Data flow`,
-and `## How it is built and run` when relevant. Explain the relationships
-between modules and provide useful navigation; do not emit only a generated
-module list or a root-to-directory diagram.

@@ -15,7 +15,8 @@ where
         .expect("run codewiki");
     assert!(
         output.status.success(),
-        "stderr: {}",
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
     serde_json::from_slice(&output.stdout).expect("JSON stdout")
@@ -33,7 +34,8 @@ where
         .expect("run codewiki");
     assert!(
         output.status.success(),
-        "stderr: {}",
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
     serde_json::from_slice(&output.stdout).expect("JSON stdout")
@@ -163,7 +165,7 @@ fn file_side_workflow_creates_reference_artifacts() {
         tree_arg.as_str(),
         "--first",
     ]);
-    assert!(saved["result"]["unmatched_component_ids"]
+    assert!(saved["result"]["unmatched_architecture_ids"]
         .as_array()
         .unwrap()
         .is_empty());
@@ -299,7 +301,8 @@ fn recursive_tree_commands_are_file_side_and_work_outside_repo_cwd() {
             clustered_tree.to_str().unwrap(),
         ],
     );
-    assert_eq!(clustered["diagnostics"]["fallback_used"], false);
+    assert_eq!(clustered["diagnostics"]["selected_count"], json!(ids.len()));
+    assert_eq!(clustered["diagnostics"]["omitted_count"], json!(0));
 
     let super_response = work.join("super-response.txt");
     fs::write(
@@ -341,7 +344,7 @@ fn recursive_tree_commands_are_file_side_and_work_outside_repo_cwd() {
             "--first",
         ],
     );
-    assert_eq!(saved["result"]["unmatched_component_ids"], json!([]));
+    assert_eq!(saved["result"]["unmatched_architecture_ids"], json!([]));
     assert_eq!(saved["result"]["quality_valid"], true);
     assert_eq!(saved["result"]["max_depth"], 2);
 
@@ -365,8 +368,20 @@ fn recursive_tree_commands_are_file_side_and_work_outside_repo_cwd() {
     let context_json: Value =
         serde_json::from_str(&fs::read_to_string(&context_file).expect("overview context file"))
             .expect("overview context JSON");
-    assert_eq!(context_json["Platform"]["components"], Value::Null);
-    assert_eq!(context_json["Platform"]["docs_path"], Value::Null);
+    assert_eq!(
+        context_json["repo_structure"]["Platform"]["components"],
+        Value::Null
+    );
+    assert_eq!(
+        context_json["repo_structure"]["Platform"]["docs_path"],
+        Value::Null
+    );
+    assert!(context_json["architecture_context"]["nodes"]
+        .as_array()
+        .is_some());
+    assert!(context_json["architecture_context"]["edges"]
+        .as_array()
+        .is_some());
 
     let order = run_from(
         scratch.path(),

@@ -1,6 +1,6 @@
 # RepoWiki
 
-[English README](../README.md) · [开发说明](development.md) · [参考实现配置](../reference/README.md)
+[English README](../README.md) · [开发说明](development.md) · [架构示例](../skill/references/few-shots/README.md)
 
 RepoWiki 是一个用于生成仓库 Wiki 的 Agent Skill。它使用可移植的 Rust
 分析器和运行时文档，让 Agent 能够分析仓库、整理模块，并写出对应的文档。
@@ -35,22 +35,17 @@ make clean
 # 离线回放、Rust 检查和包校验。
 make test
 
-# 只运行提示词和 reference 兼容性契约检查。
+# 只运行本地架构提示词契约检查。
 make test-contract
 
 # 临时目录安装 smoke test。
 make test-install
 
-# reference parser 及工作流语义差分检查。
-make test-reference
 ```
-
-`make test-reference` 所需的 reference 环境见
-[`reference/README.md`](../reference/README.md)。
 
 ## 相关文档
 
 - [英文 README](../README.md)
 - [开发说明](development.md)
 - [运行时 Skill 说明](../skill/SKILL.md)
-- [参考实现配置](../reference/README.md)
+- [参考项目架构 few-shot 示例](../skill/references/few-shots/README.md)

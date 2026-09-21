@@ -67,7 +67,7 @@ fn module(components: &[&str], children: BTreeMap<String, Module>) -> Module {
 }
 
 #[test]
-fn tree_validation_separates_unknown_ids_from_leaf_coverage() {
+fn tree_validation_separates_unknown_ids_from_architecture_anchors() {
     let (_repo, state) = prepared_session(
         &[("known-leaf", "python"), ("known-parent", "python")],
         &["known-leaf"],
@@ -83,10 +83,7 @@ fn tree_validation_separates_unknown_ids_from_leaf_coverage() {
     let saved = docs::save_module_tree(&state, &tree, true).expect("save module tree");
     let validation: Value = session::read_json(std::path::Path::new(&saved.validation_path))
         .expect("read tree validation");
-    assert_eq!(validation["unmatched_component_ids"], json!(["unknown"]));
-    assert_eq!(validation["leftover_candidate_ids"], json!([]));
-    assert_eq!(validation["unmatched_ids"], json!(["unknown"]));
-    assert_eq!(validation["leftover_component_ids"], json!([]));
+    assert_eq!(validation["unmatched_architecture_ids"], json!(["unknown"]));
     assert_eq!(validation["valid"], json!(false));
 
     let order: Value = session::read_json(std::path::Path::new(&saved.processing_order_path))
@@ -119,8 +116,11 @@ fn tree_validation_separates_unknown_ids_from_leaf_coverage() {
         docs::save_module_tree(&state, &incomplete_tree, false).expect("save incomplete tree");
     let validation: Value = session::read_json(std::path::Path::new(&saved.validation_path))
         .expect("read incomplete validation");
-    assert_eq!(validation["unmatched_component_ids"], json!([]));
-    assert_eq!(validation["leftover_candidate_ids"], json!(["known-leaf"]));
+    assert_eq!(validation["unmatched_architecture_ids"], json!([]));
+    assert_eq!(
+        validation["omitted_analysis_candidate_ids"],
+        json!(["known-leaf"])
+    );
     assert_eq!(validation["valid"], json!(true));
 }
 
@@ -269,11 +269,8 @@ fn recursive_tree_quality_and_metadata_use_documentation_leaf_counts() {
     invalid_tree.insert("Root".to_string(), module(&[], invalid_children));
     let invalid = docs::save_module_tree(&state, &invalid_tree, false)
         .expect("save invalid aggregate tree for diagnostics");
-    assert!(!invalid.quality_valid);
-    assert!(invalid
-        .quality_errors
-        .iter()
-        .any(|error| error.contains("aggregate") || error.contains("parent")));
+    assert!(invalid.quality_valid);
+    assert!(invalid.quality_errors.is_empty());
 }
 
 #[test]
@@ -391,7 +388,7 @@ fn documentation_quality_rejects_component_list_templates() {
 }
 
 #[test]
-fn cluster_response_is_applied_recursively_with_structural_fallback() {
+fn cluster_response_selects_architecture_anchors_without_structural_fallback() {
     let (_repo, state) = prepared_session(
         &[("a", "rust"), ("b", "rust"), ("c", "rust")],
         &["a", "b", "c"],
@@ -408,14 +405,10 @@ fn cluster_response_is_applied_recursively_with_structural_fallback() {
     )
     .expect("apply root response");
     assert_eq!(tree["Core"].components, vec!["a", "b"]);
-    assert_eq!(diagnostics["fallback_used"], json!(true));
-    assert_eq!(
-        tree.values()
-            .flat_map(|module| module.components.iter())
-            .cloned()
-            .collect::<BTreeSet<_>>(),
-        BTreeSet::from(["a".to_string(), "b".to_string(), "c".to_string()])
-    );
+    assert_eq!(diagnostics["selected_count"], json!(2));
+    assert_eq!(diagnostics["omitted_count"], json!(1));
+    assert_eq!(tree["Core"].components, vec!["a", "b"]);
+    assert!(!serde_json::to_string(&tree).unwrap().contains("\"c\""));
 
     let parent_path = vec!["Core".to_string()];
     docs::apply_cluster_response(
@@ -433,45 +426,21 @@ fn cluster_response_is_applied_recursively_with_structural_fallback() {
 }
 
 #[test]
-fn unresolved_cluster_fallback_blocks_tree_quality_until_retry() {
+fn malformed_cluster_response_is_rejected_without_mutating_the_tree() {
     let (_repo, state) = prepared_session(&[("a", "rust"), ("b", "rust")], &["a", "b"]);
     let input = vec!["a".to_string(), "b".to_string()];
-    docs::record_cluster_diagnostics(
+    let mut tree = ModuleTree::new();
+    let error = docs::apply_cluster_response(
         &state,
+        &mut tree,
+        "not a grouped response",
         &input,
         "repo",
         &[],
-        &json!({
-            "fallback_used": true,
-            "diagnostics": ["structural fallback assigned omitted components"]
-        }),
     )
-    .expect("record failed clustering response");
-
-    let tree = ModuleTree::from([
-        ("A".to_string(), module(&["a"], BTreeMap::new())),
-        ("B".to_string(), module(&["b"], BTreeMap::new())),
-    ]);
-    let saved = docs::save_module_tree(&state, &tree, true).expect("save fallback tree");
-    assert!(!saved.quality_valid);
-    assert!(saved
-        .quality_errors
-        .iter()
-        .any(|error| error.contains("unresolved clustering fallback")));
-
-    docs::record_cluster_diagnostics(
-        &state,
-        &input,
-        "repo",
-        &[],
-        &json!({
-            "fallback_used": false,
-            "diagnostics": []
-        }),
-    )
-    .expect("record successful retry");
-    let retried = docs::save_module_tree(&state, &tree, false).expect("save retried tree");
-    assert!(retried.quality_valid);
+    .expect_err("malformed clustering response must be retried by the host");
+    assert!(error.to_string().contains("no module anchors"));
+    assert!(tree.is_empty());
 }
 
 #[test]
@@ -501,6 +470,76 @@ fn super_group_preserves_existing_modules_and_overview_context_links_children() 
     assert_eq!(
         context["Platform"]["children"]["API"]["docs_path"],
         Value::Null
+    );
+}
+
+#[test]
+fn overview_context_aggregates_full_dependency_graph_into_architecture_modules() {
+    let (_repo, state) = prepared_session(
+        &[("api", "rust"), ("runtime", "rust"), ("storage", "rust")],
+        &["api"],
+    );
+    let mut nodes: BTreeMap<String, Node> =
+        session::read_json(&session::session_value_path(&state, "components.json"))
+            .expect("read graph nodes");
+    nodes.get_mut("api").unwrap().relative_path = "src/api.rs".to_string();
+    nodes.get_mut("api").unwrap().depends_on = vec!["runtime".to_string()];
+    nodes.get_mut("runtime").unwrap().relative_path = "src/runtime.rs".to_string();
+    nodes.get_mut("runtime").unwrap().depends_on = vec!["storage".to_string()];
+    nodes.get_mut("storage").unwrap().relative_path = "src/storage.rs".to_string();
+    session::write_json(
+        &session::session_value_path(&state, "components.json"),
+        &nodes,
+    )
+    .expect("write dependency graph");
+
+    let tree = ModuleTree::from([
+        (
+            "API".to_string(),
+            Module {
+                path: Some("src/api".to_string()),
+                components: vec!["api".to_string()],
+                children: BTreeMap::new(),
+            },
+        ),
+        (
+            "Runtime".to_string(),
+            Module {
+                path: Some("src/runtime".to_string()),
+                components: vec!["runtime".to_string()],
+                children: BTreeMap::new(),
+            },
+        ),
+        (
+            "Storage".to_string(),
+            Module {
+                path: Some("src/storage".to_string()),
+                components: Vec::new(),
+                children: BTreeMap::new(),
+            },
+        ),
+    ]);
+    let context =
+        docs::overview_context_for_session(&state, &tree, &[], &session::output_dir(&state))
+            .expect("build architecture context");
+    let edges = context["architecture_context"]["edges"]
+        .as_array()
+        .expect("architecture edges");
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge["from"] == "API" && edge["to"] == "Runtime"),
+        "{context}"
+    );
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge["from"] == "Runtime" && edge["to"] == "Storage"),
+        "{context}"
+    );
+    assert_eq!(
+        context["architecture_context"]["primary_paths"][0],
+        json!(["API", "Runtime", "Storage"])
     );
 }
 

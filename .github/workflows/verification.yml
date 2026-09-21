@@ -25,22 +25,3 @@ jobs:
         run: make test
       - name: Run install replacement smoke test
         run: make test-install
-
-  reference:
-    name: Pinned reference differential
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository and reference submodule
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - name: Install Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Prepare reference environment
-        run: reference/setup-differential.sh
-      - name: Run reference differential
-        run: make test-reference PYTHON=reference/.venv/bin/python

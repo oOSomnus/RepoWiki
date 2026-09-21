@@ -1,78 +1,103 @@
 ---
 name: repo-wiki
-description: Generate or incrementally update a repository wiki when the agent needs dependency-aware module documentation, overview pages, Mermaid diagrams, and RepoWiki-compatible JSON artifacts using the bundled Rust CLI.
+description: Generate architecture-first repository documentation with dependency-aware modules, source-grounded prose, and useful Mermaid diagrams.
 metadata:
-  short-description: Agent-driven repository wiki generation
+  short-description: Architecture-first repository wiki generation
 ---
 
-# RepoWiki wiki generation
+# Architecture Wiki generation
 
-Use this skill when the requested result is a repository-level wiki, architecture documentation, or an incremental wiki update. The host agent owns semantic clustering and prose generation; the bundled Rust CLI owns repository analysis, session files, prompt transport, safe document edits, module-tree validation, and bookkeeping.
+This Skill generates an architecture reading guide, not a repository index.
+The final `module_tree.json` contains only semantic modules that deserve a
+reader-facing page. The analyzer may inspect every supported source component,
+but low-level functions, tests, generated types, and isolated helpers remain
+evidence in the session graph rather than becoming pages.
 
-The host must actually invoke its model for every clustering and documentation
-request. The prompt command only renders a prompt into a session file; it does
-not call a model and its result is never a documentation answer. A host that
-renders a prompt and then constructs a response, Markdown page, or overview
-with a fixed string/template has not completed this workflow. The close gate
-rejects template-only pages, missing explanations, missing source grounding,
-and missing architecture links/diagrams.
-
-The host may use subagents to parallelize independent work. Subagents return
-cluster JSON or Markdown to the host; the host remains the single writer of
-the module tree and documentation through the CLI. Do not let concurrent
-workers mutate the same session, and do not let a worker invent a second page
-name or bypass the document write/edit commands.
+The host agent owns semantic module selection, few-shot selection, prose, and
+Mermaid design. The bundled Rust CLI owns analysis, dependency/context
+reduction, prompt transport, safe document writes, and deterministic quality
+checks. The CLI never calls an LLM and the host must make the model call for
+every clustering and documentation request.
 
 ## Runtime
 
-The user asks for the wiki in natural language. Resolve the directory containing this file, then invoke the bundled executable:
+Resolve the directory containing this file and invoke the bundled executable:
 
 - POSIX: `scripts/codewiki`
 - Windows: `scripts/codewiki.exe`
 
-The executable was compiled for the environment that produced this Skill package. Cargo, Rust source, prompt source files, and build scripts are not part of the installed package and are not needed at runtime. Never ask the user to build or invoke the CLI manually. If the executable is missing or cannot run, report that the Skill package is incomplete or built for another platform.
+Every normal command result is JSON on stdout. A failure has
+`{"ok":false,"error":"...","chain":["..."]}` and a non-zero exit code.
+Keep large values in session files instead of copying them into chat.
 
-Every normal command result, including runtime and CLI-argument failures, is JSON on stdout. A failure has {"ok":false,"error":"...","chain":["..."]} and a non-zero exit status; --help and --version intentionally print human-readable text. Keep large data in the session files named by command output instead of copying it into chat. The reference-compatible logical tools are CLI subcommands:
+The generation workflow uses these CLI subcommands:
 
 ```text
-analyze_repo          -> codewiki analyze
-read_code_components  -> codewiki components read
-get_prompt            -> codewiki prompt get
-save_module_tree      -> codewiki tree save
-get_processing_order  -> codewiki tree order
-apply_cluster         -> codewiki tree apply-cluster
-apply_super_group     -> codewiki tree apply-super-group
-overview_context      -> codewiki tree overview-context
-write_doc_file        -> codewiki doc write
-edit_doc_file         -> codewiki doc edit
-validate_doc          -> codewiki doc validate
-close_session         -> codewiki session close
+codewiki generate
+codewiki components read
+codewiki prompt get
+codewiki tree save
+codewiki tree apply-cluster
+codewiki tree apply-super-group
+codewiki tree overview-context
+codewiki tree order
+codewiki doc write
+codewiki doc edit
+codewiki doc validate
+codewiki session close
 ```
 
-Read [references/cli-contract.md](references/cli-contract.md) when constructing command input files or interpreting validation JSON. Read [references/prompt-map.md](references/prompt-map.md) when choosing a prompt and its variables. Prompt bodies are embedded in the bundled executable.
+Always pass `--repo-root <repo>` to session commands when the analyzed
+repository is not the current working directory. Read
+[references/cli-contract.md](references/cli-contract.md) and
+[references/prompt-map.md](references/prompt-map.md) for command details.
 
-Always pass --repo-root <repo> to session-based commands when the agent is not
-running with the analyzed repository as its current directory. This includes
-components read, prompt get, all tree commands, every doc command, all update
-commands, html, and session close.
+## Fresh architecture wiki
 
-## Fresh wiki
-
-1. Start analysis and capture the returned `session_id`:
+1. Start analysis with the architecture-oriented depth:
 
    ```text
-   codewiki generate --repo <repo> --output <repo>/.repowiki --max-depth 4
+   codewiki generate --repo <repo> --output <repo>/.repowiki --max-depth 2
    ```
 
-   Confirm that the result contains the session workspace, component index, leaf list, language list, dependency graph, and artifact index. Do not start prose generation before these paths exist.
+   Confirm that the session contains the component graph, source index,
+   artifact index, languages, and analysis summary. These are evidence for the
+   architecture writer, not pages to expose to readers.
 
-2. Treat `candidate_module_tree.json` as a diagnostic starting point, never as the final tree. Read `summary.json`, `languages.json`, `component_index.json`, `leaf_nodes.json`, and the relevant source files under the session workspace. Build `potential_core_components` from the selected leaf IDs (including essential artifact components), not from every parsed function or method. Request the repository clustering prompt with `codewiki prompt get --repo-root <repo> --session <session_id> --type cluster --vars-file <cluster-vars.json>`. The vars file may contain `potential_core_components` or exact `component_ids`; the CLI formats IDs, source by file, module-tree outlines, and artifact context when IDs are supplied.
+2. Read the analysis summary, dependency graph, selected analysis candidates,
+   and relevant source files. Select a small representative set of exact
+   component IDs for each semantic subsystem. A selected ID is an evidence
+   anchor, not a promise that every component in the file receives a page.
 
-   For large inputs, partition deterministically by relative path and then coalesce adjacent groups up to the configured batch size (default 600 selected components). Every batch must be clustered, merged, and checked for exact ID coverage. Retry an empty/malformed response once with the same input; if it still fails, leave that batch unresolved and report it for repair rather than silently promoting a directory bucket to a semantic module. If the root produces at least three modules, optionally request `super_group` and preserve the resulting modules as children of the new subsystem parents.
+3. Read the relevant examples under `references/few-shots/`. Use:
 
-   The root response is only the first semantic level. For every module whose selected component source exceeds `max_token_per_module` or is still an obvious multi-domain directory bucket, request `cluster` again with `scope=module`, the exact `module_name`, the current `module_tree`, and that module's component IDs. The batch size is only the maximum size of one model request; it is not a leaf-quality failure. Apply each marked response with `codewiki tree apply-cluster`; it validates exact IDs, merges duplicate names, and structurally rescues malformed or omitted groups. Recursively apply the same rule to each returned child until it fits, reaches `max_depth`, or contains one unsplittable component. Keep the parent's aggregate component list when adding children; child lists must partition the parent's selected IDs and use exact IDs from the analysis. If super-grouping is used, apply it with `codewiki tree apply-super-group` so existing modules remain children. Write the recursively expanded tree to a JSON input file.
+   - `clickhouse-overview.md` for the repository overview;
+   - `clickhouse-storage-engine.md` for parent modules;
+   - `clickhouse-query-pipeline.md` for execution/resource flow;
+   - `clickhouse-ast-create-query.md` for complex implementation modules.
 
-3. Save the clustered tree in two phases:
+   Pass one or two selected examples to documentation prompts through the
+   `few_shot_examples` variable. They demonstrate information density and
+   diagram discipline only. Never copy their facts, headings, or sentences.
+
+4. Request the repository clustering prompt with `scope=repo`. Return only
+   semantic architecture modules and a few exact representative component IDs
+   per module. Do not force all candidate IDs into groups. Do not create
+   pages for tests, generated protocol types, isolated helpers, or directory
+   buckets unless they form a genuine system boundary.
+
+   The response must be model-generated. If it is empty, malformed, or
+   contains no valid architecture anchors, retry the same request and report
+   failure if the retry also fails. Never promote an automatic directory
+   bucket or hard-coded Markdown template as a successful model response.
+
+5. Refine only modules that are too broad or contain multiple architectural
+   responsibilities. Use `scope=module`, but keep the tree shallow. A child
+   must represent a distinct interface, execution stage, state/storage area,
+   or integration. Do not split a cohesive subsystem merely because it has
+   many functions or files.
+
+6. Save the architecture tree in two phases:
 
    ```text
    codewiki tree save --repo-root <repo> --session <session_id> --tree-file <root-tree.json> --first
@@ -80,84 +105,103 @@ commands, html, and session close.
    codewiki tree order --repo-root <repo> --session <session_id>
    ```
 
-   The first save preserves the root candidate for comparison; the second save is the final recursively expanded tree. Inspect `module_tree_validation.json` after the final save. Repair unknown IDs, leftover candidates, orphaned candidates, and `quality_errors` before writing prose. `quality_valid` must be true: an oversized multi-component leaf is evidence that recursive clustering stopped too early; a singleton over the limit is reported as a warning because it cannot be split. `max_token_per_leaf_module` is documentation/delegation context, not a tree-close failure. The processing order must be leaf modules before parents, and parent component lists may repeat aggregate IDs from their descendants.
+   The final tree is intentionally lossy with respect to low-level analysis
+   components. Its quality gate checks valid evidence IDs, meaningful module
+   structure, depth, and page relationships; it does not require exhaustive
+   candidate coverage.
 
-4. For each leaf processing-order item, request `system_leaf`, then `user` with the module name, final tree, and component source paths. For a complex leaf, `system_complex` may guide the page content, but it must document only that already-clustered leaf; it must not spawn an untracked sub-module workflow. The host agent writes Markdown content to a temporary file and calls `codewiki doc write --repo-root <repo>` for a new page or `codewiki doc edit --repo-root <repo>` for an existing page. Keep the page name returned by the processing order; do not invent a second filename.
-
-5. After all leaf pages exist, request `overview_module` for every parent, deepest parent first, using `codewiki tree overview-context` to produce the target structure, and write those pages through the CLI. Then request `overview_repo` for `overview.md`. Parent pages must link to child pages using the flat document names and must not inline a child page's full documentation.
-
-6. Confirm the key output contract and quality gate before closing:
+7. Before each overview prompt, run:
 
    ```text
-   .repowiki/overview.md
-   .repowiki/<module>.md
-   .repowiki/module_tree.json
-   .repowiki/first_module_tree.json
-   .repowiki/metadata.json
-   .repowiki/update_record.json       # incremental runs
-   .repowiki/temp/artifact_index.json
-   .repowiki/temp/dependency_graphs/*_dependency_graph.json
+   codewiki tree overview-context --repo-root <repo> --session <session_id>
    ```
 
-   Also confirm the final validation reports `quality_valid: true`, a depth greater than one when the repository has oversized multi-component modules, and module/leaf counts that match the recursively saved tree. Optionally run `codewiki html --repo-root <repo> --session <session_id>`. Then close the session with `codewiki session close --repo-root <repo> --session <session_id>`. Close is a hard quality gate: it refuses to clean the session when required pages, IDs, or recursive leaf limits are incomplete. A successful run has written pages, metadata, and a cleaned session workspace.
+   The returned context includes the target tree, child page paths, and a
+   reduced `architecture_context` containing grounded module nodes, edges, and
+   primary paths. Pass the JSON value under `repo_structure` to the prompt's
+   `repo_structure` variable and the value under `architecture_context` to its
+   `architecture_context` variable; do not pass the wrapper as one opaque
+   structure.
 
-## Host-agent execution contract
+8. Generate pages through the model and CLI only:
 
-The rendered prompt is an input to the host model, not a model response.
-For every cluster, leaf, parent, and repository-overview task:
+   - use `system_leaf` and `user` for selected leaf modules;
+   - use `system_complex` for selected complex modules;
+   - use `overview_module` for parents after child pages exist;
+   - use `overview_repo` for `overview.md`.
 
-1. Render the prompt with the CLI.
-2. Read the rendered prompt and the referenced source/page files.
-3. Ask the host model or a subagent to produce the response.
-4. Validate the response shape, exact component IDs, source grounding, and
-   page links before handing it to the CLI.
+   The prompts deliberately do not prescribe a heading sequence. The model
+   must choose a structure that fits the source. A page must explain purpose,
+   interfaces, behavior, and relationships in prose; a component list is not
+   documentation.
 
-For large repositories, use independent subagents for component batches, leaf
-pages, and parent overviews. The main host merges cluster responses, owns the
-working tree, serializes all CLI writes, and performs the final review. A
-subagent may never replace a failed model call with a directory bucket,
-hard-coded JSON, or a Markdown template. A page is not complete because its
-file exists: it must explain purpose, responsibilities, architecture or data
-flow, and the behavior of the analyzed source.
+## Mermaid requirements
 
-Before session close, run:
+The repository overview must contain one useful end-to-end architecture
+diagram. It should show a concrete path from an external entry point through
+real processing/orchestration stages to execution, state, storage, or an
+external result. Parent pages should show how their child modules compose.
+
+Use the architecture context to ground node names and edges. Prefer
+`flowchart`, `graph`, or `sequenceDiagram` according to the architecture.
+Do not create generic diagrams such as `Caller -> Entry -> Core -> Result`,
+directory trees, or disconnected module lists. Build/test/release concerns
+belong in a separate supporting explanation, not the primary runtime graph.
+
+A leaf page may omit Mermaid when the source has no meaningful interaction to
+show. It is better to omit a diagram than to invent one.
+
+## Output and close gate
+
+The published architecture wiki contains:
+
+```text
+.repowiki/overview.md
+.repowiki/<architecture-module>.md
+.repowiki/module_tree.json
+.repowiki/first_module_tree.json
+.repowiki/metadata.json
+```
+
+The session may retain dependency graphs, component source, artifact indexes,
+prompt transcripts, and validation reports for generation and diagnosis.
+
+Before close, run:
 
 ```text
 codewiki doc validate --repo-root <repo> --session <session_id>
+codewiki session close --repo-root <repo> --session <session_id>
 ```
 
-Repair every reported error and repeat the validation. Parent pages need
-Mermaid architecture diagrams and links to every child page. The repository
-overview needs an end-to-end diagram and links to every top-level module.
-Only a report with valid: true may be passed to session close.
+The report must be valid. It checks that every architecture module has a page,
+pages contain source-grounded explanation, parent links are complete, and
+overview/parent Mermaid diagrams pass the architecture-quality checks. It does
+not require a page for every parsed component.
 
-## Incremental update
+`codewiki html --repo-root <repo> --session <session_id>` may be run after
+validation to publish the static reader view.
 
-Run `codewiki generate --update` with the same repository and output directory. The default update rung is `3`; accepted values are `0`, `1`, `2`, `3`, and `3b`. Invalid rung or threshold values fail before an update plan is written. Then execute the returned update plan, route, routing prompt/decision application, context, and stale-scan commands with `--repo-root <repo>`. Use the generated reports and write sets to decide which existing pages need edits. Route every host-agent edit through the CLI so the write guard, edit history, and Mermaid report remain authoritative.
+## Incremental updates
 
-Use the update prompt types for each active leaf. End every update-agent response with the required fenced JSON verdict, record the verdicts in the update workflow, and run:
-
-```text
-codewiki update finalize --repo-root <repo> --session <session_id> --model host-agent
-```
-
-Before finalizing, write the host agent's page decisions to a JSON file and
-pass `--verdicts-file <path>`. The file may be either a direct page map or the
-reference-shaped envelope `{"verdicts": {"page.md": {"verdict": "patch", "reason": "..."}}}`.
-The CLI stores the normalized verdicts and generated report names in
-`update_record.json`.
-
-Use rung `1` for safe incremental edits, `2` for leaf rewrites, `3` for the full updater, and `3b` for the full updater with wider k-hop context. `tau_ren` controls token-level rename pairing; `tau_full` and `tau_tree` control full-build fallback; `tau_grow` controls reclustering; `tau_nb` controls neighbour-majority routing; `k_hop` controls upstream context; and `max_diff_tokens` caps report source. Treat a `full_fallback` plan as a rebuild request, not as a partial update. The completed update writes `.repowiki/update_record.json`.
+Use the existing update workflow for architecture pages. Route changed
+components to the deepest documented architecture module, not to a low-level
+function page. Re-cluster when the change alters a module's responsibility,
+public interface, or cross-module flow. A body-only change that does not alter
+architecture should update the source anchors or remain unmentioned.
 
 ## Completion criteria
 
-The task is complete only when the requested pages and JSON artifacts are present, `module_tree_validation.json` has no invalid IDs or quality errors, `quality_valid` is true, the processing order has been consumed, every intended page write was made through the CLI, and metadata/update records describe the run. Generated prose may differ from the reference wording; artifact names, structural fields, dependency IDs, module relationships, recursive depth, and lifecycle semantics are the compatibility target.
+The task is complete only when:
 
-The session-side documentation_validation.json report must contain valid:
-true, and metadata.json must retain its quality summary after the session is
-closed. Generated prose may differ from the reference wording, but it must be
-model-produced and grounded in the analyzed source.
+- the final tree contains semantic architecture modules and valid source IDs;
+- every final tree module has a model-generated page;
+- `overview.md` and parent pages link to their documented children;
+- overview and parent diagrams pass architecture-quality validation;
+- pages are explanatory rather than fixed templates or component inventories;
+- `documentation_validation.json` reports `valid: true`;
+- metadata records architecture module/anchor counts and documentation quality;
+- the host has made the model calls and all writes went through the CLI.
 
-## Boundaries
-
-The CLI does not call an LLM, store provider credentials, start an MCP server, or run the reference web application. The supported input languages are Python, Java, JavaScript, TypeScript, Go, Rust, C, C++, C#, Kotlin, PHP, Ruby, and Scala. The `reference/CodeWiki` directory is read-only reference material and is excluded from the Skill package.
+The `reference/CodeWiki` directory is read-only reference material. The
+supported input languages are Python, Java, JavaScript, TypeScript, Go, Rust,
+C, C++, C#, Kotlin, PHP, Ruby, and Scala.

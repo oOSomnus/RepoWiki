@@ -25,7 +25,7 @@ pub struct AnalyzeOptions {
     pub gitignore: bool,
     pub artifacts: bool,
     /// Maximum artifact budget expressed in approximate tokens. A zero value
-    /// means use the engine default, keeping direct library callers compatible.
+    /// means use the engine default for direct library callers.
     pub artifact_token_budget: usize,
     pub artifact_exclude: Vec<String>,
     /// Analysis does not build the LLM tree, but this remains part of the
@@ -220,6 +220,7 @@ pub fn analyze(
         languages: languages.into_iter().collect(),
         analyzed_commit: commit,
         warnings: Vec::new(),
+        documentation_profile: "architecture".to_string(),
     };
 
     let graph_dir = output_dir.join("temp").join("dependency_graphs");

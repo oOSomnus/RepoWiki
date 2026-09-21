@@ -38,6 +38,13 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = Path(__file__).resolve().parent / "fixture"
 TRANSCRIPT_PATH = Path(__file__).resolve().parent / "transcript.json"
 GOLDEN_PATH = Path(__file__).resolve().parent.parent / "golden" / "mini-repo.json"
+FEW_SHOT_FILES = [
+    ROOT / "skill" / "references" / "few-shots" / "clickhouse-overview.md",
+    ROOT / "skill" / "references" / "few-shots" / "clickhouse-query-pipeline.md",
+]
+FEW_SHOT_EXAMPLES = "\n\n".join(
+    path.read_text(encoding="utf-8") for path in FEW_SHOT_FILES
+)
 LANGUAGES = [
     "c",
     "cpp",
@@ -148,22 +155,39 @@ def prompt_vars(
     tree: dict[str, Any],
     module_name: str,
     source_text: str,
+    architecture_context: str = "",
 ) -> dict[str, Any]:
     tree_text = json.dumps(tree, ensure_ascii=False, indent=2, sort_keys=True)
     if prompt_type == "cluster":
         return {"scope": "repo", "potential_core_components": source_text}
     if prompt_type == "system_leaf":
-        return {"module_name": module_name, "custom_instructions": "offline replay"}
+        return {
+            "module_name": module_name,
+            "custom_instructions": "offline replay",
+            "few_shot_examples": FEW_SHOT_EXAMPLES,
+        }
     if prompt_type == "user":
         return {
             "module_name": module_name,
             "module_tree": tree_text,
             "formatted_core_component_codes": source_text,
+            "few_shot_examples": FEW_SHOT_EXAMPLES,
+            "architecture_context": architecture_context,
         }
     if prompt_type == "overview_module":
-        return {"module_name": module_name, "repo_structure": source_text}
+        return {
+            "module_name": module_name,
+            "repo_structure": source_text,
+            "few_shot_examples": FEW_SHOT_EXAMPLES,
+            "architecture_context": architecture_context,
+        }
     if prompt_type == "overview_repo":
-        return {"repo_name": "replay-repo", "repo_structure": source_text or tree_text}
+        return {
+            "repo_name": "replay-repo",
+            "repo_structure": source_text or tree_text,
+            "few_shot_examples": FEW_SHOT_EXAMPLES,
+            "architecture_context": architecture_context,
+        }
     raise ReplayFailure(f"unsupported replay prompt type: {prompt_type}")
 
 
@@ -296,10 +320,14 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
         component_index = load_json(Path(analysis["component_index_path"]))
         leaf_nodes = load_json(Path(analysis["leaf_nodes_path"]))
         graph = load_json(Path(analysis["graph_path"]))
-        if expected_component_ids(transcript["module_tree"]) != sorted(
-            item["id"] for item in component_index
-        ):
-            raise ReplayFailure("transcript module tree does not cover the analyzed components")
+        selected_ids = expected_component_ids(transcript["module_tree"])
+        analyzed_ids = sorted(item["id"] for item in component_index)
+        if not set(selected_ids).issubset(analyzed_ids):
+            raise ReplayFailure("transcript module tree contains an unknown architecture anchor")
+        if len(selected_ids) >= len(analyzed_ids):
+            raise ReplayFailure(
+                "replay fixture must leave low-level analysis candidates outside the architecture tree"
+            )
         if "MustNotBeAnalyzed" in json.dumps(component_index):
             raise ReplayFailure(".gitignore fixture leaked into the component index")
 
@@ -349,7 +377,7 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
             ],
         )
         save_result = saved["result"]
-        if save_result["unmatched_component_ids"]:
+        if save_result["unmatched_architecture_ids"]:
             raise ReplayFailure(f"transcript tree has unmatched IDs: {save_result}")
 
         ids_path = work / "component-ids.json"
@@ -420,9 +448,17 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
                         str(context_path),
                     ],
                 )
-                context_text = canonical_json(load_json(context_path))
+                context_value = load_json(context_path)
+                context_text = canonical_json(context_value.get("repo_structure", context_value))
+                architecture_text = canonical_json(
+                    context_value.get("architecture_context", {})
+                )
                 variables = prompt_vars(
-                    "overview_module", transcript["module_tree"], module_name, context_text
+                    "overview_module",
+                    transcript["module_tree"],
+                    module_name,
+                    context_text,
+                    architecture_text,
                 )
                 prompt_hashes["overview_module"].append(
                     get_prompt(binary, repo, session_id, "overview_module", variables, work)
@@ -463,7 +499,11 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
                 str(repo_context_path),
             ],
         )
-        repo_context = canonical_json(load_json(repo_context_path))
+        repo_context_value = load_json(repo_context_path)
+        repo_context = canonical_json(repo_context_value.get("repo_structure", repo_context_value))
+        repo_architecture_context = canonical_json(
+            repo_context_value.get("architecture_context", {})
+        )
         prompt_hashes["overview_repo"] = [
             get_prompt(
                 binary,
@@ -475,6 +515,7 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
                         transcript["module_tree"],
                         "Repository",
                         repo_context,
+                        repo_architecture_context,
                     ),
                 work,
             )
@@ -533,8 +574,11 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
                 "valid": validation["valid"],
                 "complete": validation["complete"],
                 "quality_valid": validation["quality_valid"],
-                "unmatched_component_ids": validation["unmatched_component_ids"],
-                "leftover_candidate_ids": validation["leftover_candidate_ids"],
+                "unmatched_architecture_ids": validation["unmatched_architecture_ids"],
+                "omitted_analysis_candidate_ids": validation[
+                    "omitted_analysis_candidate_ids"
+                ],
+                "architecture_anchor_count": validation["architecture_anchor_count"],
                 "module_count": validation["module_count"],
                 "leaf_count": validation["leaf_count"],
                 "max_depth": validation["max_depth"],

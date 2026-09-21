@@ -1,6 +1,6 @@
 # RepoWiki
 
-[简体中文](documentation/README.zh-CN.md) · [Development notes](documentation/development.md) · [Reference setup](reference/README.md)
+[简体中文](documentation/README.zh-CN.md) · [Development notes](documentation/development.md) · [Architecture examples](skill/references/few-shots/README.md)
 
 RepoWiki is an Agent Skill for generating repository wikis. It combines a
 portable Rust analyzer with runtime instructions that let an agent inspect a
@@ -37,22 +37,17 @@ machine.
 # Offline replay, Rust checks, and package validation.
 make test
 
-# Prompt/reference compatibility contract only.
+# Local architecture prompt contract only.
 make test-contract
 
 # Temporary-directory installation smoke test.
 make test-install
 
-# Comparison with the pinned reference parser and workflow semantics.
-make test-reference
 ```
-
-`make test-reference` requires the reference environment described in
-[`reference/README.md`](reference/README.md).
 
 ## Documentation
 
 - [中文说明](documentation/README.zh-CN.md)
 - [Development notes](documentation/development.md)
 - [Runtime Skill instructions](skill/SKILL.md)
-- [Reference implementation setup](reference/README.md)
+- [Reference-derived architecture examples](skill/references/few-shots/README.md)

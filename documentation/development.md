@@ -12,10 +12,9 @@ page is for contributors working on the build, tests, and package layout.
   tests.
 - `skill/` contains the runtime Skill source: `SKILL.md`, agent metadata, and
   references.
-- `tools/` contains development-time replay, differential, and package
-  validation tools.
-- `reference/CodeWiki/` is the pinned read-only reference implementation used
-  by the optional differential check.
+- `tools/` contains development-time replay and package validation tools.
+- `reference/CodeWiki/` is read-only reference material used to curate the
+  architecture few-shot examples under `skill/references/few-shots/`.
 - `preview/`, `dist/`, and `.build/` are generated locally and are not runtime
   source directories.
 
@@ -62,23 +61,21 @@ unzip dist/RepoWiki-*.zip -d ~/.agents/skills/RepoWiki
 
 `make test` runs the layered offline gate:
 
-- `test-contract` checks the local prompt semantics, validates the declared
-  compatibility matrix, and rejects legacy tool names or missing
-  recursive/overview obligations. If the reference checkout is present it also
-  checks reference prompt anchors; the offline gate does not require the
-  optional submodule;
+- `test-contract` checks the local architecture prompt semantics, the curated
+  few-shot catalog, and rejects legacy tool names or missing module/overview
+  obligations;
 - the replay drives the real packaged CLI through analysis, prompt rendering,
   recursive tree saving, leaf-first ordering, overview-context generation,
   document writes, session close, and ZIP extraction, then compares the full
   normalized result with `tests/golden/mini-repo.json`;
-- Rust integration contracts cover prompt variables and rendering, exact
-  recursive tree coverage and quality diagnostics, update routing/stale scans,
-  and CLI behavior from a non-repository working directory;
+- Rust integration contracts cover prompt variables and rendering, semantic
+  architecture-anchor selection and quality diagnostics, update routing/stale
+  scans, and CLI behavior from a non-repository working directory;
 - formatting, tests, Clippy, and runtime-package validation complete the gate.
 
 The replay does not call an LLM. Prompt hashes and fixed Markdown make changes
-to the host-agent contract visible without making generated prose part of the
-byte-for-byte compatibility requirement.
+to the host-agent architecture contract visible while the tree intentionally
+leaves low-level analysis candidates outside the published page hierarchy.
 
 Run the prompt/static layer alone with:
 
@@ -89,20 +86,9 @@ make test-contract
 `make test-install` repeats the package validation through a temporary install
 directory and checks that a stale file is removed during replacement.
 
-`make test-reference` runs the same offline gate and then invokes the real
-pinned Python reference implementation. It compares a normalized analyzer
-contract (component IDs, locations, languages, dependencies, and leaves) plus
-deterministic workflow semantics: leaf-first processing order and the
-component-free, target-marked overview context with child `docs_path` fields.
-It also runs the static prompt contract against both prompt trees with
-`--require-reference`. Missing reference sources or dependencies are a hard
-failure for this opt-in gate, never a skip.
-Reference setup and its isolated environment are documented in
-[`reference/README.md`](../reference/README.md).
-
-`.github/workflows/verification.yml` runs the offline/package gate on every
-push and pull request, and runs the pinned reference differential in a separate
-job with the reference submodule and virtual environment initialized explicitly.
+The reference checkout is not a compatibility target. When changing prompts,
+update the architecture few-shots only when a new reference page adds a
+useful reading pattern or diagram discipline.
 
 Use `make clean` to remove generated build, preview, archive, and local
-packaging artifacts. It does not remove the pinned reference checkout.
+packaging artifacts.

@@ -731,12 +731,11 @@ fn save_tree(args: SaveTreeArgs) -> Result<Value> {
     let state = load_session(&args.session)?;
     let mut tree: ModuleTree = docs::read_tree_file(&args.tree_file)?;
     normalize_tree_component_ids(&state, &mut tree)?;
-    let rescued_artifacts = docs::ensure_artifact_coverage(&state, &mut tree)?;
     let result = docs::save_module_tree(&state, &tree, args.first)?;
     Ok(json!({
         "ok": true,
         "result": result,
-        "rescued_artifact_ids": rescued_artifacts,
+        "architecture_tree": true,
     }))
 }
 
@@ -761,7 +760,6 @@ fn apply_cluster(args: ApplyClusterArgs) -> Result<Value> {
     )?;
     let output = args.output_tree_file.unwrap_or(args.tree_file);
     session::write_json(&output, &tree)?;
-    docs::record_cluster_diagnostics(&state, &input_ids, &args.scope, &parent_path, &diagnostics)?;
     Ok(json!({
         "ok": true,
         "tree_path": output,
@@ -796,7 +794,12 @@ fn overview_context(args: OverviewContextArgs) -> Result<Value> {
         .map(|path| read_string_list(path))
         .transpose()?
         .unwrap_or_default();
-    let context = docs::overview_context(&tree, &target_path, &session::output_dir(&state))?;
+    let context = docs::overview_context_for_session(
+        &state,
+        &tree,
+        &target_path,
+        &session::output_dir(&state),
+    )?;
     let output = args.output_file.unwrap_or_else(|| {
         let suffix = if target_path.is_empty() {
             "repo".to_string()
@@ -973,7 +976,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn update_defaults_match_reference() {
+    fn update_defaults_match_architecture_workflow() {
         let cli = Cli::try_parse_from(["codewiki", "generate", "--update"])
             .expect("default update arguments");
         let Some(Command::Generate(args)) = cli.command else {

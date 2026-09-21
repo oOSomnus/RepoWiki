@@ -24,11 +24,11 @@ stale_fix_system, stale_fix_user.
 | cluster | one of potential_core_components or component_ids | scope; when scope=module, also module_name and module_tree |
 | super_group | formatted_modules | none |
 | filter_folders | project_name, files | none |
-| system_complex | module_name | custom_instructions |
-| system_leaf | module_name | custom_instructions |
-| user | module_name, module_tree, and one of formatted_core_component_codes or component_ids | artifact_index |
-| overview_module | module_name, repo_structure | none |
-| overview_repo | repo_name, repo_structure | artifact_index |
+| system_complex | module_name | custom_instructions, few_shot_examples |
+| system_leaf | module_name | custom_instructions, few_shot_examples |
+| user | module_name, module_tree, and one of formatted_core_component_codes or component_ids | artifact_index, few_shot_examples, architecture_context |
+| overview_module | module_name, repo_structure | few_shot_examples, architecture_context |
+| overview_repo | repo_name, repo_structure | artifact_index, few_shot_examples, architecture_context |
 
 The cluster response uses GROUPED_COMPONENTS or GROUPED_MODULES markers. Those
 are response-format markers, not input variable names. In particular,

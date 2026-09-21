@@ -65,6 +65,7 @@ def canonical_analysis(
             "supported_files": summary["supported_files"],
             "languages": sorted(summary["languages"]),
             "warnings": summary["warnings"],
+            "documentation_profile": summary["documentation_profile"],
         },
         "components": sorted(components, key=lambda item: item["id"]),
         "leaf_nodes": sorted(leaf_nodes),
