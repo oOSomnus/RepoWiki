@@ -116,6 +116,12 @@ pub struct Summary {
     pub languages: Vec<String>,
     pub analyzed_commit: Option<String>,
     pub warnings: Vec<String>,
+    /// RepoWiki emits an architecture tree.  This is intentionally a single
+    /// product mode rather than a compatibility switch: the analyzer keeps
+    /// the full graph for evidence, while the published tree contains only
+    /// modules a reader can use to understand the system.
+    #[serde(default = "default_documentation_profile")]
+    pub documentation_profile: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -208,6 +214,8 @@ pub struct Metadata {
     pub generation_info: GenerationInfo,
     pub statistics: Statistics,
     pub files_generated: Vec<String>,
+    #[serde(default = "default_documentation_profile")]
+    pub documentation_profile: String,
     /// Semantic documentation checks are kept with the published metadata so
     /// a cleaned session still records whether the generated pages explain
     /// the repository rather than merely listing parsed components.
@@ -239,4 +247,12 @@ pub struct Statistics {
     #[serde(default)]
     pub module_count: usize,
     pub max_depth: usize,
+    #[serde(default)]
+    pub architecture_modules: usize,
+    #[serde(default)]
+    pub architecture_anchors: usize,
+}
+
+fn default_documentation_profile() -> String {
+    "architecture".to_string()
 }

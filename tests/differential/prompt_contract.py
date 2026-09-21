@@ -1,23 +1,20 @@
 #!/usr/bin/env python3
-"""Static semantic prompt checks shared by the offline and reference gates.
+"""Check the architecture-reading prompt contract.
 
-The reference implementation and RepoWiki intentionally use different host
-tools.  This check compares the obligations that affect the wiki workflow:
-module recursion, exact IDs, artifact awareness, overview structure and
-machine-readable responses.  It deliberately does not compare prose bytes.
+RepoWiki is intentionally not a compatibility implementation of the pinned
+reference host. The reference material is used as a small set of few-shot
+architecture examples; this gate checks the current prompt contract and the
+examples shipped with the Skill instead of comparing prompt implementations.
 """
 
 from __future__ import annotations
 
-import argparse
-import json
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 CURRENT = ROOT / "engine" / "prompts"
-REFERENCE = ROOT / "reference" / "CodeWiki" / "codewiki" / "src" / "be"
-COMPATIBILITY = ROOT / "tests" / "contracts" / "reference-compatibility.json"
+FEW_SHOTS = ROOT / "skill" / "references" / "few-shots"
 
 
 class PromptContractFailure(RuntimeError):
@@ -30,39 +27,24 @@ def require(text: str, fragments: list[str], label: str) -> None:
         raise PromptContractFailure(f"{label} is missing: {missing}")
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--require-reference",
-        action="store_true",
-        help="fail when the pinned reference prompt sources are unavailable",
-    )
-    return parser.parse_args()
-
-
 def main() -> int:
-    args = parse_args()
-    compatibility = json.loads(COMPATIBILITY.read_text(encoding="utf-8"))
-    if len(compatibility["common_analysis_languages"]) != 11:
-        raise PromptContractFailure("common reference language allowlist changed unexpectedly")
-
     current = {
         path.name: path.read_text(encoding="utf-8")
         for path in CURRENT.glob("*.txt")
     }
     required_current = {
         "cluster_repo.txt": [
-            "<POTENTIAL_CORE_COMPONENTS>",
+            "architecture map",
+            "representative component IDs",
+            "not a directory classification task",
+            "not an exhaustive partition",
             "<GROUPED_COMPONENTS>",
-            "repository-level clustering pass",
-            "scope=module",
-            "exactly one",
         ],
         "cluster_module.txt": [
-            "<MODULE_TREE>",
-            "recursive refinement pass",
-            "child groups only",
-            "parent keeps its aggregate component list",
+            "existing module",
+            "representative component IDs",
+            "Keep the tree\nshallow",
+            "directory-shaped child",
             "<GROUPED_COMPONENTS>",
         ],
         "super_group.txt": [
@@ -72,41 +54,52 @@ def main() -> int:
         ],
         "user.txt": [
             "<MODULE_TREE>",
-            "<CORE_COMPONENT_CODES>",
-            "source-grounded explanatory Markdown page",
+            "<ARCHITECTURE_CONTEXT>",
+            "<ARCHITECTURE_FEW_SHOTS>",
+            "source-grounded architecture page",
+            "Caller -> Entry -> Core -> Result",
         ],
         "overview_module.txt": [
             "<REPO_STRUCTURE>",
-            "docs_path",
-            "<OVERVIEW>",
-            "architectural responsibilities",
-            "every immediate child documentation page",
+            "<ARCHITECTURE_CONTEXT>",
+            "<ARCHITECTURE_FEW_SHOTS>",
+            "every linked immediate child page",
+            "Caller -> Entry -> Core -> Result",
         ],
         "overview_repo.txt": [
             "<REPO_STRUCTURE>",
-            "docs_path",
-            "<OVERVIEW>",
-            "end-to-end request/data-flow architecture",
-            "every top-level module documentation page",
+            "<ARCHITECTURE_CONTEXT>",
+            "<ARCHITECTURE_FEW_SHOTS>",
+            "primary Mermaid architecture diagram",
+            "end-to-end path",
+            "generic placeholders",
         ],
         "system_leaf.txt": [
-            "codewiki components read",
+            "architecture documentation writer",
             "codewiki doc write",
-            "semantic headings",
-            "explanatory prose",
+            "Mermaid",
         ],
         "system_complex.txt": [
-            "already-clustered module",
+            "architecture documentation writer",
+            "already-selected architecture module",
             "codewiki doc write",
-            "source-grounded explanation",
-            "component inventory disguised as documentation",
+            "selected components form one module",
         ],
         "filter_folders.txt": ["relative paths", "shortlist", "JSON format"],
-        "update_leaf_user.txt": ["<WRITE_SET>", "<CHANGE_REPORT>", "<LEAF_COMPONENTS>", "verdict"],
+        "update_leaf_user.txt": [
+            "<WRITE_SET>",
+            "<CHANGE_REPORT>",
+            "<LEAF_COMPONENTS>",
+            "verdict",
+        ],
         "routing_system.txt": ["existing module tree", "JSON only"],
         "routing_user.txt": ["<MODULE_TREE>", "<ORPHANS>", "decisions"],
         "stale_fix_system.txt": ["stale references", "verdicts"],
-        "stale_fix_user.txt": ["<STALE_ITEMS>", "codewiki doc view", "codewiki doc edit"],
+        "stale_fix_user.txt": [
+            "<STALE_ITEMS>",
+            "codewiki doc view",
+            "codewiki doc edit",
+        ],
     }
     expected_prompt_files = {
         "artifact_usage.txt",
@@ -147,62 +140,34 @@ def main() -> int:
             if legacy in text:
                 raise PromptContractFailure(f"current/{name} contains legacy tool {legacy}")
 
-    reference_template_path = REFERENCE / "prompt_template.py"
-    reference_updater_path = REFERENCE / "updater" / "prompts.py"
-    reference_available = (
-        reference_template_path.is_file() and reference_updater_path.is_file()
-    )
-    if not reference_available:
-        if args.require_reference:
-            raise PromptContractFailure(
-                "pinned reference prompt sources are unavailable; initialize "
-                "reference/CodeWiki before running the reference gate"
-            )
-    else:
-        reference_template = reference_template_path.read_text(encoding="utf-8")
-        require(
-            reference_template,
-            [
-                "CLUSTER_REPO_PROMPT",
-                "CLUSTER_MODULE_PROMPT",
-                "SUPER_GROUP_PROMPT",
-                "<GROUPED_COMPONENTS>",
-                "<GROUPED_MODULES>",
-                "Each component ID has the form",
-                "REPO_OVERVIEW_PROMPT",
-                "MODULE_OVERVIEW_PROMPT",
-            ],
-            "reference/prompt_template.py",
-        )
-        reference_updater = reference_updater_path.read_text(encoding="utf-8")
-        require(
-            reference_updater,
-            ["WRITE_SET", "CHANGE_REPORT", "verdicts", "routing"],
-            "reference/updater/prompts.py",
-        )
-    exact_rules = compatibility.get("exact_parity", [])
-    if not isinstance(exact_rules, list) or not all(
-        isinstance(rule, str) for rule in exact_rules
-    ):
-        raise PromptContractFailure("compatibility exact_parity must be a list of strings")
-    divergences = compatibility.get("intentional_divergence", [])
-    if not isinstance(divergences, list) or not all(
-        isinstance(item, str) for item in divergences
-    ):
+    expected_few_shots = {
+        "README.md",
+        "clickhouse-overview.md",
+        "clickhouse-storage-engine.md",
+        "clickhouse-query-pipeline.md",
+        "clickhouse-ast-create-query.md",
+    }
+    actual_few_shots = {path.name for path in FEW_SHOTS.iterdir() if path.is_file()}
+    if actual_few_shots != expected_few_shots:
         raise PromptContractFailure(
-            "compatibility intentional_divergence must be a list of strings"
+            "architecture few-shot catalog differs: "
+            f"expected {sorted(expected_few_shots)}, got {sorted(actual_few_shots)}"
         )
+    require(
+        (FEW_SHOTS / "README.md").read_text(encoding="utf-8"),
+        ["clickhouse-overview.md", "clickhouse-storage-engine.md"],
+        "few-shots/README.md",
+    )
+    for path in FEW_SHOTS.glob("*.md"):
+        if path.name == "README.md":
+            continue
+        text = path.read_text(encoding="utf-8")
+        require(text, ["architecture", "mermaid"], f"few-shots/{path.name}")
 
     print(
-        "PASS prompt semantic contract: "
+        "PASS architecture prompt contract: "
         f"{len(required_current)}/{len(current)} current prompts, "
-        f"{len(compatibility['exact_parity'])} exact parity rules, "
-        f"{len(compatibility['intentional_divergence'])} documented divergences"
-        + (
-            "; reference prompt sources checked"
-            if reference_available
-            else "; reference prompt sources not present"
-        )
+        f"{len(expected_few_shots) - 1} reference-derived few shots"
     )
     return 0
 
@@ -210,6 +175,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (OSError, json.JSONDecodeError, PromptContractFailure) as exc:
+    except (OSError, PromptContractFailure) as exc:
         print(f"PROMPT CONTRACT FAILED: {exc}")
         raise SystemExit(1)

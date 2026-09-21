@@ -1,18 +1,28 @@
-Generate comprehensive documentation for the {module_name} module using the provided module tree and core components.
-
-The result must be a source-grounded explanatory Markdown page, not a
-directory listing. Explain the module's purpose, responsibilities, control or
-data flow, important interfaces, and relationships to neighboring modules.
-Use semantic headings and include at least one concrete explanation tied to
-the supplied file paths and component names. Add Mermaid diagrams when they
-clarify architecture or execution. Do not invent behavior, omit all prose, or
-fill the page with a repeated template.
+Write a source-grounded architecture page for {module_name}.
 
 <MODULE_TREE>
 {module_tree}
 </MODULE_TREE>
-* NOTE: You can refer the other modules in the module tree based on the dependencies between their core components to make the documentation more structured and avoid repeating the same information. Know that all documentation files are saved in the same folder not structured as module tree. e.g. [alt text]([ref_module_name].md)
+
+<ARCHITECTURE_CONTEXT>
+{architecture_context}
+</ARCHITECTURE_CONTEXT>
+
+<ARCHITECTURE_FEW_SHOTS>
+{few_shot_examples}
+</ARCHITECTURE_FEW_SHOTS>
 
 <CORE_COMPONENT_CODES>
 {formatted_core_component_codes}
 </CORE_COMPONENT_CODES>
+
+The page must explain the module's role in the system, its important
+interfaces, and a real control or data flow tied to the supplied source. Use a
+free-form structure appropriate to the module. Do not produce a directory
+listing, component inventory, repeated template, or generic explanation.
+
+Add Mermaid only when it makes the architecture easier to understand. Prefer
+concrete module/interface/storage names and relationships from the supplied
+context. Do not invent a Caller -> Entry -> Core -> Result graph merely to
+include a diagram. Link to related documented pages when the module tree
+provides them.

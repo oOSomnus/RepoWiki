@@ -1,41 +1,35 @@
-Here is list of all potential core components of the repository (It's normal that some components are not essential to the repository):
-<POTENTIAL_CORE_COMPONENTS>
+You are defining the architecture map for a repository. This is not a source
+index and it is not a directory classification task.
+
+<CANDIDATE_COMPONENTS>
 {potential_core_components}
-</POTENTIAL_CORE_COMPONENTS>
+</CANDIDATE_COMPONENTS>
 
-Please group the components into groups such that each group is a set of components that are closely related to each other and together they form a module. DO NOT include components that are not essential to the repository.
+Choose a small set of reader-facing architectural modules. A module should
+represent a real subsystem, interface, execution stage, state boundary,
+storage boundary, or integration surface. Do not create a page for tests,
+generated protocol types, isolated helpers, or implementation trivia unless
+it forms a meaningful system boundary.
 
-This is the repository-level clustering pass, not the final documentation
-tree. Keep the groups semantically meaningful and reasonably sized. If the
-input is too large to reason about in one response, the host will call this
-prompt in deterministic batches and merge the results; every input component
-must still appear in exactly one returned group. A group that is still large
-must be recursively clustered later with scope=module, so do not treat a
-coarse directory bucket as a completed leaf.
+Select only a few representative component IDs per module. Every selected ID
+must be copied exactly from the input. It is acceptable, and expected, for
+many candidate components to remain only in the analysis graph.
 
-Files marked `(artifact: <class>)` are build, CI, container, packaging, manifest, configuration, schema or script files. Their components describe how the system is built, packaged, shipped, configured and tested. They ARE essential: group them into a dedicated build/deployment/configuration module, or attach them to the module they configure. Never drop them.
+Use names that describe the responsibility a reader needs to understand, not
+the nearest directory. Prefer a shallow architecture with a small number of
+meaningful modules. Build, packaging, and test infrastructure may be grouped
+as one secondary module, but must not dominate the runtime architecture.
 
-Each component ID has the form `<file_path>::<name>`. Return the IDs EXACTLY as given — do NOT strip the `<file_path>::` prefix or shorten the ID to the bare name.
-
-Firstly reason about the components and then group them and return the result in the following format:
+Return only this JSON marker. Do not return Markdown:
 <GROUPED_COMPONENTS>
-{{
-    "module_name_1": {{
-        "path": <path_to_the_module_1>, # the path to the module can be file or directory
-        "components": [
-            <component_name_1>,
-            <component_name_2>,
-            ...
-        ]
-    }},
-    "module_name_2": {{
-        "path": <path_to_the_module_2>,
-        "components": [
-            <component_name_1>,
-            <component_name_2>,
-            ...
-        ]
-    }},
-    ...
-}}
+{
+  "Module Name": {
+    "path": "src/or/relevant/path",
+    "components": ["exact/file/path::Representative"],
+    "children": {}
+  }
+}
 </GROUPED_COMPONENTS>
+
+The components list is an evidence selection, not an exhaustive partition.
+Never invent an ID, silently change an ID, or use a bare symbol name.

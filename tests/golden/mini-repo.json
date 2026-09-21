@@ -398,6 +398,7 @@
     ],
     "summary": {
       "cluster_batch_size": 600,
+      "documentation_profile": "architecture",
       "languages": [
         "c",
         "cpp",
@@ -427,89 +428,18 @@
     "metadata_present": true
   },
   "documents": {
-    "C.md": "# C\n\n## Purpose\n\nThe C module contains the CService implementation in c/service.c. It is the source-level native service surface for this fixture and gives callers a concrete type to work with. This page explains the analyzed component instead of treating the directory name as an architectural boundary.\n\n## Architecture\n\nThe CService implementation in c/service.c is a leaf with no recorded dependency edges. Its lifecycle is local: a caller reaches the service type, uses its fields or methods, and remains within this source file.\n\n## Responsibilities\n\nCService owns the native service representation. The [Native module](Native.md) supplies the parent architectural context.\n",
-    "C_.md": "# C#\n\n## Purpose\n\nThe C# module contains the CSharpService implementation in csharp/Service.cs. It is the source-level native service surface for this fixture and gives callers a concrete type to work with. This page explains the analyzed component instead of treating the directory name as an architectural boundary.\n\n## Architecture\n\nThe CSharpService implementation in csharp/Service.cs is a leaf with no recorded dependency edges. Its lifecycle is local: a caller reaches the service type, uses its fields or methods, and remains within this source file.\n\n## Responsibilities\n\nCSharpService owns the native service representation. The [Native module](Native.md) supplies the parent architectural context.\n",
-    "C__.md": "# C++\n\n## Purpose\n\nThe C++ module contains the CppService implementation in cpp/service.cpp. It is the source-level native service surface for this fixture and gives callers a concrete type to work with. This page explains the analyzed component instead of treating the directory name as an architectural boundary.\n\n## Architecture\n\nThe CppService implementation in cpp/service.cpp is a leaf with no recorded dependency edges. Its lifecycle is local: a caller reaches the service type, uses its fields or methods, and remains within this source file.\n\n## Responsibilities\n\nCppService owns the native service representation. The [Native module](Native.md) supplies the parent architectural context.\n",
-    "Go.md": "# Go\n\n## Purpose\n\nThe Go module contains the GoService implementation in go/service.go. It is the source-level native service surface for this fixture and gives callers a concrete type to work with. This page explains the analyzed component instead of treating the directory name as an architectural boundary.\n\n## Architecture\n\nThe GoService implementation in go/service.go is a leaf with no recorded dependency edges. Its lifecycle is local: a caller reaches the service type, uses its fields or methods, and remains within this source file.\n\n## Responsibilities\n\nGoService owns the native service representation. The [Native module](Native.md) supplies the parent architectural context.\n",
-    "JVM.md": "# JVM\n\n## Purpose\n\nJVM groups the Java, Kotlin, and Scala service implementations into a subsystem organized around the JVM language family. Its page explains the shared architecture while the children retain language-specific source details.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  Java --> JVM\n  Kotlin --> JVM\n  Scala --> JVM\n```\n\nRead the [Java](Java.md), [Kotlin](Kotlin.md), and [Scala](Scala.md) pages for the concrete components and source paths.\n\n## Responsibilities\n\nJVM provides subsystem context and navigation for the three implementations without replacing their leaf documentation.\n",
-    "Java.md": "# Java\n\n## Purpose\n\nThe Java module contains the JavaService implementation in java/Service.java. It is the source-level JVM service surface for this fixture and gives callers a concrete type to work with. This page explains the analyzed component instead of treating the directory name as an architectural boundary.\n\n## Architecture\n\nThe JavaService implementation in java/Service.java is a leaf with no recorded dependency edges. Its lifecycle is local: a caller reaches the service type, uses its fields or methods, and remains within this source file.\n\n## Responsibilities\n\nJavaService owns the JVM service representation. The [JVM module](JVM.md) supplies the parent architectural context.\n",
-    "JavaScript.md": "# JavaScript\n\n## Purpose\n\nThe JavaScript module contains the JavaScriptService implementation in javascript/service.js. It is the source-level scripting service surface for this fixture and gives callers a concrete type to work with. This page explains the analyzed component instead of treating the directory name as an architectural boundary.\n\n## Architecture\n\nThe JavaScriptService implementation in javascript/service.js is a leaf with no recorded dependency edges. Its lifecycle is local: a caller reaches the service type, uses its fields or methods, and remains within this source file.\n\n## Responsibilities\n\nJavaScriptService owns the scripting service representation. The [Scripting module](Scripting.md) supplies the parent architectural context.\n",
-    "Kotlin.md": "# Kotlin\n\n## Purpose\n\nThe Kotlin module contains the KotlinService implementation in kotlin/Service.kt. It is the source-level JVM service surface for this fixture and gives callers a concrete type to work with. This page explains the analyzed component instead of treating the directory name as an architectural boundary.\n\n## Architecture\n\nThe KotlinService implementation in kotlin/Service.kt is a leaf with no recorded dependency edges. Its lifecycle is local: a caller reaches the service type, uses its fields or methods, and remains within this source file.\n\n## Responsibilities\n\nKotlinService owns the JVM service representation. The [JVM module](JVM.md) supplies the parent architectural context.\n",
-    "Native.md": "# Native\n\n## Purpose\n\nNative groups the C, CSharp, Cpp, Go, and Rust implementations into the native subsystem. It gives the language-specific leaf pages a shared architectural context while keeping source behavior in those child pages.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  C --> Native\n  CSharp --> Native\n  Cpp --> Native\n  Go --> Native\n  Rust --> Native\n```\n\nThe [C](C.md), [C#](C_.md), [C++](C__.md), [Go](Go.md), and [Rust](Rust.md) pages describe the native service surface and its language-specific implementations.\n\n## Responsibilities\n\nNative defines the grouping and navigation relationship for these implementations; it does not duplicate their leaf-level source explanations.\n",
-    "PHP.md": "# PHP\n\n## Purpose\n\nThe PHP module contains the PhpService implementation in php/Service.php. It is the source-level scripting service surface for this fixture and gives callers a concrete type to work with. This page explains the analyzed component instead of treating the directory name as an architectural boundary.\n\n## Architecture\n\nThe PhpService implementation in php/Service.php is a leaf with no recorded dependency edges. Its lifecycle is local: a caller reaches the service type, uses its fields or methods, and remains within this source file.\n\n## Responsibilities\n\nPhpService owns the scripting service representation. The [Scripting module](Scripting.md) supplies the parent architectural context.\n",
-    "Platform.md": "# Platform\n\n## Purpose\n\nPlatform is the top-level subsystem that organizes native, JVM, and scripting implementations under one repository architecture. It connects the family overviews without repeating the source explanations owned by its children.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  Native --> Platform\n  JVM --> Platform\n  Scripting --> Platform\n```\n\nThe [Native](Native.md), [JVM](JVM.md), and [Scripting](Scripting.md) pages explain the three architectural branches and link onward to their language-specific leaves.\n\n## Responsibilities\n\nPlatform provides repository navigation and the high-level relationship among implementation families.\n",
+    "Native.md": "# Native\n\n## Purpose\n\nNative is the selected native execution subsystem. It gives the Rust implementation a shared context while retaining the C service as a representative source anchor rather than creating a page for every analyzed language component.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  C --> Native\n  Rust --> Native\n```\n\nThe [Rust](Rust.md) page describes the concrete implementation selected for source-level reading; the parent retains the C anchor as evidence for the broader native boundary.\n\n## Responsibilities\n\nNative explains the native subsystem boundary and the relationship between its representative source anchors and the documented implementation page.\n",
+    "Platform.md": "# Platform\n\n## Purpose\n\nPlatform is the top-level subsystem that connects the selected native and scripting paths. It keeps the overview at the architectural boundary and leaves source details to the two child pages.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  Native --> Platform\n  Scripting --> Platform\n```\n\nThe [Native](Native.md) and [Scripting](Scripting.md) pages explain the two architectural branches and link onward to their representative implementation pages.\n\n## Responsibilities\n\nPlatform provides the end-to-end navigation boundary and the relationship between the selected execution and scripting surfaces.\n",
     "Python.md": "# Python\n\n## Purpose\n\nThe Python module contains the PythonService implementation in python/service.py. It is the source-level scripting service surface for this fixture and gives callers a concrete type to work with. This page explains the analyzed component instead of treating the directory name as an architectural boundary.\n\n## Architecture\n\nThe PythonService implementation in python/service.py is a leaf with no recorded dependency edges. Its lifecycle is local: a caller reaches the service type, uses its fields or methods, and remains within this source file.\n\n## Responsibilities\n\nPythonService owns the scripting service representation. The [Scripting module](Scripting.md) supplies the parent architectural context.\n",
-    "Ruby.md": "# Ruby\n\n## Purpose\n\nThe Ruby module contains the RubyService implementation in ruby/service.rb. It is the source-level scripting service surface for this fixture and gives callers a concrete type to work with. This page explains the analyzed component instead of treating the directory name as an architectural boundary.\n\n## Architecture\n\nThe RubyService implementation in ruby/service.rb is a leaf with no recorded dependency edges. Its lifecycle is local: a caller reaches the service type, uses its fields or methods, and remains within this source file.\n\n## Responsibilities\n\nRubyService owns the scripting service representation. The [Scripting module](Scripting.md) supplies the parent architectural context.\n",
     "Rust.md": "# Rust\n\n## Purpose\n\nThe Rust module contains the RustService implementation in rust/service.rs. It is the source-level native service surface for this fixture and gives callers a concrete type to work with. This page explains the analyzed component instead of treating the directory name as an architectural boundary.\n\n## Architecture\n\nThe RustService implementation in rust/service.rs is a leaf with no recorded dependency edges. Its lifecycle is local: a caller reaches the service type, uses its fields or methods, and remains within this source file.\n\n## Responsibilities\n\nRustService owns the native service representation. The [Native module](Native.md) supplies the parent architectural context.\n",
-    "Scala.md": "# Scala\n\n## Purpose\n\nThe Scala module contains the ScalaService implementation in scala/Service.scala. It is the source-level JVM service surface for this fixture and gives callers a concrete type to work with. This page explains the analyzed component instead of treating the directory name as an architectural boundary.\n\n## Architecture\n\nThe ScalaService implementation in scala/Service.scala is a leaf with no recorded dependency edges. Its lifecycle is local: a caller reaches the service type, uses its fields or methods, and remains within this source file.\n\n## Responsibilities\n\nScalaService owns the JVM service representation. The [JVM module](JVM.md) supplies the parent architectural context.\n",
-    "Scripting.md": "# Scripting\n\n## Purpose\n\nScripting groups the JavaScript, PHP, Python, Ruby, and TypeScript service implementations into one scripting subsystem. The overview describes their shared role and directs readers to the language-specific pages for behavior.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  JavaScript --> Scripting\n  PHP --> Scripting\n  Python --> Scripting\n  Ruby --> Scripting\n  TypeScript --> Scripting\n```\n\nThe [JavaScript](JavaScript.md), [PHP](PHP.md), [Python](Python.md), [Ruby](Ruby.md), and [TypeScript](TypeScript.md) pages provide the source-grounded details.\n\n## Responsibilities\n\nScripting defines the parent navigation and explains how the language-specific services form one architectural family.\n",
-    "TypeScript.md": "# TypeScript\n\n## Purpose\n\nThe TypeScript module contains the TypeScriptService implementation in typescript/service.ts. It is the source-level scripting service surface for this fixture and gives callers a concrete type to work with. This page explains the analyzed component instead of treating the directory name as an architectural boundary.\n\n## Architecture\n\nThe TypeScriptService implementation in typescript/service.ts is a leaf with no recorded dependency edges. Its lifecycle is local: a caller reaches the service type, uses its fields or methods, and remains within this source file.\n\n## Responsibilities\n\nTypeScriptService owns the scripting service representation. The [Scripting module](Scripting.md) supplies the parent architectural context.\n",
-    "overview.md": "# Replay Wiki\n\n## Purpose\n\nThis fixture repository demonstrates a cross-language service platform. The wiki organizes the analyzed implementations by architectural family so a reader can move from the end-to-end repository shape to a language-specific source page without mistaking directories for behavior.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  caller --> Platform\n  Platform --> Native\n  Platform --> JVM\n  Platform --> Scripting\n```\n\nThe [Platform](Platform.md) page is the starting point for the top-level architecture. It links to the [Native](Native.md), [JVM](JVM.md), and [Scripting](Scripting.md) overviews, which in turn link to the leaf pages and their source-grounded explanations.\n\n## Responsibilities\n\nThis repository overview explains navigation, subsystem relationships, and the boundary between architecture pages and implementation pages.\n"
+    "Scripting.md": "# Scripting\n\n## Purpose\n\nScripting is the selected scripting-facing subsystem. It keeps Python and TypeScript as representative anchors for the cross-language service surface while using one documented child to explain the source behavior.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  Python --> Scripting\n  TypeScript --> Scripting\n```\n\nThe [Python](Python.md) page provides the concrete source-grounded explanation; the TypeScript anchor remains evidence for the wider subsystem boundary.\n\n## Responsibilities\n\nScripting explains how the selected language-facing anchors form one reader-facing subsystem without turning every implementation variant into a page.\n",
+    "overview.md": "# Replay Wiki\n\n## Purpose\n\nThis fixture repository demonstrates a cross-language service platform. The wiki organizes the analyzed implementations by architectural family so a reader can move from the end-to-end repository shape to a language-specific source page without mistaking directories for behavior.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  Client[Service client] --> Platform\n  Platform --> Native\n  Native --> Rust\n  Platform --> JVM\n  JVM --> Java\n  Platform --> Scripting\n  Scripting --> Python\n```\n\nThe [Platform](Platform.md) page is the starting point for the top-level architecture. It connects the family overviews to representative language implementations, which in turn link to the source-grounded leaf pages.\n\n## Responsibilities\n\nThis repository overview explains the request path through the platform, the subsystem relationships, and the boundary between architecture pages and implementation pages.\n"
   },
   "first_module_tree": {
     "Platform": {
       "children": {
-        "JVM": {
-          "children": {
-            "Java": {
-              "children": {},
-              "components": [
-                "java/Service.java::JavaService"
-              ],
-              "path": "java"
-            },
-            "Kotlin": {
-              "children": {},
-              "components": [
-                "kotlin/Service.kt::KotlinService"
-              ],
-              "path": "kotlin"
-            },
-            "Scala": {
-              "children": {},
-              "components": [
-                "scala/Service.scala::ScalaService"
-              ],
-              "path": "scala"
-            }
-          },
-          "components": [
-            "java/Service.java::JavaService",
-            "kotlin/Service.kt::KotlinService",
-            "scala/Service.scala::ScalaService"
-          ],
-          "path": "jvm"
-        },
         "Native": {
           "children": {
-            "C": {
-              "children": {},
-              "components": [
-                "c/service.c::CService"
-              ],
-              "path": "c"
-            },
-            "C#": {
-              "children": {},
-              "components": [
-                "csharp/Service.cs::CSharpService"
-              ],
-              "path": "csharp"
-            },
-            "C++": {
-              "children": {},
-              "components": [
-                "cpp/service.cpp::CppService"
-              ],
-              "path": "cpp"
-            },
-            "Go": {
-              "children": {},
-              "components": [
-                "go/service.go::GoService"
-              ],
-              "path": "go"
-            },
             "Rust": {
               "children": {},
               "components": [
@@ -520,56 +450,22 @@
           },
           "components": [
             "c/service.c::CService",
-            "csharp/Service.cs::CSharpService",
-            "cpp/service.cpp::CppService",
-            "go/service.go::GoService",
             "rust/service.rs::RustService"
           ],
           "path": "native"
         },
         "Scripting": {
           "children": {
-            "JavaScript": {
-              "children": {},
-              "components": [
-                "javascript/service.js::JavaScriptService"
-              ],
-              "path": "javascript"
-            },
-            "PHP": {
-              "children": {},
-              "components": [
-                "php/Service.php::PhpService"
-              ],
-              "path": "php"
-            },
             "Python": {
               "children": {},
               "components": [
                 "python/service.py::PythonService"
               ],
               "path": "python"
-            },
-            "Ruby": {
-              "children": {},
-              "components": [
-                "ruby/service.rb::RubyService"
-              ],
-              "path": "ruby"
-            },
-            "TypeScript": {
-              "children": {},
-              "components": [
-                "typescript/service.ts::TypeScriptService"
-              ],
-              "path": "typescript"
             }
           },
           "components": [
-            "javascript/service.js::JavaScriptService",
-            "php/Service.php::PhpService",
             "python/service.py::PythonService",
-            "ruby/service.rb::RubyService",
             "typescript/service.ts::TypeScriptService"
           ],
           "path": "scripting"
@@ -577,23 +473,15 @@
       },
       "components": [
         "c/service.c::CService",
-        "csharp/Service.cs::CSharpService",
-        "cpp/service.cpp::CppService",
-        "go/service.go::GoService",
-        "java/Service.java::JavaService",
-        "javascript/service.js::JavaScriptService",
-        "kotlin/Service.kt::KotlinService",
-        "php/Service.php::PhpService",
         "python/service.py::PythonService",
-        "ruby/service.rb::RubyService",
         "rust/service.rs::RustService",
-        "scala/Service.scala::ScalaService",
         "typescript/service.ts::TypeScriptService"
       ],
       "path": "."
     }
   },
   "metadata": {
+    "documentation_profile": "architecture",
     "documentation_quality": {
       "checks": {
         "architecture_diagrams": true,
@@ -603,134 +491,29 @@
         "template_only_rejection": true
       },
       "errors": [],
-      "explanatory_page_count": 18,
-      "grounded_page_count": 13,
-      "mermaid_page_count": 5,
-      "page_count": 18,
+      "explanatory_page_count": 6,
+      "grounded_page_count": 2,
+      "mermaid_page_count": 4,
+      "page_count": 6,
       "pages": {
-        "C.md": {
-          "boilerplate_detected": false,
-          "component_count": 1,
-          "errors": [],
-          "explanatory": true,
-          "grounded_components": 1,
-          "mermaid_balanced": true,
-          "mermaid_blocks": 0,
-          "missing_links": [],
-          "module": "C",
-          "prose_words": 92,
-          "role": "leaf",
-          "semantic_sections": 3,
-          "valid": true
-        },
-        "C_.md": {
-          "boilerplate_detected": false,
-          "component_count": 1,
-          "errors": [],
-          "explanatory": true,
-          "grounded_components": 1,
-          "mermaid_balanced": true,
-          "mermaid_blocks": 0,
-          "missing_links": [],
-          "module": "C#",
-          "prose_words": 92,
-          "role": "leaf",
-          "semantic_sections": 3,
-          "valid": true
-        },
-        "C__.md": {
-          "boilerplate_detected": false,
-          "component_count": 1,
-          "errors": [],
-          "explanatory": true,
-          "grounded_components": 1,
-          "mermaid_balanced": true,
-          "mermaid_blocks": 0,
-          "missing_links": [],
-          "module": "C++",
-          "prose_words": 92,
-          "role": "leaf",
-          "semantic_sections": 3,
-          "valid": true
-        },
-        "Go.md": {
-          "boilerplate_detected": false,
-          "component_count": 1,
-          "errors": [],
-          "explanatory": true,
-          "grounded_components": 1,
-          "mermaid_balanced": true,
-          "mermaid_blocks": 0,
-          "missing_links": [],
-          "module": "Go",
-          "prose_words": 92,
-          "role": "leaf",
-          "semantic_sections": 3,
-          "valid": true
-        },
-        "JVM.md": {
-          "boilerplate_detected": false,
-          "component_count": 3,
-          "errors": [],
-          "explanatory": true,
-          "grounded_components": 0,
-          "mermaid_balanced": true,
-          "mermaid_blocks": 1,
-          "missing_links": [],
-          "module": "JVM",
-          "prose_words": 60,
-          "role": "module_overview",
-          "semantic_sections": 3,
-          "valid": true
-        },
-        "Java.md": {
-          "boilerplate_detected": false,
-          "component_count": 1,
-          "errors": [],
-          "explanatory": true,
-          "grounded_components": 1,
-          "mermaid_balanced": true,
-          "mermaid_blocks": 0,
-          "missing_links": [],
-          "module": "Java",
-          "prose_words": 92,
-          "role": "leaf",
-          "semantic_sections": 3,
-          "valid": true
-        },
-        "JavaScript.md": {
-          "boilerplate_detected": false,
-          "component_count": 1,
-          "errors": [],
-          "explanatory": true,
-          "grounded_components": 1,
-          "mermaid_balanced": true,
-          "mermaid_blocks": 0,
-          "missing_links": [],
-          "module": "JavaScript",
-          "prose_words": 92,
-          "role": "leaf",
-          "semantic_sections": 3,
-          "valid": true
-        },
-        "Kotlin.md": {
-          "boilerplate_detected": false,
-          "component_count": 1,
-          "errors": [],
-          "explanatory": true,
-          "grounded_components": 1,
-          "mermaid_balanced": true,
-          "mermaid_blocks": 0,
-          "missing_links": [],
-          "module": "Kotlin",
-          "prose_words": 92,
-          "role": "leaf",
-          "semantic_sections": 3,
-          "valid": true
-        },
         "Native.md": {
+          "architecture_diagram": {
+            "architecture_quality": "pass",
+            "balanced": true,
+            "blocks": 1,
+            "diagram_kind": "flowchart",
+            "disconnected_node_count": 0,
+            "edge_count": 2,
+            "generic_node_count": 0,
+            "grounded_edge_count": 2,
+            "grounded_node_count": 2,
+            "has_primary_path": true,
+            "node_count": 3,
+            "quality_issues": [],
+            "validator": "architecture-heuristic"
+          },
           "boilerplate_detected": false,
-          "component_count": 5,
+          "component_count": 2,
           "errors": [],
           "explanatory": true,
           "grounded_components": 0,
@@ -738,29 +521,29 @@
           "mermaid_blocks": 1,
           "missing_links": [],
           "module": "Native",
-          "prose_words": 67,
+          "prose_words": 78,
           "role": "module_overview",
           "semantic_sections": 3,
           "valid": true
         },
-        "PHP.md": {
-          "boilerplate_detected": false,
-          "component_count": 1,
-          "errors": [],
-          "explanatory": true,
-          "grounded_components": 1,
-          "mermaid_balanced": true,
-          "mermaid_blocks": 0,
-          "missing_links": [],
-          "module": "PHP",
-          "prose_words": 92,
-          "role": "leaf",
-          "semantic_sections": 3,
-          "valid": true
-        },
         "Platform.md": {
+          "architecture_diagram": {
+            "architecture_quality": "pass",
+            "balanced": true,
+            "blocks": 1,
+            "diagram_kind": "flowchart",
+            "disconnected_node_count": 0,
+            "edge_count": 2,
+            "generic_node_count": 0,
+            "grounded_edge_count": 2,
+            "grounded_node_count": 3,
+            "has_primary_path": true,
+            "node_count": 3,
+            "quality_issues": [],
+            "validator": "architecture-heuristic"
+          },
           "boilerplate_detected": false,
-          "component_count": 13,
+          "component_count": 4,
           "errors": [],
           "explanatory": true,
           "grounded_components": 0,
@@ -768,12 +551,27 @@
           "mermaid_blocks": 1,
           "missing_links": [],
           "module": "Platform",
-          "prose_words": 59,
+          "prose_words": 64,
           "role": "module_overview",
           "semantic_sections": 3,
           "valid": true
         },
         "Python.md": {
+          "architecture_diagram": {
+            "architecture_quality": "pass",
+            "balanced": true,
+            "blocks": 0,
+            "diagram_kind": "",
+            "disconnected_node_count": 0,
+            "edge_count": 0,
+            "generic_node_count": 0,
+            "grounded_edge_count": 0,
+            "grounded_node_count": 0,
+            "has_primary_path": false,
+            "node_count": 0,
+            "quality_issues": [],
+            "validator": "architecture-heuristic"
+          },
           "boilerplate_detected": false,
           "component_count": 1,
           "errors": [],
@@ -788,22 +586,22 @@
           "semantic_sections": 3,
           "valid": true
         },
-        "Ruby.md": {
-          "boilerplate_detected": false,
-          "component_count": 1,
-          "errors": [],
-          "explanatory": true,
-          "grounded_components": 1,
-          "mermaid_balanced": true,
-          "mermaid_blocks": 0,
-          "missing_links": [],
-          "module": "Ruby",
-          "prose_words": 92,
-          "role": "leaf",
-          "semantic_sections": 3,
-          "valid": true
-        },
         "Rust.md": {
+          "architecture_diagram": {
+            "architecture_quality": "pass",
+            "balanced": true,
+            "blocks": 0,
+            "diagram_kind": "",
+            "disconnected_node_count": 0,
+            "edge_count": 0,
+            "generic_node_count": 0,
+            "grounded_edge_count": 0,
+            "grounded_node_count": 0,
+            "has_primary_path": false,
+            "node_count": 0,
+            "quality_issues": [],
+            "validator": "architecture-heuristic"
+          },
           "boilerplate_detected": false,
           "component_count": 1,
           "errors": [],
@@ -818,24 +616,24 @@
           "semantic_sections": 3,
           "valid": true
         },
-        "Scala.md": {
-          "boilerplate_detected": false,
-          "component_count": 1,
-          "errors": [],
-          "explanatory": true,
-          "grounded_components": 1,
-          "mermaid_balanced": true,
-          "mermaid_blocks": 0,
-          "missing_links": [],
-          "module": "Scala",
-          "prose_words": 92,
-          "role": "leaf",
-          "semantic_sections": 3,
-          "valid": true
-        },
         "Scripting.md": {
+          "architecture_diagram": {
+            "architecture_quality": "pass",
+            "balanced": true,
+            "blocks": 1,
+            "diagram_kind": "flowchart",
+            "disconnected_node_count": 0,
+            "edge_count": 2,
+            "generic_node_count": 0,
+            "grounded_edge_count": 2,
+            "grounded_node_count": 2,
+            "has_primary_path": true,
+            "node_count": 3,
+            "quality_issues": [],
+            "validator": "architecture-heuristic"
+          },
           "boilerplate_detected": false,
-          "component_count": 5,
+          "component_count": 2,
           "errors": [],
           "explanatory": true,
           "grounded_components": 0,
@@ -843,27 +641,27 @@
           "mermaid_blocks": 1,
           "missing_links": [],
           "module": "Scripting",
-          "prose_words": 57,
+          "prose_words": 66,
           "role": "module_overview",
           "semantic_sections": 3,
           "valid": true
         },
-        "TypeScript.md": {
-          "boilerplate_detected": false,
-          "component_count": 1,
-          "errors": [],
-          "explanatory": true,
-          "grounded_components": 1,
-          "mermaid_balanced": true,
-          "mermaid_blocks": 0,
-          "missing_links": [],
-          "module": "TypeScript",
-          "prose_words": 92,
-          "role": "leaf",
-          "semantic_sections": 3,
-          "valid": true
-        },
         "overview.md": {
+          "architecture_diagram": {
+            "architecture_quality": "pass",
+            "balanced": true,
+            "blocks": 1,
+            "diagram_kind": "flowchart",
+            "disconnected_node_count": 0,
+            "edge_count": 7,
+            "generic_node_count": 0,
+            "grounded_edge_count": 6,
+            "grounded_node_count": 5,
+            "has_primary_path": true,
+            "node_count": 8,
+            "quality_issues": [],
+            "validator": "architecture-heuristic"
+          },
           "boilerplate_detected": false,
           "component_count": 0,
           "errors": [],
@@ -873,36 +671,24 @@
           "mermaid_blocks": 1,
           "missing_links": [],
           "module": "Repository overview",
-          "prose_words": 85,
+          "prose_words": 88,
           "role": "repository_overview",
           "semantic_sections": 3,
           "valid": true
         }
       },
       "valid": true,
-      "valid_page_count": 18
+      "valid_page_count": 6
     },
     "files_generated": [
       "overview.md",
       "module_tree.json",
       "first_module_tree.json",
       "Platform.md",
-      "JVM.md",
-      "Java.md",
-      "Kotlin.md",
-      "Scala.md",
       "Native.md",
-      "C.md",
-      "C_.md",
-      "C__.md",
-      "Go.md",
       "Rust.md",
       "Scripting.md",
-      "JavaScript.md",
-      "PHP.md",
-      "Python.md",
-      "Ruby.md",
-      "TypeScript.md"
+      "Python.md"
     ],
     "generation_info": {
       "commit_id": null,
@@ -912,76 +698,19 @@
     },
     "statistics": {
       "analysis_leaf_candidates": 13,
-      "leaf_nodes": 13,
+      "architecture_anchors": 4,
+      "architecture_modules": 5,
+      "leaf_nodes": 2,
       "max_depth": 3,
-      "module_count": 17,
+      "module_count": 5,
       "total_components": 13
     }
   },
   "module_tree": {
     "Platform": {
       "children": {
-        "JVM": {
-          "children": {
-            "Java": {
-              "children": {},
-              "components": [
-                "java/Service.java::JavaService"
-              ],
-              "path": "java"
-            },
-            "Kotlin": {
-              "children": {},
-              "components": [
-                "kotlin/Service.kt::KotlinService"
-              ],
-              "path": "kotlin"
-            },
-            "Scala": {
-              "children": {},
-              "components": [
-                "scala/Service.scala::ScalaService"
-              ],
-              "path": "scala"
-            }
-          },
-          "components": [
-            "java/Service.java::JavaService",
-            "kotlin/Service.kt::KotlinService",
-            "scala/Service.scala::ScalaService"
-          ],
-          "path": "jvm"
-        },
         "Native": {
           "children": {
-            "C": {
-              "children": {},
-              "components": [
-                "c/service.c::CService"
-              ],
-              "path": "c"
-            },
-            "C#": {
-              "children": {},
-              "components": [
-                "csharp/Service.cs::CSharpService"
-              ],
-              "path": "csharp"
-            },
-            "C++": {
-              "children": {},
-              "components": [
-                "cpp/service.cpp::CppService"
-              ],
-              "path": "cpp"
-            },
-            "Go": {
-              "children": {},
-              "components": [
-                "go/service.go::GoService"
-              ],
-              "path": "go"
-            },
             "Rust": {
               "children": {},
               "components": [
@@ -992,56 +721,22 @@
           },
           "components": [
             "c/service.c::CService",
-            "csharp/Service.cs::CSharpService",
-            "cpp/service.cpp::CppService",
-            "go/service.go::GoService",
             "rust/service.rs::RustService"
           ],
           "path": "native"
         },
         "Scripting": {
           "children": {
-            "JavaScript": {
-              "children": {},
-              "components": [
-                "javascript/service.js::JavaScriptService"
-              ],
-              "path": "javascript"
-            },
-            "PHP": {
-              "children": {},
-              "components": [
-                "php/Service.php::PhpService"
-              ],
-              "path": "php"
-            },
             "Python": {
               "children": {},
               "components": [
                 "python/service.py::PythonService"
               ],
               "path": "python"
-            },
-            "Ruby": {
-              "children": {},
-              "components": [
-                "ruby/service.rb::RubyService"
-              ],
-              "path": "ruby"
-            },
-            "TypeScript": {
-              "children": {},
-              "components": [
-                "typescript/service.ts::TypeScriptService"
-              ],
-              "path": "typescript"
             }
           },
           "components": [
-            "javascript/service.js::JavaScriptService",
-            "php/Service.php::PhpService",
             "python/service.py::PythonService",
-            "ruby/service.rb::RubyService",
             "typescript/service.ts::TypeScriptService"
           ],
           "path": "scripting"
@@ -1049,40 +744,19 @@
       },
       "components": [
         "c/service.c::CService",
-        "csharp/Service.cs::CSharpService",
-        "cpp/service.cpp::CppService",
-        "go/service.go::GoService",
-        "java/Service.java::JavaService",
-        "javascript/service.js::JavaScriptService",
-        "kotlin/Service.kt::KotlinService",
-        "php/Service.php::PhpService",
         "python/service.py::PythonService",
-        "ruby/service.rb::RubyService",
         "rust/service.rs::RustService",
-        "scala/Service.scala::ScalaService",
         "typescript/service.ts::TypeScriptService"
       ],
       "path": "."
     }
   },
   "output_files": [
-    "C.md",
-    "C_.md",
-    "C__.md",
-    "Go.md",
-    "JVM.md",
-    "Java.md",
-    "JavaScript.md",
-    "Kotlin.md",
     "Native.md",
-    "PHP.md",
     "Platform.md",
     "Python.md",
-    "Ruby.md",
     "Rust.md",
-    "Scala.md",
     "Scripting.md",
-    "TypeScript.md",
     "first_module_tree.json",
     "metadata.json",
     "module_tree.json",
@@ -1091,108 +765,6 @@
     "temp/dependency_graphs/repo_dependency_graph.json"
   ],
   "processing_order": [
-    {
-      "components": [
-        "java/Service.java::JavaService"
-      ],
-      "is_leaf": true,
-      "module": "Java",
-      "path": [
-        "Platform",
-        "JVM",
-        "Java"
-      ]
-    },
-    {
-      "components": [
-        "kotlin/Service.kt::KotlinService"
-      ],
-      "is_leaf": true,
-      "module": "Kotlin",
-      "path": [
-        "Platform",
-        "JVM",
-        "Kotlin"
-      ]
-    },
-    {
-      "components": [
-        "scala/Service.scala::ScalaService"
-      ],
-      "is_leaf": true,
-      "module": "Scala",
-      "path": [
-        "Platform",
-        "JVM",
-        "Scala"
-      ]
-    },
-    {
-      "children": [
-        "Java",
-        "Kotlin",
-        "Scala"
-      ],
-      "components": [
-        "java/Service.java::JavaService",
-        "kotlin/Service.kt::KotlinService",
-        "scala/Service.scala::ScalaService"
-      ],
-      "is_leaf": false,
-      "module": "JVM",
-      "path": [
-        "Platform",
-        "JVM"
-      ]
-    },
-    {
-      "components": [
-        "c/service.c::CService"
-      ],
-      "is_leaf": true,
-      "module": "C",
-      "path": [
-        "Platform",
-        "Native",
-        "C"
-      ]
-    },
-    {
-      "components": [
-        "csharp/Service.cs::CSharpService"
-      ],
-      "is_leaf": true,
-      "module": "C#",
-      "path": [
-        "Platform",
-        "Native",
-        "C#"
-      ]
-    },
-    {
-      "components": [
-        "cpp/service.cpp::CppService"
-      ],
-      "is_leaf": true,
-      "module": "C++",
-      "path": [
-        "Platform",
-        "Native",
-        "C++"
-      ]
-    },
-    {
-      "components": [
-        "go/service.go::GoService"
-      ],
-      "is_leaf": true,
-      "module": "Go",
-      "path": [
-        "Platform",
-        "Native",
-        "Go"
-      ]
-    },
     {
       "components": [
         "rust/service.rs::RustService"
@@ -1207,17 +779,10 @@
     },
     {
       "children": [
-        "C",
-        "C#",
-        "C++",
-        "Go",
         "Rust"
       ],
       "components": [
         "c/service.c::CService",
-        "csharp/Service.cs::CSharpService",
-        "cpp/service.cpp::CppService",
-        "go/service.go::GoService",
         "rust/service.rs::RustService"
       ],
       "is_leaf": false,
@@ -1225,30 +790,6 @@
       "path": [
         "Platform",
         "Native"
-      ]
-    },
-    {
-      "components": [
-        "javascript/service.js::JavaScriptService"
-      ],
-      "is_leaf": true,
-      "module": "JavaScript",
-      "path": [
-        "Platform",
-        "Scripting",
-        "JavaScript"
-      ]
-    },
-    {
-      "components": [
-        "php/Service.php::PhpService"
-      ],
-      "is_leaf": true,
-      "module": "PHP",
-      "path": [
-        "Platform",
-        "Scripting",
-        "PHP"
       ]
     },
     {
@@ -1264,42 +805,11 @@
       ]
     },
     {
-      "components": [
-        "ruby/service.rb::RubyService"
-      ],
-      "is_leaf": true,
-      "module": "Ruby",
-      "path": [
-        "Platform",
-        "Scripting",
-        "Ruby"
-      ]
-    },
-    {
-      "components": [
-        "typescript/service.ts::TypeScriptService"
-      ],
-      "is_leaf": true,
-      "module": "TypeScript",
-      "path": [
-        "Platform",
-        "Scripting",
-        "TypeScript"
-      ]
-    },
-    {
       "children": [
-        "JavaScript",
-        "PHP",
-        "Python",
-        "Ruby",
-        "TypeScript"
+        "Python"
       ],
       "components": [
-        "javascript/service.js::JavaScriptService",
-        "php/Service.php::PhpService",
         "python/service.py::PythonService",
-        "ruby/service.rb::RubyService",
         "typescript/service.ts::TypeScriptService"
       ],
       "is_leaf": false,
@@ -1311,23 +821,13 @@
     },
     {
       "children": [
-        "JVM",
         "Native",
         "Scripting"
       ],
       "components": [
         "c/service.c::CService",
-        "csharp/Service.cs::CSharpService",
-        "cpp/service.cpp::CppService",
-        "go/service.go::GoService",
-        "java/Service.java::JavaService",
-        "javascript/service.js::JavaScriptService",
-        "kotlin/Service.kt::KotlinService",
-        "php/Service.php::PhpService",
         "python/service.py::PythonService",
-        "ruby/service.rb::RubyService",
         "rust/service.rs::RustService",
-        "scala/Service.scala::ScalaService",
         "typescript/service.ts::TypeScriptService"
       ],
       "is_leaf": false,
@@ -1339,59 +839,47 @@
   ],
   "prompt_hashes": {
     "cluster": [
-      "3c55610962dc1ba31c2e55d8c4ee4d6b4c4c678333363d50f985fe349b7e06a2"
+      "61af8aa38a235f0dae5d778e45be5b6d22b55fe01e6d5b07073f5daf134d80c8"
     ],
     "overview_module": [
-      "9ba8035cb6e77f2dba44fea64df35d81ac59e1f250b588df97d13f8e288b27b8",
-      "42c83bd097254016fa8e10ebfb55262e0f07299242bdbf540f6a596778c4be68",
-      "dff8c958d0b917d5dbc0d7c9f082c2aa3ff5343d69e330af6ba4422cbf03746d",
-      "10dc7a3d3cd5240821d221e299569ffa2325a998aa4f99e97df393dc396c85bf"
+      "b60214e2f5f239ed4099552ce1bbbf5c83123b116412bdd6ab8a376e8c9fce0a",
+      "c13d111f124102cb4549d1a0cac7b595079e536a1faf23f63f5d38527519c09b",
+      "af8695493389d6ce5d3ce4e4e7f664aa4f3edb01d5b808ac638c696beb70c22d"
     ],
     "overview_repo": [
-      "111815df5f1c96dfff0969d56095bd962f9cc57b4fcfaf40b8ea5eba4f061b00"
+      "fed5f15b9ad1549ca8bd4009ce985b93897232b893e079d20d3e26a89f16a1b0"
     ],
     "system_leaf": [
-      "e3ae3ab0f308fbdb927c1e3605a26fa6a339a2fb752008c4cacf33e29be92cfb",
-      "e6b06ae60a88cef528da6d9fbae223113233c27c53ba66341225ddf57a270306",
-      "6f1b1281709b40afec9960a2805874d2a2d43ada8a7483a9d1a2bc5e015516c7",
-      "09686d8754214c1c0a8b2c8d6ee987caebce174c16c7018d32de8a2af21749ae",
-      "05f8831a62a24fd06c01e3d80691afc9dc0e84f1ce841bb062cf46657ee83b42",
-      "5b31057c7a2171a5176bdc73718b381abf80a3142de11f317691fc8b4056eedf",
-      "1bdfcf17c97c65d5dd3c2e0075258c33b20292bf82b38ed93d2e98bf238b11db",
-      "a243174338e0547bb8fee55666841d31d374e56653a3c332d957b3dead05b607",
-      "7379ee3c34845d67482a2fd7b900895eafdaec685257772d7fd90051973383f6",
-      "bd57ac2ad9626ae3b3bc4ee36892b57ea2d96d950184fc835ca4a2591ba4256a",
-      "587a03f9472fba8777b4b1eaac1b552e5e4138c367779a217a535dd54952686b",
-      "5e00828b714979ec0798899fe0c88647985252f96c116bd286baeb6cf0473241",
-      "8424879cb7ff6c9f49555e2bbaa94b6f3a5b885af16416e671772c08a8a46aad"
+      "2eebe2e6dff46fb8df96909ad28eeeb69fc8ad668375ce5ab668b050c997ed46",
+      "2eebe2e6dff46fb8df96909ad28eeeb69fc8ad668375ce5ab668b050c997ed46"
     ],
     "user": [
-      "ff90d6d5f9f41e949c6d966a121d278b23b0fa3f404d3256b525439650a68299",
-      "9a7812ae2f5d33ef3ed202f1ddd5c62e64d4103b7a374bcec4e206183abf7ab3",
-      "316340f2921d36b1fa3cbb8a761fb7f6dfda14028020d843423916576091082d",
-      "54c99b14d95f34bf2339e3dbd5d1f66a7dd91fa023ee67afdc515876739db390",
-      "5f9f03a9f8476c4d7450f986f694f1802a5c459c148622d8107033f498c99ca4",
-      "70f24a771bbee31456937026f2a6499a22dbc4939aa083e62e4b310987feeca3",
-      "d168b8044c559380ba07c996fa9e3ca7968931caa4f574dab9e22f359858c66b",
-      "8c45688bc85d9427e326cb858279dc1873d305dbcf361fd0ec6500c3c3ee8515",
-      "3ca0f8f893d1dc1a49c5ed711e3ae355f61dcfe6a1159fa3c1d3c30b684dd6f6",
-      "242e5b6d58e4a8cb1ecbd8a6b492bdec3a671f97d7832ed6ae5d93770be0f9db",
-      "5d560e268e5a092561335d9896e295e703c7a66682ebbf928201ed415f968bf9",
-      "aab53a83fb642ccffa25d9ea5e07e301338e8ffa1e5fa74a0d9da03c6c715f65",
-      "57bd5be5ec66666253e32b96e0f30b0b48311630565a0a65934f92dda17d7a60"
+      "28eb0746f1f35ae1e60e7c9299a257a7e0c70af794ddf9dfdab3317c4e500862",
+      "f950de6150065e737343097fc7bbadbdb9446d177c59430b6324b3f07f6165af"
     ]
   },
   "validation": {
+    "architecture_anchor_count": 4,
     "complete": true,
-    "leaf_count": 13,
-    "leftover_candidate_ids": [],
+    "leaf_count": 2,
     "max_depth": 3,
-    "module_count": 17,
+    "module_count": 5,
+    "omitted_analysis_candidate_ids": [
+      "cpp/service.cpp::CppService",
+      "csharp/Service.cs::CSharpService",
+      "go/service.go::GoService",
+      "java/Service.java::JavaService",
+      "javascript/service.js::JavaScriptService",
+      "kotlin/Service.kt::KotlinService",
+      "php/Service.php::PhpService",
+      "ruby/service.rb::RubyService",
+      "scala/Service.scala::ScalaService"
+    ],
     "orphaned_candidate_ids": [],
     "oversized_leaf_modules": [],
     "quality_valid": true,
     "tree_relationship_errors": [],
-    "unmatched_component_ids": [],
+    "unmatched_architecture_ids": [],
     "valid": true
   }
 }

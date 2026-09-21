@@ -1,31 +1,11 @@
-# CodeWiki reference
+# CodeWiki reference material
 
-`CodeWiki` is tracked as a Git submodule and pinned to a known upstream
-commit. The parent repository records the submodule commit so differential
-tests remain reproducible.
+`CodeWiki` is kept as read-only reference material for architecture reading.
+RepoWiki does not attempt to preserve the reference implementation's output
+shape or workflow semantics. The curated, repository-independent examples used
+by prompts live in [`../skill/references/few-shots/`](../skill/references/few-shots/).
 
-Initialize the checkout and its Python environment with:
-
-```bash
-git submodule update --init --recursive
-reference/setup-differential.sh
-```
-
-Run the reference comparison with:
-
-```bash
-make test-reference PYTHON=reference/.venv/bin/python
-```
-
-The first reference-parser import may download the `tiktoken` encoding cache.
-The virtual environment is local-only and must not be committed.
-
-To update the pinned reference deliberately:
-
-```bash
-git -C reference/CodeWiki fetch origin
-git -C reference/CodeWiki checkout <commit>
-make test-reference PYTHON=reference/.venv/bin/python
-git add reference/CodeWiki
-git commit -m "test: update CodeWiki reference"
-```
+The pinned checkout is useful when curating a new example: inspect a page that
+explains a concrete subsystem, retain its architectural information density
+and diagram discipline, and rewrite the example so it contains no facts that
+the target repository could accidentally copy.

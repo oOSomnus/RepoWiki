@@ -119,7 +119,7 @@ fn cluster_response_preserves_exact_leaf_coverage_and_parent_aggregates() {
         "src/runtime.rs::Runtime".to_string(),
         "src/config.rs::Config".to_string(),
     ];
-    let root = docs::apply_cluster_response(
+    let _root = docs::apply_cluster_response(
         &state,
         &mut tree,
         r#"<GROUPED_COMPONENTS>{"Platform":{"path":"src","components":["src/api.rs::Api","src/runtime.rs::Runtime","src/config.rs::Config"]}}</GROUPED_COMPONENTS>"#,
@@ -128,7 +128,6 @@ fn cluster_response_preserves_exact_leaf_coverage_and_parent_aggregates() {
         &[],
     )
     .expect("apply root clustering");
-    assert_eq!(root["fallback_used"], json!(false));
 
     let module_path = vec!["Platform".to_string()];
     let nested = docs::apply_cluster_response(
@@ -155,7 +154,7 @@ fn cluster_response_preserves_exact_leaf_coverage_and_parent_aggregates() {
 }
 
 #[test]
-fn malformed_or_partial_cluster_response_rescues_missing_ids_without_inventing_ids() {
+fn malformed_or_partial_cluster_response_keeps_only_valid_architecture_anchors() {
     let (_repo, state) = prepared_session(
         &[
             ("src/a.rs::A", "class", "struct A;"),
@@ -179,8 +178,9 @@ fn malformed_or_partial_cluster_response_rescues_missing_ids_without_inventing_i
         "repo",
         &[],
     )
-    .expect("bad model response is structurally recoverable");
-    assert_eq!(result["fallback_used"], json!(true));
+    .expect("partially valid architecture response");
+    assert_eq!(result["selected_count"], json!(2));
+    assert_eq!(result["omitted_count"], json!(1));
     assert!(result["diagnostics"]
         .as_array()
         .expect("diagnostics")
@@ -189,7 +189,11 @@ fn malformed_or_partial_cluster_response_rescues_missing_ids_without_inventing_i
     assert!(!serde_json::to_string(&tree)
         .unwrap()
         .contains("src/unknown.rs::X"));
-    assert_recursive_invariants(&tree, &["src/a.rs::A", "src/b.rs::B", "src/c.rs::C"]);
+    assert_eq!(tree["Core"].components, vec!["src/a.rs::A"]);
+    assert_eq!(tree["Runtime"].components, vec!["src/b.rs::B"]);
+    assert!(!serde_json::to_string(&tree)
+        .unwrap()
+        .contains("src/c.rs::C"));
 
     let mut empty_tree = ModuleTree::new();
     let empty = docs::apply_cluster_response(
@@ -199,10 +203,9 @@ fn malformed_or_partial_cluster_response_rescues_missing_ids_without_inventing_i
         &input,
         "repo",
         &[],
-    )
-    .expect("empty response fallback");
-    assert_eq!(empty["fallback_used"], json!(true));
-    assert_recursive_invariants(&empty_tree, &["src/a.rs::A", "src/b.rs::B", "src/c.rs::C"]);
+    );
+    assert!(empty.is_err());
+    assert!(empty_tree.is_empty());
 }
 
 #[test]
@@ -294,7 +297,7 @@ fn overview_context_strips_components_and_exposes_only_target_children_docs() {
 }
 
 #[test]
-fn artifact_coverage_rescues_artifact_leaves_and_keeps_existing_ownership() {
+fn artifact_candidates_remain_analysis_evidence_until_selected() {
     let (_repo, state) = prepared_session(
         &[
             ("src/main.rs::main", "function", "fn main() {}"),
@@ -308,7 +311,7 @@ fn artifact_coverage_rescues_artifact_leaves_and_keeps_existing_ownership() {
         ],
         Summary::default(),
     );
-    let mut tree = ModuleTree::from([(
+    let tree = ModuleTree::from([(
         "Runtime".to_string(),
         Module {
             path: Some("src".to_string()),
@@ -316,25 +319,13 @@ fn artifact_coverage_rescues_artifact_leaves_and_keeps_existing_ownership() {
             children: BTreeMap::new(),
         },
     )]);
-    let rescued = docs::ensure_artifact_coverage(&state, &mut tree).expect("rescue artifacts");
+    let saved = docs::save_module_tree(&state, &tree, true).expect("save architecture tree");
+    let validation: Value = session::read_json(Path::new(&saved.validation_path))
+        .expect("read architecture validation");
+    assert_eq!(validation["architecture_anchor_count"], json!(1));
     assert_eq!(
-        rescued,
-        vec![
-            "Dockerfile::Dockerfile".to_string(),
-            "Makefile::build".to_string()
-        ]
-    );
-    let artifact_module = tree
-        .iter()
-        .find(|(name, _)| name.starts_with("Build__Deployment_and_Configuration"))
-        .map(|(_, module)| module)
-        .unwrap_or_else(|| panic!("artifact module missing: {tree:?}"));
-    assert_eq!(
-        artifact_module.components.iter().collect::<BTreeSet<_>>(),
-        BTreeSet::from([
-            &"Dockerfile::Dockerfile".to_string(),
-            &"Makefile::build".to_string()
-        ])
+        validation["omitted_analysis_candidate_ids"],
+        json!(["Dockerfile::Dockerfile", "Makefile::build"])
     );
     assert_eq!(tree["Runtime"].components, vec!["src/main.rs::main"]);
 }

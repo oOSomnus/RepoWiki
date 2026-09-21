@@ -17,6 +17,13 @@ COMMON_FILES = {
     "references/cli-contract.md",
     "references/prompt-map.md",
 }
+FEW_SHOT_FILES = {
+    "references/few-shots/README.md",
+    "references/few-shots/clickhouse-overview.md",
+    "references/few-shots/clickhouse-storage-engine.md",
+    "references/few-shots/clickhouse-query-pipeline.md",
+    "references/few-shots/clickhouse-ast-create-query.md",
+}
 EXECUTABLE_FILES = {"scripts/codewiki", "scripts/codewiki.exe"}
 ALLOWED_TOP_LEVEL = {"SKILL.md", "agents", "references", "scripts"}
 FORBIDDEN_TOP_LEVEL = {
@@ -117,7 +124,8 @@ def load_package(location: str) -> LoadedPackage:
 
 def validate_package(package: LoadedPackage, label: str) -> None:
     files = set(package.files)
-    missing = sorted(COMMON_FILES - files)
+    required = COMMON_FILES | FEW_SHOT_FILES
+    missing = sorted(required - files)
     if missing:
         fail(f"{label} is missing required files: {', '.join(missing)}")
 
@@ -128,7 +136,7 @@ def validate_package(package: LoadedPackage, label: str) -> None:
             f"found {binaries}"
         )
 
-    expected = COMMON_FILES | set(binaries)
+    expected = required | set(binaries)
     extra = sorted(files - expected)
     if extra:
         fail(f"{label} contains non-runtime files: {', '.join(extra)}")

@@ -4,17 +4,8 @@
       "path": ".",
       "components": [
         "c/service.c::CService",
-        "csharp/Service.cs::CSharpService",
-        "cpp/service.cpp::CppService",
-        "go/service.go::GoService",
-        "java/Service.java::JavaService",
-        "javascript/service.js::JavaScriptService",
-        "kotlin/Service.kt::KotlinService",
-        "php/Service.php::PhpService",
         "python/service.py::PythonService",
-        "ruby/service.rb::RubyService",
         "rust/service.rs::RustService",
-        "scala/Service.scala::ScalaService",
         "typescript/service.ts::TypeScriptService"
       ],
       "children": {
@@ -22,32 +13,9 @@
           "path": "native",
           "components": [
             "c/service.c::CService",
-            "csharp/Service.cs::CSharpService",
-            "cpp/service.cpp::CppService",
-            "go/service.go::GoService",
             "rust/service.rs::RustService"
           ],
           "children": {
-            "C": {
-              "path": "c",
-              "components": ["c/service.c::CService"],
-              "children": {}
-            },
-            "C#": {
-              "path": "csharp",
-              "components": ["csharp/Service.cs::CSharpService"],
-              "children": {}
-            },
-            "C++": {
-              "path": "cpp",
-              "components": ["cpp/service.cpp::CppService"],
-              "children": {}
-            },
-            "Go": {
-              "path": "go",
-              "components": ["go/service.go::GoService"],
-              "children": {}
-            },
             "Rust": {
               "path": "rust",
               "components": ["rust/service.rs::RustService"],
@@ -55,64 +23,16 @@
             }
           }
         },
-        "JVM": {
-          "path": "jvm",
-          "components": [
-            "java/Service.java::JavaService",
-            "kotlin/Service.kt::KotlinService",
-            "scala/Service.scala::ScalaService"
-          ],
-          "children": {
-            "Java": {
-              "path": "java",
-              "components": ["java/Service.java::JavaService"],
-              "children": {}
-            },
-            "Kotlin": {
-              "path": "kotlin",
-              "components": ["kotlin/Service.kt::KotlinService"],
-              "children": {}
-            },
-            "Scala": {
-              "path": "scala",
-              "components": ["scala/Service.scala::ScalaService"],
-              "children": {}
-            }
-          }
-        },
         "Scripting": {
           "path": "scripting",
           "components": [
-            "javascript/service.js::JavaScriptService",
-            "php/Service.php::PhpService",
             "python/service.py::PythonService",
-            "ruby/service.rb::RubyService",
             "typescript/service.ts::TypeScriptService"
           ],
           "children": {
-            "JavaScript": {
-              "path": "javascript",
-              "components": ["javascript/service.js::JavaScriptService"],
-              "children": {}
-            },
-            "PHP": {
-              "path": "php",
-              "components": ["php/Service.php::PhpService"],
-              "children": {}
-            },
             "Python": {
               "path": "python",
               "components": ["python/service.py::PythonService"],
-              "children": {}
-            },
-            "Ruby": {
-              "path": "ruby",
-              "components": ["ruby/service.rb::RubyService"],
-              "children": {}
-            },
-            "TypeScript": {
-              "path": "typescript",
-              "components": ["typescript/service.ts::TypeScriptService"],
               "children": {}
             }
           }
@@ -134,10 +54,10 @@
     "Rust": "# Rust\n\n## Purpose\n\nThe Rust module contains the RustService implementation in rust/service.rs. It is the source-level native service surface for this fixture and gives callers a concrete type to work with. This page explains the analyzed component instead of treating the directory name as an architectural boundary.\n\n## Architecture\n\nThe RustService implementation in rust/service.rs is a leaf with no recorded dependency edges. Its lifecycle is local: a caller reaches the service type, uses its fields or methods, and remains within this source file.\n\n## Responsibilities\n\nRustService owns the native service representation. The [Native module](Native.md) supplies the parent architectural context.\n",
     "Scala": "# Scala\n\n## Purpose\n\nThe Scala module contains the ScalaService implementation in scala/Service.scala. It is the source-level JVM service surface for this fixture and gives callers a concrete type to work with. This page explains the analyzed component instead of treating the directory name as an architectural boundary.\n\n## Architecture\n\nThe ScalaService implementation in scala/Service.scala is a leaf with no recorded dependency edges. Its lifecycle is local: a caller reaches the service type, uses its fields or methods, and remains within this source file.\n\n## Responsibilities\n\nScalaService owns the JVM service representation. The [JVM module](JVM.md) supplies the parent architectural context.\n",
     "TypeScript": "# TypeScript\n\n## Purpose\n\nThe TypeScript module contains the TypeScriptService implementation in typescript/service.ts. It is the source-level scripting service surface for this fixture and gives callers a concrete type to work with. This page explains the analyzed component instead of treating the directory name as an architectural boundary.\n\n## Architecture\n\nThe TypeScriptService implementation in typescript/service.ts is a leaf with no recorded dependency edges. Its lifecycle is local: a caller reaches the service type, uses its fields or methods, and remains within this source file.\n\n## Responsibilities\n\nTypeScriptService owns the scripting service representation. The [Scripting module](Scripting.md) supplies the parent architectural context.\n",
-    "Native": "# Native\n\n## Purpose\n\nNative groups the C, CSharp, Cpp, Go, and Rust implementations into the native subsystem. It gives the language-specific leaf pages a shared architectural context while keeping source behavior in those child pages.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  C --> Native\n  CSharp --> Native\n  Cpp --> Native\n  Go --> Native\n  Rust --> Native\n```\n\nThe [C](C.md), [C#](C_.md), [C++](C__.md), [Go](Go.md), and [Rust](Rust.md) pages describe the native service surface and its language-specific implementations.\n\n## Responsibilities\n\nNative defines the grouping and navigation relationship for these implementations; it does not duplicate their leaf-level source explanations.\n",
+    "Native": "# Native\n\n## Purpose\n\nNative is the selected native execution subsystem. It gives the Rust implementation a shared context while retaining the C service as a representative source anchor rather than creating a page for every analyzed language component.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  C --> Native\n  Rust --> Native\n```\n\nThe [Rust](Rust.md) page describes the concrete implementation selected for source-level reading; the parent retains the C anchor as evidence for the broader native boundary.\n\n## Responsibilities\n\nNative explains the native subsystem boundary and the relationship between its representative source anchors and the documented implementation page.\n",
     "JVM": "# JVM\n\n## Purpose\n\nJVM groups the Java, Kotlin, and Scala service implementations into a subsystem organized around the JVM language family. Its page explains the shared architecture while the children retain language-specific source details.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  Java --> JVM\n  Kotlin --> JVM\n  Scala --> JVM\n```\n\nRead the [Java](Java.md), [Kotlin](Kotlin.md), and [Scala](Scala.md) pages for the concrete components and source paths.\n\n## Responsibilities\n\nJVM provides subsystem context and navigation for the three implementations without replacing their leaf documentation.\n",
-    "Scripting": "# Scripting\n\n## Purpose\n\nScripting groups the JavaScript, PHP, Python, Ruby, and TypeScript service implementations into one scripting subsystem. The overview describes their shared role and directs readers to the language-specific pages for behavior.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  JavaScript --> Scripting\n  PHP --> Scripting\n  Python --> Scripting\n  Ruby --> Scripting\n  TypeScript --> Scripting\n```\n\nThe [JavaScript](JavaScript.md), [PHP](PHP.md), [Python](Python.md), [Ruby](Ruby.md), and [TypeScript](TypeScript.md) pages provide the source-grounded details.\n\n## Responsibilities\n\nScripting defines the parent navigation and explains how the language-specific services form one architectural family.\n",
-    "Platform": "# Platform\n\n## Purpose\n\nPlatform is the top-level subsystem that organizes native, JVM, and scripting implementations under one repository architecture. It connects the family overviews without repeating the source explanations owned by its children.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  Native --> Platform\n  JVM --> Platform\n  Scripting --> Platform\n```\n\nThe [Native](Native.md), [JVM](JVM.md), and [Scripting](Scripting.md) pages explain the three architectural branches and link onward to their language-specific leaves.\n\n## Responsibilities\n\nPlatform provides repository navigation and the high-level relationship among implementation families.\n"
+    "Scripting": "# Scripting\n\n## Purpose\n\nScripting is the selected scripting-facing subsystem. It keeps Python and TypeScript as representative anchors for the cross-language service surface while using one documented child to explain the source behavior.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  Python --> Scripting\n  TypeScript --> Scripting\n```\n\nThe [Python](Python.md) page provides the concrete source-grounded explanation; the TypeScript anchor remains evidence for the wider subsystem boundary.\n\n## Responsibilities\n\nScripting explains how the selected language-facing anchors form one reader-facing subsystem without turning every implementation variant into a page.\n",
+    "Platform": "# Platform\n\n## Purpose\n\nPlatform is the top-level subsystem that connects the selected native and scripting paths. It keeps the overview at the architectural boundary and leaves source details to the two child pages.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  Native --> Platform\n  Scripting --> Platform\n```\n\nThe [Native](Native.md) and [Scripting](Scripting.md) pages explain the two architectural branches and link onward to their representative implementation pages.\n\n## Responsibilities\n\nPlatform provides the end-to-end navigation boundary and the relationship between the selected execution and scripting surfaces.\n"
   },
-  "overview": "# Replay Wiki\n\n## Purpose\n\nThis fixture repository demonstrates a cross-language service platform. The wiki organizes the analyzed implementations by architectural family so a reader can move from the end-to-end repository shape to a language-specific source page without mistaking directories for behavior.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  caller --> Platform\n  Platform --> Native\n  Platform --> JVM\n  Platform --> Scripting\n```\n\nThe [Platform](Platform.md) page is the starting point for the top-level architecture. It links to the [Native](Native.md), [JVM](JVM.md), and [Scripting](Scripting.md) overviews, which in turn link to the leaf pages and their source-grounded explanations.\n\n## Responsibilities\n\nThis repository overview explains navigation, subsystem relationships, and the boundary between architecture pages and implementation pages.\n"
+  "overview": "# Replay Wiki\n\n## Purpose\n\nThis fixture repository demonstrates a cross-language service platform. The wiki organizes the analyzed implementations by architectural family so a reader can move from the end-to-end repository shape to a language-specific source page without mistaking directories for behavior.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  Client[Service client] --> Platform\n  Platform --> Native\n  Native --> Rust\n  Platform --> JVM\n  JVM --> Java\n  Platform --> Scripting\n  Scripting --> Python\n```\n\nThe [Platform](Platform.md) page is the starting point for the top-level architecture. It connects the family overviews to representative language implementations, which in turn link to the source-grounded leaf pages.\n\n## Responsibilities\n\nThis repository overview explains the request path through the platform, the subsystem relationships, and the boundary between architecture pages and implementation pages.\n"
 }

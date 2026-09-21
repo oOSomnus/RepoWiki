@@ -99,16 +99,23 @@ const CLUSTER_OPTIONAL: &[&str] = &[
 const SUPER_GROUP_REQUIRED: &[&str] = &["formatted_modules"];
 const FILTER_FOLDERS_REQUIRED: &[&str] = &["project_name", "files"];
 const MODULE_REQUIRED: &[&str] = &["module_name"];
-const CUSTOM_INSTRUCTIONS_OPTIONAL: &[&str] = &["custom_instructions"];
+const CUSTOM_INSTRUCTIONS_OPTIONAL: &[&str] = &["custom_instructions", "few_shot_examples"];
 const USER_REQUIRED: &[&str] = &["module_name", "module_tree"];
 const USER_OPTIONAL: &[&str] = &[
     "formatted_core_component_codes",
     "component_ids",
     "artifact_index",
+    "few_shot_examples",
+    "architecture_context",
 ];
 const OVERVIEW_MODULE_REQUIRED: &[&str] = &["module_name", "repo_structure"];
+const OVERVIEW_MODULE_OPTIONAL: &[&str] = &["few_shot_examples", "architecture_context"];
 const OVERVIEW_REPO_REQUIRED: &[&str] = &["repo_name", "repo_structure"];
-const OVERVIEW_REPO_OPTIONAL: &[&str] = &["artifact_index"];
+const OVERVIEW_REPO_OPTIONAL: &[&str] = &[
+    "artifact_index",
+    "few_shot_examples",
+    "architecture_context",
+];
 const UPDATE_SYSTEM_REQUIRED: &[&str] = &["leaf_name"];
 const UPDATE_USER_REQUIRED: &[&str] = &[
     "leaf_name",
@@ -132,7 +139,7 @@ pub fn variable_contract(kind: PromptType) -> (&'static [&'static str], &'static
             (MODULE_REQUIRED, CUSTOM_INSTRUCTIONS_OPTIONAL)
         }
         PromptType::User => (USER_REQUIRED, USER_OPTIONAL),
-        PromptType::OverviewModule => (OVERVIEW_MODULE_REQUIRED, NO_VARIABLES),
+        PromptType::OverviewModule => (OVERVIEW_MODULE_REQUIRED, OVERVIEW_MODULE_OPTIONAL),
         PromptType::OverviewRepo => (OVERVIEW_REPO_REQUIRED, OVERVIEW_REPO_OPTIONAL),
         PromptType::UpdateLeafSystem => (UPDATE_SYSTEM_REQUIRED, CUSTOM_INSTRUCTIONS_OPTIONAL),
         PromptType::UpdateLeafUser => (UPDATE_USER_REQUIRED, NO_VARIABLES),
@@ -351,9 +358,9 @@ pub fn render(kind: PromptType, vars: &BTreeMap<String, Value>) -> Result<String
     Ok(rendered)
 }
 
-/// Render a tree in the same compact, hierarchical shape used by the
-/// reference implementation.  JSON is useful for storage but is needlessly
-/// expensive and hard for a model to scan when the tree is large.
+/// Render a compact hierarchical tree outline for the architecture writer.
+/// JSON is useful for storage but is needlessly expensive and hard for a model
+/// to scan when the tree is large.
 pub fn format_module_tree_outline(
     tree: &Value,
     current_module: Option<&str>,
@@ -459,7 +466,8 @@ pub fn format_component_listing(ids: &[String], nodes: &BTreeMap<String, Node>) 
     output
 }
 
-/// Render source grouped by file, matching the reference's prompt shape.
+/// Render source grouped by file so the architecture writer can compare
+/// related anchors without losing their exact IDs.
 pub fn format_component_codes(ids: &[String], nodes: &BTreeMap<String, Node>) -> String {
     let mut groups = BTreeMap::<String, Vec<&Node>>::new();
     for id in ids {
@@ -593,7 +601,7 @@ fn truncate_to_char_limit(text: &str, limit: usize) -> String {
     if text.chars().count() <= limit {
         return text.to_string();
     }
-    let note = "\n\n[CodeWiki: prompt content truncated at the reference limit.]\n";
+    let note = "\n\n[CodeWiki: prompt content truncated at the configured limit.]\n";
     if limit <= note.chars().count() {
         return text.chars().take(limit).collect();
     }
@@ -608,7 +616,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_keeps_reference_prompt_names() {
+    fn catalog_contains_all_runtime_prompt_names() {
         let values = catalog();
         for name in [
             "cluster",
@@ -683,7 +691,7 @@ mod tests {
     }
 
     #[test]
-    fn component_id_contract_renders_reference_style_outline() {
+    fn component_id_contract_renders_architecture_outline() {
         let mut vars = BTreeMap::new();
         vars.insert("module_name".to_string(), Value::String("Core".to_string()));
         vars.insert(

@@ -243,7 +243,6 @@ pub fn apply_routes(state: &SessionState, decisions_path: &Path) -> Result<Value
             }));
         }
     }
-    let rescued_artifacts = docs::ensure_artifact_coverage(state, &mut tree)?;
     let tree_path = session::module_tree_path(state);
     session::write_json(&tree_path, &tree)?;
     let saved = docs::save_module_tree(state, &tree, false)?;
@@ -253,7 +252,6 @@ pub fn apply_routes(state: &SessionState, decisions_path: &Path) -> Result<Value
         "applied": applied,
         "untracked": untracked,
         "rejected": rejected,
-        "rescued_artifact_ids": rescued_artifacts,
         "validation_path": saved.validation_path,
     });
     session::write_json(&root.join("routes_applied.json"), &output)?;
@@ -377,7 +375,10 @@ pub fn stale_scan(state: &SessionState) -> Result<Value> {
         "broken_links": broken_links,
         "extra_pages": extra_pages,
         "quality_errors": validation_value.get("quality_errors").cloned().unwrap_or_else(|| json!([])),
-        "leftover_component_ids": validation_value.get("leftover_component_ids").cloned().unwrap_or_else(|| json!([])),
+        "unmatched_architecture_ids": validation_value
+            .get("unmatched_architecture_ids")
+            .cloned()
+            .unwrap_or_else(|| json!([])),
     });
     let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
     session::write_json(&root.join("stale_scan.json"), &result)?;
@@ -422,8 +423,8 @@ pub fn finalize(state: &SessionState, model: &str, verdicts_path: Option<&Path>)
 }
 
 /// Read the host agent's final page verdicts without making the engine parse
-/// natural-language output. Both a direct page map and the reference-style
-/// { "verdicts": { ... }, "notes": "..." } envelope are accepted.
+/// natural-language output. Both a direct page map and a `{ "verdicts": ... }`
+/// envelope are accepted.
 fn read_verdicts(path: &Path) -> Result<BTreeMap<String, String>> {
     let value: Value = session::read_json(path)?;
     let raw = value.get("verdicts").unwrap_or(&value);

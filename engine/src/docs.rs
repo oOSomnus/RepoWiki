@@ -32,6 +32,26 @@ pub struct MermaidReport {
     pub blocks: usize,
     pub balanced: bool,
     pub validator: String,
+    #[serde(default)]
+    pub diagram_kind: String,
+    #[serde(default)]
+    pub node_count: usize,
+    #[serde(default)]
+    pub edge_count: usize,
+    #[serde(default)]
+    pub grounded_node_count: usize,
+    #[serde(default)]
+    pub grounded_edge_count: usize,
+    #[serde(default)]
+    pub generic_node_count: usize,
+    #[serde(default)]
+    pub disconnected_node_count: usize,
+    #[serde(default)]
+    pub has_primary_path: bool,
+    #[serde(default)]
+    pub architecture_quality: String,
+    #[serde(default)]
+    pub quality_issues: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,8 +65,7 @@ pub struct TreeSaveResult {
     pub max_depth: usize,
     pub quality_valid: bool,
     pub quality_errors: Vec<String>,
-    pub unmatched_component_ids: Vec<String>,
-    pub leftover_candidate_ids: Vec<String>,
+    pub unmatched_architecture_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -278,11 +297,12 @@ pub fn save_module_tree(
             .into_iter()
             .collect::<BTreeSet<_>>();
     let unmatched = assigned.difference(&known_ids).cloned().collect::<Vec<_>>();
-    let leftover = candidate_ids
-        .difference(&assigned)
+    let architecture_ids = collect_tree_ids(tree);
+    let omitted_candidates = candidate_ids
+        .difference(&architecture_ids)
         .cloned()
         .collect::<Vec<_>>();
-    let quality = assess_tree_quality(state, tree, &nodes, &candidate_ids);
+    let quality = assess_tree_quality(state, tree, &nodes, &architecture_ids);
     let quality_errors = quality["quality_errors"]
         .as_array()
         .map(|values| {
@@ -293,32 +313,19 @@ pub fn save_module_tree(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let unresolved_fallbacks = unresolved_cluster_fallbacks(state)?;
-    let mut quality_errors = quality_errors;
-    quality_errors.extend(unresolved_fallbacks.iter().map(|record| {
-        format!(
-            "unresolved clustering fallback for {} component(s) in {} scope",
-            record["input_ids"].as_array().map_or(0, Vec::len),
-            record["scope"].as_str().unwrap_or("unknown")
-        )
-    }));
-    let quality_valid =
-        quality["quality_valid"].as_bool().unwrap_or(false) && unresolved_fallbacks.is_empty();
+    let quality_valid = quality["quality_valid"].as_bool().unwrap_or(false);
     let validation = json!({
         "valid": unmatched.is_empty(),
-        "complete": unmatched.is_empty() && leftover.is_empty() && quality_valid,
-        "unmatched_ids": unmatched.clone(),
+        "complete": unmatched.is_empty() && quality_valid,
+        "unmatched_architecture_ids": unmatched.clone(),
         "unmatched_count": unmatched.len(),
-        "leftover_component_ids": leftover.clone(),
-        "leftover_component_count": leftover.len(),
-        "unmatched_component_ids": unmatched.clone(),
-        "leftover_candidate_ids": leftover.clone(),
+        "omitted_analysis_candidate_ids": omitted_candidates,
+        "architecture_anchor_count": architecture_ids.len(),
         "module_count": module_count,
         "leaf_count": leaf_count,
         "max_depth": quality["max_depth"],
         "quality_valid": quality_valid,
         "quality_errors": quality_errors,
-        "unresolved_cluster_fallbacks": unresolved_fallbacks,
         "oversized_leaf_modules": quality["oversized_leaf_modules"],
         "oversized_leaf_warnings": quality["oversized_leaf_warnings"],
         "orphaned_candidate_ids": quality["orphaned_candidate_ids"],
@@ -341,17 +348,7 @@ pub fn save_module_tree(
         max_depth: quality["max_depth"].as_u64().unwrap_or_default() as usize,
         quality_valid,
         quality_errors,
-        unmatched_component_ids: validation["unmatched_component_ids"]
-            .as_array()
-            .map(|values| {
-                values
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default(),
-        leftover_candidate_ids: validation["leftover_candidate_ids"]
+        unmatched_architecture_ids: validation["unmatched_architecture_ids"]
             .as_array()
             .map(|values| {
                 values
@@ -368,13 +365,12 @@ pub fn read_tree_file(path: &Path) -> Result<ModuleTree> {
     session::read_json(path)
 }
 
-/// Apply one host-agent clustering response to a working tree.
+/// Apply one host-agent architecture selection response to a working tree.
 ///
-/// The reference implementation mutates the tree while recursively invoking
-/// its clustering routine.  RepoWiki keeps the model call in the host, so this
-/// function is the deterministic half of that protocol: parse the marked
-/// response, validate the exact input IDs, merge the groups at the requested
-/// scope, and structurally rescue anything the model omitted.
+/// The architecture tree is intentionally lossy: the host selects a small
+/// set of exact source anchors and the remaining analyzed components stay in
+/// the dependency graph.  The CLI validates selected IDs but never invents a
+/// fallback module or turns an omitted implementation detail into a page.
 pub fn apply_cluster_response(
     state: &SessionState,
     tree: &mut ModuleTree,
@@ -414,7 +410,6 @@ pub fn apply_cluster_response(
     let parsed = parse_grouped_components(response, &mut diagnostics);
     let mut groups = Vec::<(String, Module)>::new();
     let mut claimed = BTreeSet::new();
-    let mut fallback_used = false;
     if let Some(parsed) = parsed {
         for (name, mut module) in parsed {
             let original = module.components.len();
@@ -443,35 +438,18 @@ pub fn apply_cluster_response(
         }
     }
 
-    let missing = requested.difference(&claimed).cloned().collect::<Vec<_>>();
-    if !missing.is_empty() {
-        fallback_used = true;
-        diagnostics.push(format!(
-            "structural fallback assigned {} omitted component(s)",
-            missing.len()
-        ));
-        let name = fallback_module_name(&missing, &nodes, tree);
-        groups.push((
-            name,
-            Module {
-                path: Some(common_path(&missing, &nodes)),
-                components: missing,
-                children: BTreeMap::new(),
-            },
+    if groups.is_empty() {
+        return Err(anyhow!(
+            "architecture clustering returned no module anchors: {}",
+            diagnostics.join("; ")
         ));
     }
-    if groups.is_empty() {
-        fallback_used = true;
-        diagnostics.push("empty clustering response; created a structural fallback".to_string());
-        let all = requested.into_iter().collect::<Vec<_>>();
-        let name = fallback_module_name(&all, &nodes, tree);
-        groups.push((
-            name,
-            Module {
-                path: Some(common_path(&all, &nodes)),
-                components: all,
-                children: BTreeMap::new(),
-            },
+
+    let omitted_count = requested.len().saturating_sub(claimed.len());
+    if omitted_count > 0 {
+        diagnostics.push(format!(
+            "{} analyzed component(s) intentionally remain outside the architecture tree",
+            omitted_count
         ));
     }
 
@@ -480,7 +458,7 @@ pub fn apply_cluster_response(
     } else {
         let parent = module_at_path_mut(tree, parent_path)
             .ok_or_else(|| anyhow!("module path not found: {}", parent_path.join("/")))?;
-        for id in input_ids {
+        for id in &claimed {
             if !parent.components.iter().any(|component| component == id) {
                 parent.components.push(id.clone());
             }
@@ -488,7 +466,7 @@ pub fn apply_cluster_response(
         merge_modules(&mut parent.children, groups);
         for depth in 1..parent_path.len() {
             if let Some(ancestor) = module_at_path_mut(tree, &parent_path[..depth]) {
-                for id in input_ids {
+                for id in &claimed {
                     if !ancestor.components.iter().any(|component| component == id) {
                         ancestor.components.push(id.clone());
                     }
@@ -500,59 +478,11 @@ pub fn apply_cluster_response(
         "scope": scope,
         "parent_path": parent_path,
         "input_count": input_ids.len(),
+        "selected_count": claimed.len(),
+        "omitted_count": omitted_count,
         "group_count": if scope == "repo" { tree.len() } else { module_at_path(tree, parent_path).map(|module| module.children.len()).unwrap_or_default() },
         "diagnostics": diagnostics,
-        "fallback_used": fallback_used,
     }))
-}
-
-/// Keep structural clustering fallbacks visible until the host successfully
-/// retries the exact request.  The parser still returns a deterministic tree
-/// for recovery, but a fallback is not allowed to become a final wiki by
-/// accident.
-pub fn record_cluster_diagnostics(
-    state: &SessionState,
-    input_ids: &[String],
-    scope: &str,
-    parent_path: &[String],
-    diagnostics: &Value,
-) -> Result<()> {
-    let path = session::session_value_path(state, "cluster_diagnostics.json");
-    let mut records: Vec<Value> = if path.is_file() {
-        session::read_json(&path)?
-    } else {
-        Vec::new()
-    };
-    let key = cluster_request_key(input_ids, scope, parent_path);
-    records.retain(|record| record["key"].as_str() != Some(&key));
-    records.push(json!({
-        "key": key,
-        "scope": scope,
-        "parent_path": parent_path,
-        "input_ids": input_ids,
-        "fallback_used": diagnostics["fallback_used"].as_bool().unwrap_or(false),
-        "resolved": diagnostics["fallback_used"].as_bool() != Some(true),
-        "diagnostics": diagnostics["diagnostics"].clone(),
-    }));
-    session::write_json(&path, &records)
-}
-
-fn unresolved_cluster_fallbacks(state: &SessionState) -> Result<Vec<Value>> {
-    let path = session::session_value_path(state, "cluster_diagnostics.json");
-    if !path.is_file() {
-        return Ok(Vec::new());
-    }
-    let records: Vec<Value> = session::read_json(&path)?;
-    Ok(records
-        .into_iter()
-        .filter(|record| record["resolved"] != Value::Bool(true))
-        .collect())
-}
-
-fn cluster_request_key(input_ids: &[String], scope: &str, parent_path: &[String]) -> String {
-    let mut ids = input_ids.to_vec();
-    ids.sort();
-    format!("{scope}|{}|{}", parent_path.join("/"), ids.join("\\n"))
 }
 
 /// Apply a super-group response by making the existing top-level modules
@@ -691,34 +621,273 @@ pub fn overview_context(
     Ok(visit(tree, target_path, &[], output_dir))
 }
 
-/// Ensure artifact candidates are never lost between clustering and the final
-/// tree.  The host may still attach them to a more specific module; this
-/// rescue only adds IDs that are absent everywhere.
-pub fn ensure_artifact_coverage(
+/// Build the overview context used by architecture prompts.  The structural
+/// tree alone is not enough to draw a useful system diagram: it tells the
+/// model what pages exist, but not which modules exchange work.  This helper
+/// folds component-level dependency targets into the selected architecture
+/// modules and returns a small, source-backed graph for the host model.
+pub fn overview_context_for_session(
     state: &SessionState,
-    tree: &mut ModuleTree,
-) -> Result<Vec<String>> {
+    tree: &ModuleTree,
+    target_path: &[String],
+    output_dir: &Path,
+) -> Result<Value> {
+    let structure = overview_context(tree, target_path, output_dir)?;
     let nodes: BTreeMap<String, Node> =
-        session::read_json(&session::session_value_path(state, "components.json"))?;
-    let assigned = collect_leaf_tree_ids(tree);
-    let missing = nodes
-        .values()
-        .filter(|node| node.component_type == "artifact" && !assigned.contains(&node.id))
-        .map(|node| node.id.clone())
-        .collect::<Vec<_>>();
-    if missing.is_empty() {
-        return Ok(Vec::new());
+        session::read_json(&session::session_value_path(state, "components.json"))
+            .unwrap_or_default();
+    Ok(json!({
+        "repo_structure": structure,
+        "architecture_context": build_architecture_context(tree, target_path, &nodes),
+    }))
+}
+
+fn build_architecture_context(
+    tree: &ModuleTree,
+    target_path: &[String],
+    nodes: &BTreeMap<String, Node>,
+) -> Value {
+    let mut component_modules = BTreeMap::<String, String>::new();
+    let mut module_paths = Vec::<Vec<String>>::new();
+    let mut module_descriptors = Vec::<(String, Option<String>, usize)>::new();
+
+    fn collect_modules(
+        modules: &ModuleTree,
+        prefix: &[String],
+        component_modules: &mut BTreeMap<String, String>,
+        module_paths: &mut Vec<Vec<String>>,
+        module_descriptors: &mut Vec<(String, Option<String>, usize)>,
+    ) {
+        for (name, module) in modules {
+            let mut path = prefix.to_vec();
+            path.push(name.clone());
+            let label = path.join(" / ");
+            module_paths.push(path.clone());
+            module_descriptors.push((label.clone(), module.path.clone(), path.len()));
+            for id in &module.components {
+                // A child is a more precise architecture anchor than an
+                // aggregate parent, so later traversal deliberately wins.
+                component_modules.insert(id.clone(), label.clone());
+            }
+            collect_modules(
+                &module.children,
+                &path,
+                component_modules,
+                module_paths,
+                module_descriptors,
+            );
+        }
     }
-    let name = unique_module_name("Build, Deployment and Configuration", tree);
-    tree.insert(
-        name,
-        Module {
-            path: Some(common_path(&missing, &nodes)),
-            components: missing.clone(),
-            children: BTreeMap::new(),
-        },
+
+    collect_modules(
+        tree,
+        &[],
+        &mut component_modules,
+        &mut module_paths,
+        &mut module_descriptors,
     );
-    Ok(missing)
+
+    let root_module = module_descriptors
+        .iter()
+        .find(|(_, _, depth)| *depth == 1)
+        .map(|(label, _, _)| label.clone());
+    let source_owner = |relative_path: &str| {
+        let normalized = relative_path.trim_start_matches("./");
+        module_descriptors
+            .iter()
+            .filter_map(|(label, module_path, depth)| {
+                let module_path = module_path.as_deref()?.trim_matches('/');
+                if module_path.is_empty() || module_path == "." {
+                    return None;
+                }
+                let matches = normalized == module_path
+                    || normalized.starts_with(&format!("{module_path}/"))
+                    || normalized.starts_with(&format!("{module_path}."));
+                matches.then_some((module_path.len(), *depth, label.clone()))
+            })
+            .max_by_key(|(path_len, depth, _)| (*path_len, *depth))
+            .map(|(_, _, label)| label)
+            .or_else(|| root_module.clone())
+    };
+
+    // Selected IDs are the strongest ownership evidence.  For every other
+    // analyzed node, use the module's declared source boundary so dependency
+    // edges are aggregated at the architecture level instead of disappearing
+    // merely because the node was not chosen as a page anchor.
+    for node in nodes.values() {
+        component_modules
+            .entry(node.id.clone())
+            .or_insert_with(|| source_owner(&node.relative_path).unwrap_or_default());
+    }
+
+    let mut module_nodes = BTreeMap::<String, Value>::new();
+    for (module, _, _) in &module_descriptors {
+        module_nodes.insert(
+            module.clone(),
+            json!({
+                "id": module,
+                "label": module.rsplit(" / ").next().unwrap_or(module),
+                "role": architecture_role(module),
+                "evidence": Vec::<String>::new(),
+            }),
+        );
+    }
+    let mut edge_counts = BTreeMap::<(String, String), (usize, Vec<String>)>::new();
+    for node in nodes.values() {
+        let Some(module) = component_modules
+            .get(&node.id)
+            .filter(|module| !module.is_empty())
+        else {
+            continue;
+        };
+        let entry = module_nodes.entry(module.clone()).or_insert_with(|| {
+            json!({
+                "id": module,
+                "label": module.rsplit(" / ").next().unwrap_or(module),
+                "role": architecture_role(module),
+                "evidence": Vec::<String>::new(),
+            })
+        });
+        if let Some(evidence) = entry.get_mut("evidence").and_then(Value::as_array_mut) {
+            if evidence.len() < 8 {
+                evidence.push(Value::String(node.relative_path.clone()));
+            }
+        }
+        for dependency in &node.depends_on {
+            let Some(target) = component_modules.get(dependency) else {
+                continue;
+            };
+            if target == module {
+                continue;
+            }
+            let edge = edge_counts
+                .entry((module.clone(), target.clone()))
+                .or_insert_with(|| (0, Vec::new()));
+            edge.0 += 1;
+            if edge.1.len() < 4 {
+                edge.1.push(format!("{} -> {}", node.id, dependency));
+            }
+        }
+    }
+
+    // Keep the context compact and architecture-shaped.  A target module
+    // includes itself and its descendants, plus any connected external module
+    // that explains an incoming or outgoing edge.
+    let target_prefix = target_path.join(" / ");
+    let mut selected = BTreeSet::new();
+    if target_prefix.is_empty() {
+        selected.extend(module_nodes.keys().cloned());
+    } else {
+        for module in module_nodes.keys() {
+            if module == &target_prefix || module.starts_with(&(target_prefix.clone() + " / ")) {
+                selected.insert(module.clone());
+            }
+        }
+        for (from, to) in edge_counts.keys() {
+            if selected.contains(from) || selected.contains(to) {
+                selected.insert(from.clone());
+                selected.insert(to.clone());
+            }
+        }
+    }
+
+    let mut nodes_json = Vec::new();
+    for module in &selected {
+        if let Some(node) = module_nodes.get(module) {
+            nodes_json.push(node.clone());
+        }
+    }
+    let mut edges_json = Vec::new();
+    for ((from, to), (count, evidence)) in edge_counts {
+        if selected.contains(&from) && selected.contains(&to) {
+            edges_json.push(json!({
+                "from": from,
+                "to": to,
+                "relation": "dependency",
+                "weight": count,
+                "evidence": evidence,
+            }));
+        }
+    }
+
+    let mut adjacency = BTreeMap::<String, Vec<String>>::new();
+    let mut incoming = BTreeMap::<String, usize>::new();
+    for edge in &edges_json {
+        let from = edge["from"].as_str().unwrap_or_default().to_string();
+        let to = edge["to"].as_str().unwrap_or_default().to_string();
+        adjacency.entry(from).or_default().push(to.clone());
+        *incoming.entry(to).or_default() += 1;
+    }
+    for targets in adjacency.values_mut() {
+        targets.sort();
+    }
+    let mut starts = selected
+        .iter()
+        .filter(|module| !incoming.contains_key(*module))
+        .cloned()
+        .collect::<Vec<_>>();
+    starts.sort();
+    let mut primary_path = Vec::new();
+    if let Some(mut current) = starts.first().cloned() {
+        let mut seen = BTreeSet::new();
+        loop {
+            if !seen.insert(current.clone()) {
+                break;
+            }
+            primary_path.push(current.clone());
+            let next = adjacency
+                .get(&current)
+                .and_then(|targets| targets.iter().find(|target| !seen.contains(*target)))
+                .cloned();
+            let Some(next) = next else { break };
+            current = next;
+        }
+    }
+    if primary_path.len() < 2 {
+        primary_path = module_paths
+            .iter()
+            .filter(|path| target_path.is_empty() || path.starts_with(target_path))
+            .map(|path| path.join(" / "))
+            .take(8)
+            .collect();
+    }
+
+    json!({
+        "target": if target_path.is_empty() { "repository".to_string() } else { target_prefix },
+        "nodes": nodes_json,
+        "edges": edges_json,
+        "primary_paths": if primary_path.is_empty() { Vec::<Vec<String>>::new() } else { vec![primary_path] },
+        "note": "Use this graph as grounded architecture evidence. It is not a source index and it is not a required diagram layout.",
+    })
+}
+
+fn architecture_role(module: &str) -> &'static str {
+    let lower = module.to_ascii_lowercase();
+    if lower.contains("storage") || lower.contains("database") || lower.contains("state") {
+        "state"
+    } else if lower.contains("protocol")
+        || lower.contains("api")
+        || lower.contains("client")
+        || lower.contains("server")
+    {
+        "interface"
+    } else if lower.contains("execution")
+        || lower.contains("runtime")
+        || lower.contains("pipeline")
+        || lower.contains("interpreter")
+    {
+        "execution"
+    } else if lower.contains("build")
+        || lower.contains("test")
+        || lower.contains("release")
+        || lower.contains("packag")
+    {
+        "support"
+    } else if lower.contains("network") || lower.contains("integration") {
+        "integration"
+    } else {
+        "subsystem"
+    }
 }
 
 fn parse_grouped_components(
@@ -856,82 +1025,16 @@ fn module_at_path_mut<'a>(tree: &'a mut ModuleTree, path: &[String]) -> Option<&
     Some(module)
 }
 
-fn collect_leaf_tree_ids(tree: &ModuleTree) -> BTreeSet<String> {
+fn collect_tree_ids(tree: &ModuleTree) -> BTreeSet<String> {
     fn visit(modules: &ModuleTree, ids: &mut BTreeSet<String>) {
         for module in modules.values() {
-            if module.children.is_empty() {
-                ids.extend(module.components.iter().cloned());
-            } else {
-                visit(&module.children, ids);
-            }
+            ids.extend(module.components.iter().cloned());
+            visit(&module.children, ids);
         }
     }
     let mut ids = BTreeSet::new();
     visit(tree, &mut ids);
     ids
-}
-
-fn common_path(ids: &[String], nodes: &BTreeMap<String, Node>) -> String {
-    let mut common: Option<Vec<&str>> = None;
-    for id in ids {
-        let Some(node) = nodes.get(id) else {
-            continue;
-        };
-        let mut parts = node.relative_path.split('/').collect::<Vec<_>>();
-        if parts.len() > 1 {
-            parts.pop();
-        }
-        if let Some(existing) = &mut common {
-            let length = existing
-                .iter()
-                .zip(parts.iter())
-                .take_while(|(left, right)| left == right)
-                .count();
-            existing.truncate(length);
-        } else {
-            common = Some(parts);
-        }
-    }
-    common
-        .unwrap_or_default()
-        .into_iter()
-        .collect::<Vec<_>>()
-        .join("/")
-}
-
-fn fallback_module_name(
-    ids: &[String],
-    nodes: &BTreeMap<String, Node>,
-    tree: &ModuleTree,
-) -> String {
-    let path = common_path(ids, nodes);
-    let base = path
-        .rsplit('/')
-        .next()
-        .filter(|value| !value.is_empty())
-        .unwrap_or("Repository");
-    unique_module_name(&format!("{base} Components"), tree)
-}
-
-fn unique_module_name(base: &str, tree: &ModuleTree) -> String {
-    let base = sanitize_module_name(base);
-    if !tree_contains_name(tree, &base) {
-        return base;
-    }
-    let mut index = 2usize;
-    loop {
-        let candidate = format!("{base}_{index}");
-        if !tree_contains_name(tree, &candidate) {
-            return candidate;
-        }
-        index += 1;
-    }
-}
-
-fn tree_contains_name(tree: &ModuleTree, name: &str) -> bool {
-    tree.iter().any(|(module_name, module)| {
-        module_name == name || tree_contains_name(&module.children, name)
-    })
 }
 
 pub fn read_processing_order(state: &SessionState) -> Result<Vec<ProcessingItem>> {
@@ -963,6 +1066,7 @@ pub fn finalize_metadata(state: &SessionState, model: &str) -> Result<Metadata> 
         &mut module_leaf_count,
         &mut files_generated,
     );
+    let architecture_anchors = collect_tree_ids(&tree).len();
     let metadata = Metadata {
         generation_info: crate::model::GenerationInfo {
             timestamp: Utc::now().to_rfc3339(),
@@ -977,8 +1081,11 @@ pub fn finalize_metadata(state: &SessionState, model: &str) -> Result<Metadata> 
             leaf_nodes: module_leaf_count,
             module_count: count,
             max_depth,
+            architecture_modules: count,
+            architecture_anchors,
         },
         files_generated,
+        documentation_profile: "architecture".to_string(),
         documentation_quality: session::read_json(&session::session_value_path(
             state,
             "documentation_validation.json",
@@ -1037,7 +1144,7 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
             validation_path.display()
         )
     })?;
-    for field in ["unmatched_ids", "leftover_component_ids"] {
+    for field in ["unmatched_architecture_ids"] {
         if validation[field]
             .as_array()
             .is_some_and(|values| !values.is_empty())
@@ -1125,22 +1232,361 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
 }
 
 pub fn validate_mermaid(content: &str) -> MermaidReport {
-    let mut blocks = 0usize;
-    let mut open = false;
-    for line in content.lines() {
-        let trimmed = line.trim().to_ascii_lowercase();
-        if trimmed.starts_with("```mermaid") {
-            blocks += 1;
-            open = true;
-        } else if open && trimmed.starts_with("```") {
-            open = false;
+    validate_mermaid_with_context(content, &[], false, false)
+}
+
+fn validate_mermaid_with_context(
+    content: &str,
+    grounded_labels: &[String],
+    strict: bool,
+    forbid_support_nodes: bool,
+) -> MermaidReport {
+    let blocks = extract_mermaid_blocks(content);
+    let balanced = content
+        .lines()
+        .filter(|line| line.trim().to_ascii_lowercase().starts_with("```mermaid"))
+        .count()
+        == blocks.len()
+        && !content
+            .lines()
+            .scan(false, |open, line| {
+                let trimmed = line.trim().to_ascii_lowercase();
+                if trimmed.starts_with("```mermaid") {
+                    *open = true;
+                } else if *open && trimmed.starts_with("```") {
+                    *open = false;
+                }
+                Some(*open)
+            })
+            .last()
+            .unwrap_or(false);
+
+    let mut kinds = BTreeSet::new();
+    let mut nodes = BTreeMap::<String, String>::new();
+    let mut edges = Vec::<(String, String)>::new();
+    for block in &blocks {
+        let stats = parse_mermaid_block(block);
+        if !stats.kind.is_empty() {
+            kinds.insert(stats.kind);
+        }
+        nodes.extend(stats.nodes);
+        edges.extend(stats.edges);
+    }
+
+    let normalized_grounded = grounded_labels
+        .iter()
+        .map(|label| normalize_diagram_text(label))
+        .filter(|label| !label.is_empty())
+        .collect::<Vec<_>>();
+    let grounded_node_count = if normalized_grounded.is_empty() {
+        0
+    } else {
+        nodes
+            .values()
+            .filter(|label| {
+                let value = normalize_diagram_text(label);
+                normalized_grounded
+                    .iter()
+                    .any(|allowed| value.contains(allowed) || allowed.contains(&value))
+            })
+            .count()
+    };
+    let grounded_edge_count = if normalized_grounded.is_empty() {
+        0
+    } else {
+        edges
+            .iter()
+            .filter(|(from, to)| {
+                let from = normalize_diagram_text(nodes.get(from).unwrap_or(from));
+                let to = normalize_diagram_text(nodes.get(to).unwrap_or(to));
+                normalized_grounded.iter().any(|allowed| {
+                    from.contains(allowed)
+                        || to.contains(allowed)
+                        || allowed.contains(&from)
+                        || allowed.contains(&to)
+                })
+            })
+            .count()
+    };
+    let generic_node_count = nodes
+        .iter()
+        .filter(|(id, label)| is_generic_diagram_label(id) || is_generic_diagram_label(label))
+        .count();
+    let disconnected_node_count = nodes
+        .keys()
+        .filter(|node| !edges.iter().any(|(from, to)| from == *node || to == *node))
+        .count();
+    // A tiny repository can have a legitimate two-stage architecture.  Keep
+    // the architecture gate strict for real overviews, but do not reject a
+    // grounded two-node system merely because it cannot contain three stages.
+    let minimum_path_edges = if strict && forbid_support_nodes && nodes.len() > 2 {
+        3
+    } else if nodes.len() > 1 {
+        1
+    } else {
+        0
+    };
+    let has_primary_path = has_diagram_path(&nodes, &edges, minimum_path_edges);
+    let support_nodes = nodes
+        .iter()
+        .filter(|(id, label)| is_support_diagram_label(id) || is_support_diagram_label(label))
+        .count();
+
+    let mut quality_issues = Vec::new();
+    if !balanced {
+        quality_issues.push("unbalanced Mermaid fence".to_string());
+    }
+    if strict && blocks.is_empty() {
+        quality_issues.push("architecture page has no Mermaid diagram".to_string());
+    }
+    let minimum_nodes: usize = if strict { 2 } else { 0 };
+    let minimum_edges = minimum_nodes.saturating_sub(1);
+    if strict && nodes.len() < minimum_nodes {
+        quality_issues.push(format!(
+            "diagram has fewer than {minimum_nodes} architecture nodes"
+        ));
+    }
+    if strict && edges.len() < minimum_edges {
+        quality_issues.push(format!(
+            "diagram has fewer than {minimum_edges} architecture edge(s)"
+        ));
+    }
+    if strict && !has_primary_path {
+        quality_issues.push("diagram has no connected multi-stage path".to_string());
+    }
+    if strict && generic_node_count * 2 > nodes.len().max(1) {
+        quality_issues.push("diagram is dominated by generic placeholder nodes".to_string());
+    }
+    if strict && !normalized_grounded.is_empty() {
+        let required = if nodes.len() <= 2 {
+            1
+        } else {
+            (nodes.len() / 2).max(2)
+        };
+        if grounded_node_count < required {
+            quality_issues.push(format!(
+                "only {grounded_node_count} of {} diagram nodes match architecture context",
+                nodes.len()
+            ));
         }
     }
-    MermaidReport {
-        blocks,
-        balanced: !open,
-        validator: "side-channel-best-effort".to_string(),
+    if forbid_support_nodes && support_nodes > 0 {
+        quality_issues.push(
+            "runtime overview diagram includes build, test, release, or packaging nodes"
+                .to_string(),
+        );
     }
+
+    MermaidReport {
+        blocks: blocks.len(),
+        balanced,
+        validator: "architecture-heuristic".to_string(),
+        diagram_kind: kinds.into_iter().collect::<Vec<_>>().join(","),
+        node_count: nodes.len(),
+        edge_count: edges.len(),
+        grounded_node_count,
+        grounded_edge_count,
+        generic_node_count,
+        disconnected_node_count,
+        has_primary_path,
+        architecture_quality: if quality_issues.is_empty() {
+            "pass".to_string()
+        } else if strict {
+            "fail".to_string()
+        } else {
+            "warning".to_string()
+        },
+        quality_issues,
+    }
+}
+
+#[derive(Default)]
+struct MermaidBlockStats {
+    kind: String,
+    nodes: BTreeMap<String, String>,
+    edges: Vec<(String, String)>,
+}
+
+fn extract_mermaid_blocks(content: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut current = None::<String>;
+    for line in content.lines() {
+        let lower = line.trim().to_ascii_lowercase();
+        if lower.starts_with("```mermaid") {
+            current = Some(String::new());
+        } else if current.is_some() && lower.starts_with("```") {
+            if let Some(block) = current.take() {
+                blocks.push(block);
+            }
+        } else if let Some(block) = current.as_mut() {
+            block.push_str(line);
+            block.push('\n');
+        }
+    }
+    blocks
+}
+
+fn parse_mermaid_block(block: &str) -> MermaidBlockStats {
+    let mut result = MermaidBlockStats::default();
+    for raw_line in block.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with("%%") {
+            continue;
+        }
+        let lower = line.to_ascii_lowercase();
+        if lower.starts_with("flowchart ") || lower.starts_with("graph ") {
+            result.kind = line
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_string();
+        } else if lower == "sequencediagram" {
+            result.kind = "sequenceDiagram".to_string();
+        } else if lower.starts_with("participant ") {
+            let token = line.split_whitespace().nth(1).unwrap_or_default();
+            add_mermaid_node(&mut result.nodes, token, token);
+        }
+
+        if lower.starts_with("subgraph ") || lower.starts_with("style ") {
+            continue;
+        }
+        for arrow in ["-->>", "-.->", "==>", "-->", "->>", "->"] {
+            let Some((left, right)) = line.split_once(arrow) else {
+                continue;
+            };
+            let left = left.trim();
+            let right = right
+                .split_once(':')
+                .map(|(value, _)| value)
+                .unwrap_or(right)
+                .trim();
+            let left_id = add_mermaid_node(&mut result.nodes, left, left);
+            let right_id = add_mermaid_node(&mut result.nodes, right, right);
+            result.edges.push((left_id, right_id));
+            break;
+        }
+        if result.kind != "sequenceDiagram" {
+            for token in line.split_whitespace() {
+                if token.contains('[') || token.contains('(') || token.contains('{') {
+                    add_mermaid_node(&mut result.nodes, token, token);
+                }
+            }
+        }
+    }
+    result
+}
+
+fn add_mermaid_node(nodes: &mut BTreeMap<String, String>, raw: &str, fallback: &str) -> String {
+    let raw = raw.trim().trim_matches(';').trim_matches('`');
+    let id_end = raw
+        .find(|ch| ['[', '(', '{', '<', '|'].contains(&ch))
+        .unwrap_or(raw.len());
+    let id = raw[..id_end].trim().trim_matches('"').to_string();
+    if id.is_empty() {
+        return fallback.to_string();
+    }
+    let label = raw[id_end..]
+        .trim_matches(|ch| matches!(ch, '[' | ']' | '(' | ')' | '{' | '}' | '"' | '`'))
+        .split('|')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    nodes
+        .entry(id.clone())
+        .or_insert_with(|| if label.is_empty() { id.clone() } else { label });
+    id
+}
+
+fn normalize_diagram_text(value: &str) -> String {
+    value
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || ch.is_ascii_whitespace())
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn is_generic_diagram_label(label: &str) -> bool {
+    matches!(
+        normalize_diagram_text(label).as_str(),
+        "caller"
+            | "entry"
+            | "core"
+            | "result"
+            | "reader"
+            | "readers and listings"
+            | "model"
+            | "record"
+            | "parent"
+            | "child"
+            | "module"
+            | "component"
+            | "source"
+            | "target"
+            | "input"
+            | "output"
+            | "fixture"
+            | "assertion"
+            | "all"
+            | "other"
+    )
+}
+
+fn is_support_diagram_label(label: &str) -> bool {
+    let value = normalize_diagram_text(label);
+    [
+        "build",
+        "test",
+        "release",
+        "smoke",
+        "verify",
+        "packag",
+        "deployment",
+        "ci",
+    ]
+    .iter()
+    .any(|term| value.contains(term))
+}
+
+fn has_diagram_path(
+    nodes: &BTreeMap<String, String>,
+    edges: &[(String, String)],
+    minimum_edges: usize,
+) -> bool {
+    if nodes.is_empty() || edges.is_empty() {
+        return false;
+    }
+    let mut adjacency = BTreeMap::<String, Vec<String>>::new();
+    for (from, to) in edges {
+        adjacency.entry(from.clone()).or_default().push(to.clone());
+    }
+    fn visit(
+        node: &str,
+        adjacency: &BTreeMap<String, Vec<String>>,
+        seen: &mut BTreeSet<String>,
+        length: usize,
+        minimum_edges: usize,
+    ) -> bool {
+        if length >= minimum_edges {
+            return true;
+        }
+        if !seen.insert(node.to_string()) {
+            return false;
+        }
+        let found = adjacency.get(node).is_some_and(|children| {
+            children
+                .iter()
+                .any(|child| visit(child, adjacency, seen, length + 1, minimum_edges))
+        });
+        seen.remove(node);
+        found
+    }
+    nodes
+        .keys()
+        .any(|node| visit(node, &adjacency, &mut BTreeSet::new(), 0, minimum_edges))
 }
 
 struct DocumentationReportBuilder<'a> {
@@ -1180,14 +1626,23 @@ impl<'a> DocumentationReportBuilder<'a> {
                 .keys()
                 .map(|child| module_page_filename(child))
                 .collect::<Vec<_>>();
+            let labels = module
+                .children
+                .keys()
+                .cloned()
+                .chain(std::iter::once(name.clone()))
+                .collect::<Vec<_>>();
             let result = assess_page(
                 name,
                 module,
                 &content,
                 self.nodes,
-                module.children.is_empty(),
-                false,
-                &required_links,
+                PageAssessmentContext {
+                    is_leaf: module.children.is_empty(),
+                    is_overview: false,
+                    required_links: &required_links,
+                    grounded_labels: &labels,
+                },
             );
             self.record_page(&page, result);
             self.visit_modules(&module.children);
@@ -1199,14 +1654,19 @@ impl<'a> DocumentationReportBuilder<'a> {
             .keys()
             .map(|name| module_page_filename(name))
             .collect::<Vec<_>>();
+        let mut labels = Vec::new();
+        collect_module_labels(tree, &mut labels);
         let result = assess_page(
             "Repository overview",
             &Module::default(),
             content,
             self.nodes,
-            false,
-            true,
-            &overview_links,
+            PageAssessmentContext {
+                is_leaf: false,
+                is_overview: true,
+                required_links: &overview_links,
+                grounded_labels: &labels,
+            },
         );
         self.record_page("overview.md", result);
     }
@@ -1239,15 +1699,26 @@ impl<'a> DocumentationReportBuilder<'a> {
 /// not an attempt to judge prose with another model. It catches the failure
 /// mode where a host calls prompt get but then writes a fixed component list
 /// or a one-line overview instead of using the model response.
+struct PageAssessmentContext<'a> {
+    is_leaf: bool,
+    is_overview: bool,
+    required_links: &'a [String],
+    grounded_labels: &'a [String],
+}
+
 fn assess_page(
     name: &str,
     module: &Module,
     content: &str,
     nodes: &BTreeMap<String, Node>,
-    is_leaf: bool,
-    is_overview: bool,
-    required_links: &[String],
+    context: PageAssessmentContext<'_>,
 ) -> Value {
+    let PageAssessmentContext {
+        is_leaf,
+        is_overview,
+        required_links,
+        grounded_labels,
+    } = context;
     let headings = markdown_headings(content);
     let lower = content.to_ascii_lowercase();
     let mermaid = validate_mermaid(content);
@@ -1281,7 +1752,7 @@ fn assess_page(
     } else {
         50
     };
-    let explanatory = prose_words >= prose_limit && semantic_sections >= 2;
+    let explanatory = prose_words >= prose_limit && (semantic_sections >= 1 || mermaid.blocks > 0);
 
     let mut grounded_components = 0usize;
     for component_id in &module.components {
@@ -1320,13 +1791,6 @@ fn assess_page(
     if content.trim().is_empty() {
         page_errors.push("page is empty".to_string());
     }
-    if !purpose {
-        page_errors.push("missing a semantic Purpose/Scope section".to_string());
-    }
-    if !architecture {
-        page_errors
-            .push("missing a semantic Architecture/Data flow/Dependencies section".to_string());
-    }
     if prose_words < prose_limit {
         page_errors.push(format!(
             "contains only {prose_words} explanatory words; add source-grounded prose"
@@ -1335,21 +1799,15 @@ fn assess_page(
     if is_leaf && grounded_components == 0 && !module.components.is_empty() {
         page_errors.push("does not mention any analyzed component or source path".to_string());
     }
-    if !mermaid.balanced {
-        page_errors.push("contains an unbalanced Mermaid fence".to_string());
+    let diagram = validate_mermaid_with_context(content, grounded_labels, !is_leaf, is_overview);
+    if diagram.architecture_quality == "fail" {
+        page_errors.extend(diagram.quality_issues.iter().cloned());
     }
     if template_only {
         page_errors.push(
             "looks like a generated component-list template rather than an explanatory page"
                 .to_string(),
         );
-    }
-    if !is_leaf && mermaid.blocks == 0 {
-        page_errors
-            .push("module overview needs at least one Mermaid architecture diagram".to_string());
-    }
-    if is_overview && mermaid.blocks == 0 {
-        page_errors.push("repository overview needs an end-to-end Mermaid diagram".to_string());
     }
     let mut missing_links = Vec::new();
     for link in required_links {
@@ -1376,9 +1834,17 @@ fn assess_page(
         "component_count": module.components.len(),
         "mermaid_blocks": mermaid.blocks,
         "mermaid_balanced": mermaid.balanced,
+        "architecture_diagram": diagram,
         "missing_links": missing_links,
         "boilerplate_detected": template_only || lower.contains("this leaf documents a cohesive implementation area"),
     })
+}
+
+fn collect_module_labels(tree: &ModuleTree, labels: &mut Vec<String>) {
+    for (name, module) in tree {
+        labels.push(name.clone());
+        collect_module_labels(&module.children, labels);
+    }
 }
 
 fn markdown_headings(content: &str) -> Vec<String> {
@@ -1479,7 +1945,7 @@ fn collect_processing(
 /// Assess the final tree rather than merely checking that its IDs are known.
 ///
 /// A flat tree can cover every selected component and still be unusable as a
-/// wiki.  The reference workflow treats a module as a leaf only when its
+/// wiki.  The architecture workflow treats a module as a leaf only when its
 /// clustering input fits the configured limits; this side-channel metric
 /// gives the host agent the same invariant without making the Rust CLI call an
 /// LLM itself.
@@ -1509,21 +1975,15 @@ fn assess_tree_quality(
         collect_tree_quality(name, module, &[], 1, &context, None, &mut metrics);
     }
 
-    let orphaned = candidate_ids
-        .difference(&metrics.leaf_candidate_ids)
-        .cloned()
-        .collect::<Vec<_>>();
+    // The final tree is an architecture selection, not an exhaustive leaf
+    // partition.  `candidate_ids` therefore contains only selected anchors;
+    // unselected analyzer candidates are intentionally not errors.
+    let orphaned = Vec::<String>::new();
     let mut quality_errors = Vec::new();
     if !metrics.oversized_leaf_modules.is_empty() {
         quality_errors.push(format!(
             "{} leaf module(s) exceed recursive clustering limits",
             metrics.oversized_leaf_modules.len()
-        ));
-    }
-    if !orphaned.is_empty() {
-        quality_errors.push(format!(
-            "{} analysis candidate(s) are not owned by a final leaf module",
-            orphaned.len()
         ));
     }
     quality_errors.extend(metrics.relationship_errors.iter().cloned());
@@ -1577,7 +2037,7 @@ fn collect_tree_quality(
     parent_path: &[String],
     depth: usize,
     context: &TreeQualityContext<'_>,
-    parent_candidate_ids: Option<&BTreeSet<String>>,
+    _parent_candidate_ids: Option<&BTreeSet<String>>,
     metrics: &mut TreeQualityMetrics,
 ) -> BTreeSet<String> {
     let mut path = parent_path.to_vec();
@@ -1598,19 +2058,6 @@ fn collect_tree_quality(
         .filter(|id| context.candidate_ids.contains(*id))
         .cloned()
         .collect::<BTreeSet<_>>();
-    if let Some(parent_candidate_ids) = parent_candidate_ids {
-        let missing = own_candidate_ids
-            .difference(parent_candidate_ids)
-            .cloned()
-            .collect::<Vec<_>>();
-        if !missing.is_empty() {
-            metrics.relationship_errors.push(format!(
-                "module '{name}' contains candidate IDs absent from its parent: {}",
-                missing.join(", ")
-            ));
-        }
-    }
-
     if module.children.is_empty() {
         metrics.leaf_count += 1;
         let leaf_ids = own_candidate_ids;
@@ -1656,7 +2103,7 @@ fn collect_tree_quality(
         return leaf_ids;
     }
 
-    let mut descendant_candidate_ids = BTreeSet::new();
+    let mut descendant_candidate_ids = own_candidate_ids.clone();
     for (child_name, child) in &module.children {
         descendant_candidate_ids.extend(collect_tree_quality(
             child_name,
@@ -1666,16 +2113,6 @@ fn collect_tree_quality(
             context,
             Some(&own_candidate_ids),
             metrics,
-        ));
-    }
-    let missing_from_parent = descendant_candidate_ids
-        .difference(&own_candidate_ids)
-        .cloned()
-        .collect::<Vec<_>>();
-    if !missing_from_parent.is_empty() {
-        metrics.relationship_errors.push(format!(
-            "module '{name}' does not aggregate all descendant candidate IDs: {}",
-            missing_from_parent.join(", ")
         ));
     }
     descendant_candidate_ids
@@ -1896,6 +2333,61 @@ mod tests {
         let report = validate_mermaid("```mermaid\ngraph TD\nA-->B\n```\n");
         assert_eq!(report.blocks, 1);
         assert!(report.balanced);
+    }
+
+    #[test]
+    fn architecture_overview_accepts_grounded_end_to_end_flow() {
+        let content = r#"```mermaid
+graph TD
+    Client[SQL Client] --> Parsers
+    Parsers --> AST[Abstract Syntax Tree]
+    AST --> Analyzer
+    Analyzer --> Planning[Query Planning]
+    Planning --> Pipeline[Query Pipeline]
+    Pipeline --> Storage[Storage Engine]
+    Storage --> Disk[Local or Remote Storage]
+```"#;
+        let grounded = vec![
+            "Parsers".to_string(),
+            "Query Planning".to_string(),
+            "Query Pipeline".to_string(),
+            "Storage Engine".to_string(),
+            "Local or Remote Storage".to_string(),
+        ];
+        let report = validate_mermaid_with_context(content, &grounded, true, true);
+        assert_eq!(report.architecture_quality, "pass");
+        assert!(report.node_count >= 7);
+        assert!(report.edge_count >= 6);
+        assert!(report.has_primary_path);
+        assert!(report.grounded_node_count >= 4);
+    }
+
+    #[test]
+    fn architecture_overview_rejects_generic_runtime_plus_build_graph() {
+        let content = r#"```mermaid
+flowchart LR
+    Client[CLI, TUI, app-server, SDK clients] --> Entry[Distribution CLI and Rust entry points]
+    Entry --> Protocol[App Server and Public Protocol]
+    Protocol --> Core[Agent Core and Context]
+    Core --> Exec[Execution and Sandboxing]
+    Core --> State[State, History and Files]
+    Exec --> Verify[Build and Test Infrastructure]
+    State --> Result[Streamed or persisted result]
+    Verify --> Release[Release and Smoke Tooling]
+```"#;
+        let grounded = vec![
+            "Distribution CLI".to_string(),
+            "App Server and Public Protocol".to_string(),
+            "Agent Core and Context".to_string(),
+            "Execution and Sandboxing".to_string(),
+            "State, History and Files".to_string(),
+        ];
+        let report = validate_mermaid_with_context(content, &grounded, true, true);
+        assert_eq!(report.architecture_quality, "fail");
+        assert!(report
+            .quality_issues
+            .iter()
+            .any(|issue| issue.contains("build, test, release")));
     }
 
     #[test]
