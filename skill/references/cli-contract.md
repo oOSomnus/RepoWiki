@@ -9,7 +9,15 @@ failure has this shape and exits non-zero:
 
 --help and --version are the only intentional text-output exceptions.
 
-The commands use a file-side channel so large code and prompts do not need to travel through stdout. When the current working directory is not the analyzed repository, pass `--repo-root <repo>` to every session-based command: components, prompts, trees, documents, updates, html, and session close/info.
+The commands use a file-side channel so large code and prompts do not need to travel through stdout. When the current working directory is not the analyzed repository, pass `--repo-root <repo>` to every session-based command: components, prompts, trees, documents, updates, html, and session close/info. `doc reconcile` is output-directory based and does not require a session.
+
+For one session, commands that write session or output state are serialized by
+the CLI with a cross-process session lock. The host must still issue these
+commands serially: `prompt get`, tree save/apply/context, document
+write/edit/validate, update writes, HTML generation, and session close. Model
+calls may run in parallel only when their CLI writes are not concurrent.
+The lock is bounded; a timeout is a JSON error and never silently drops a
+write.
 
 ## Session workspace
 
@@ -91,7 +99,7 @@ existing page has `docs_path: null`; an existing page has its resolved path.
 Its default target is the repository root and its result is written to the
 session workspace.
 
-`tree save --first` writes `first_module_tree.json` and `module_tree.json`, computes leaf-first `processing_order.json`, and validates that every selected architecture anchor belongs to the analysis. The final tree is intentionally not an exhaustive partition of `leaf_nodes.json`; omitted candidates are recorded as analysis detail rather than treated as missing documentation.
+`tree save --first` writes `first_module_tree.json` and `module_tree.json`, computes leaf-first `processing_order.json` (each item includes its exact canonical `doc_path`), and validates that every selected architecture anchor belongs to the analysis. Module keys must be non-empty ASCII page-safe names. The final tree is intentionally not an exhaustive partition of `leaf_nodes.json`; omitted candidates are recorded as analysis detail rather than treated as missing documentation.
 
 The final tree may repeat representative component IDs in a parent and its
 descendants. `tree save` additionally records these architecture quality fields in
@@ -115,6 +123,12 @@ optional super-grouping, and recursive `scope=module` clustering, then save the
 expanded tree. `session close` refuses to remove the session workspace while
 the quality gate is false.
 
+The input-ID file must contain either a JSON array of strings or one exact
+component ID per line. A JSON object is a prompt-vars file, not an ID list,
+and is rejected with an input-format error. Before applying a model response,
+the host should run `components read` with the same ID file and confirm that
+the non-empty response file already exists.
+
 ## Update verdicts
 
 `update finalize` accepts `--verdicts-file <path>`. The file may contain either
@@ -124,7 +138,11 @@ value is a verdict string or an object containing `verdict` and optional
 
 ## Document editing
 
-`doc write` creates a new Markdown page and refuses to overwrite it. `doc edit` accepts a JSON array:
+`doc write` creates a new Markdown page and refuses to overwrite it. It also
+accepts `--if-existing same`: an existing page is treated as success only when
+its bytes exactly match the requested content; a different page remains an
+error. The result reports whether the page was `created` or `reused`. `doc edit`
+accepts a JSON array:
 
 ```json
 [
@@ -160,6 +178,22 @@ returns per-page roles, explanatory prose counts, source grounding, Mermaid
 architecture quality, and required child links. A valid report has `valid:
 true`. It rejects list-only or fixed-template pages, parent pages with no
 useful architecture diagram or child links, and a repository overview without
-a grounded end-to-end diagram and top-level links. The report is copied into
+a grounded end-to-end diagram and top-level links. It also rejects extra
+top-level Markdown pages, broken local Markdown links, and links to legacy
+aliases. Natural CJK prose is counted by Unicode-aware units; do not insert
+artificial spaces between Chinese characters. The report is copied into
 metadata.json when the session closes. `session close` runs the same check as
 a hard gate, so a page file existing on disk is not sufficient.
+
+For an already-generated output directory, inspect or apply an explicit legacy
+page migration with:
+
+~~~text
+codewiki doc reconcile --output <repo>/.repowiki --aliases-file <aliases.json>
+codewiki doc reconcile --output <repo>/.repowiki --aliases-file <aliases.json> --apply
+~~~
+
+The first command is a dry run. The apply form rewrites canonical-page links
+and moves only mapped legacy pages into a timestamped `.reconcile-backup/`
+directory; unknown extra pages remain untouched. Run documentation validation
+after applying a migration.

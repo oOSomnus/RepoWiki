@@ -98,7 +98,7 @@ const CLUSTER_OPTIONAL: &[&str] = &[
 ];
 const SUPER_GROUP_REQUIRED: &[&str] = &["formatted_modules"];
 const FILTER_FOLDERS_REQUIRED: &[&str] = &["project_name", "files"];
-const MODULE_REQUIRED: &[&str] = &["module_name"];
+const MODULE_REQUIRED: &[&str] = &["module_name", "doc_path"];
 const CUSTOM_INSTRUCTIONS_OPTIONAL: &[&str] = &["custom_instructions", "few_shot_examples"];
 const USER_REQUIRED: &[&str] = &["module_name", "module_tree"];
 const USER_OPTIONAL: &[&str] = &[
@@ -639,6 +639,10 @@ mod tests {
             "module_name".to_string(),
             Value::String("sample".to_string()),
         );
+        vars.insert(
+            "doc_path".to_string(),
+            Value::String("sample.md".to_string()),
+        );
         let prompt = render(PromptType::SystemComplex, &vars).expect("valid system prompt");
         assert!(prompt.contains("sample.md"));
     }
@@ -650,7 +654,12 @@ mod tests {
             "module_name".to_string(),
             Value::String("sample".to_string()),
         );
+        vars.insert(
+            "doc_path".to_string(),
+            Value::String("sample.md".to_string()),
+        );
         assert!(render(PromptType::User, &vars).is_err());
+        vars.remove("doc_path");
 
         vars.insert(
             "module_tree".to_string(),
@@ -680,6 +689,10 @@ mod tests {
         vars.insert(
             "module_name".to_string(),
             Value::String("sample".to_string()),
+        );
+        vars.insert(
+            "doc_path".to_string(),
+            Value::String("sample.md".to_string()),
         );
         let prompt = render(PromptType::SystemComplex, &vars).expect("valid system prompt");
         assert!(!prompt.contains("{custom_instructions}"));

@@ -103,6 +103,60 @@ fn manifest_follows_tree_and_keeps_extra_pages() {
 }
 
 #[test]
+fn manifest_rejects_noncanonical_module_page_names() {
+    let (_repository, wiki) = fixture();
+    fs::write(
+        wiki.join("module_tree.json"),
+        serde_json::to_vec(&json!({
+            "Platform API": {
+                "path": "src/platform",
+                "components": [],
+                "children": {}
+            }
+        }))
+        .expect("serialize invalid module tree"),
+    )
+    .expect("write invalid module tree");
+
+    let error = load_manifest(&wiki).expect_err("invalid module page name must fail");
+    let message = format!("{error:#}");
+    assert!(
+        message.contains("invalid module name"),
+        "unexpected error: {message}"
+    );
+}
+
+#[test]
+fn manifest_rejects_colliding_module_page_names() {
+    let (_repository, wiki) = fixture();
+    fs::write(
+        wiki.join("module_tree.json"),
+        serde_json::to_vec(&json!({
+            "overview": {
+                "path": "src/overview",
+                "components": [],
+                "children": {
+                    "overview_module": {
+                        "path": "src/overview_module",
+                        "components": [],
+                        "children": {}
+                    }
+                }
+            }
+        }))
+        .expect("serialize colliding module tree"),
+    )
+    .expect("write colliding module tree");
+
+    let error = load_manifest(&wiki).expect_err("colliding module pages must fail");
+    let message = format!("{error:#}");
+    assert!(
+        message.contains("module page filename collision"),
+        "unexpected error: {message}"
+    );
+}
+
+#[test]
 fn page_reads_are_limited_to_direct_markdown_files() {
     let (repository, wiki) = fixture();
     fs::write(repository.path().join("secret.md"), "not part of the wiki").expect("write secret");

@@ -7,12 +7,67 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use std::fs;
+use std::fs::{self, File, OpenOptions, TryLockError};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::thread;
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 pub const SESSION_TTL_SECONDS: i64 = 2 * 60 * 60;
 pub const MAX_SESSIONS: usize = 10;
+pub const SESSION_LOCK_TIMEOUT_SECONDS: u64 = 120;
+const SESSION_LOCK_RETRY_MILLIS: u64 = 50;
+
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Cross-process serialization for operations that read and then mutate a
+/// session. The lock file lives outside the session directory so session
+/// cleanup cannot remove it while a command still owns the lock.
+pub struct SessionLock {
+    file: File,
+}
+
+impl SessionLock {
+    pub fn acquire(repo_path: &Path, session_id: &str) -> Result<Self> {
+        validate_session_id(session_id)?;
+        let lock_root = repo_path.join(".codewiki").join("session-locks");
+        fs::create_dir_all(&lock_root)?;
+        let path = lock_root.join(format!("{session_id}.lock"));
+        let file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(&path)
+            .with_context(|| format!("open session lock {}", path.display()))?;
+        let deadline = Instant::now() + Duration::from_secs(SESSION_LOCK_TIMEOUT_SECONDS);
+        loop {
+            match file.try_lock() {
+                Ok(()) => return Ok(Self { file }),
+                Err(TryLockError::WouldBlock) => {
+                    if Instant::now() >= deadline {
+                        return Err(anyhow!(
+                            "session lock timeout after {} seconds: {}",
+                            SESSION_LOCK_TIMEOUT_SECONDS,
+                            path.display()
+                        ));
+                    }
+                    thread::sleep(Duration::from_millis(SESSION_LOCK_RETRY_MILLIS));
+                }
+                Err(TryLockError::Error(error)) => {
+                    return Err(error).with_context(|| format!("lock session {}", path.display()))
+                }
+            }
+        }
+    }
+}
+
+impl Drop for SessionLock {
+    fn drop(&mut self) {
+        let _ = self.file.unlock();
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionState {
@@ -92,6 +147,16 @@ pub fn create(repo_path: &Path, output_dir: &Path) -> Result<SessionState> {
 
 pub fn load(repo_path: &Path, session_id: &str) -> Result<SessionState> {
     validate_session_id(session_id)?;
+    let state_path = session_root(repo_path, session_id).join("state.json");
+    if !state_path.is_file() {
+        return Err(anyhow!("session not found: {session_id}"));
+    }
+    let _lock = SessionLock::acquire(repo_path, session_id)?;
+    load_unlocked(repo_path, session_id)
+}
+
+pub fn load_unlocked(repo_path: &Path, session_id: &str) -> Result<SessionState> {
+    validate_session_id(session_id)?;
     let path = session_root(repo_path, session_id).join("state.json");
     let contents =
         fs::read_to_string(&path).with_context(|| format!("session not found: {}", session_id))?;
@@ -104,6 +169,15 @@ pub fn load(repo_path: &Path, session_id: &str) -> Result<SessionState> {
     state.touch();
     save_state(&state)?;
     Ok(state)
+}
+
+pub fn with_locked_session<T, F>(repo_path: &Path, session_id: &str, operation: F) -> Result<T>
+where
+    F: FnOnce(&mut SessionState) -> Result<T>,
+{
+    let _lock = SessionLock::acquire(repo_path, session_id)?;
+    let mut state = load_unlocked(repo_path, session_id)?;
+    operation(&mut state)
 }
 
 pub fn save_state(state: &SessionState) -> Result<()> {
@@ -243,7 +317,8 @@ pub fn write_text(path: &Path, contents: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
+    let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let temporary = path.with_extension(format!("{}.{}.tmp", std::process::id(), counter));
     fs::write(&temporary, contents).with_context(|| format!("write {}", temporary.display()))?;
     fs::rename(&temporary, path).with_context(|| format!("commit {}", path.display()))?;
     Ok(())

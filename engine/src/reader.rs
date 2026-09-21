@@ -4,7 +4,7 @@
 //! directory and a couple of launch options, while this module owns manifest
 //! construction, page-path validation, HTTP routing, and browser launch.
 
-use crate::docs::module_page_filename;
+use crate::docs::{module_page_filename, validate_module_page_paths};
 use crate::model::ModuleTree;
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -232,6 +232,7 @@ fn build_manifest(root: &Path) -> Result<ReaderManifest> {
     let mut warnings = Vec::new();
     let metadata = read_optional_json(root, "metadata.json", &mut warnings);
     let tree = read_tree(root, &mut warnings);
+    validate_module_page_paths(&tree).context("validate module_tree.json page paths")?;
     let title = repository_title(root, metadata.as_ref());
     let info = reader_info(metadata.as_ref());
 
@@ -262,7 +263,7 @@ fn build_manifest(root: &Path) -> Result<ReaderManifest> {
             &mut pages,
             &mut page_order,
             &mut warnings,
-        ));
+        )?);
     }
 
     for filename in top_level_markdown_files(root)? {
@@ -303,8 +304,9 @@ fn build_navigation_node(
     pages: &mut BTreeMap<String, PageDescriptor>,
     page_order: &mut Vec<String>,
     warnings: &mut Vec<String>,
-) -> NavigationNode {
-    let filename = module_page_filename(name);
+) -> Result<NavigationNode> {
+    let filename = module_page_filename(name)
+        .with_context(|| format!("build page path for module '{name}'"))?;
     let available = safe_page_path(root, &filename).is_ok();
     if !available {
         warnings.push(format!("module page is missing or unsafe: {filename}"));
@@ -327,15 +329,15 @@ fn build_navigation_node(
     for (child_name, child) in &module.children {
         children.push(build_navigation_node(
             root, child_name, child, &path, pages, page_order, warnings,
-        ));
+        )?);
     }
 
-    NavigationNode {
+    Ok(NavigationNode {
         name: name.to_string(),
         filename,
         available,
         children,
-    }
+    })
 }
 
 fn add_page(

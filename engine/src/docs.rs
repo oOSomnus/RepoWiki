@@ -24,6 +24,7 @@ const RESERVED_STEMS: &[&str] = &[
 pub struct WriteResult {
     pub path: String,
     pub created: bool,
+    pub reused: bool,
     pub mermaid: MermaidReport,
 }
 
@@ -71,6 +72,7 @@ pub struct TreeSaveResult {
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct ProcessingItem {
     pub module: String,
+    pub doc_path: String,
     pub path: Vec<String>,
     pub is_leaf: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -86,6 +88,8 @@ struct ProcessingItemInput {
     module_name: Option<String>,
     #[serde(default)]
     path: Option<Value>,
+    #[serde(default)]
+    doc_path: Option<String>,
     #[serde(default)]
     is_leaf: bool,
     #[serde(default)]
@@ -114,8 +118,20 @@ impl<'de> Deserialize<'de> for ProcessingItem {
                 )))
             }
         };
+        let canonical_doc_path = module_page_filename(&module)
+            .map_err(|error| serde::de::Error::custom(error.to_string()))?;
+        let doc_path = match input.doc_path {
+            Some(path) if path == canonical_doc_path => path,
+            Some(path) => {
+                return Err(serde::de::Error::custom(format!(
+                    "processing item doc_path must be '{canonical_doc_path}', got '{path}'"
+                )))
+            }
+            None => canonical_doc_path,
+        };
         Ok(Self {
             module,
+            doc_path,
             path,
             is_leaf: input.is_leaf,
             children: input.children,
@@ -145,8 +161,32 @@ pub fn write_document(
     requested: &str,
     content: &str,
 ) -> Result<WriteResult> {
+    write_document_with_policy(state, requested, content, false)
+}
+
+pub fn write_document_with_policy(
+    state: &mut SessionState,
+    requested: &str,
+    content: &str,
+    reuse_if_same: bool,
+) -> Result<WriteResult> {
     let path = document_path(state, requested)?;
+    reject_known_legacy_module_page(state, &path)?;
     if path.exists() {
+        if reuse_if_same && session::read_text(&path)? == content {
+            return Ok(WriteResult {
+                path: path.to_string_lossy().into_owned(),
+                created: false,
+                reused: true,
+                mermaid: validate_mermaid(content),
+            });
+        }
+        if reuse_if_same {
+            return Err(anyhow!(
+                "document already exists with different content: {}",
+                path.display()
+            ));
+        }
         return Err(anyhow!("document already exists: {}", path.display()));
     }
     let mermaid = validate_mermaid(content);
@@ -156,6 +196,7 @@ pub fn write_document(
     Ok(WriteResult {
         path: path.to_string_lossy().into_owned(),
         created: true,
+        reused: false,
         mermaid,
     })
 }
@@ -166,6 +207,7 @@ pub fn edit_document(
     operations: &[EditOperation],
 ) -> Result<WriteResult> {
     let path = document_path(state, requested)?;
+    reject_known_legacy_module_page(state, &path)?;
     let mut content = session::read_text(&path)?;
     let history =
         session::session_root(Path::new(&state.repo_path), &state.session_id).join("history");
@@ -243,6 +285,7 @@ pub fn edit_document(
     Ok(WriteResult {
         path: path.to_string_lossy().into_owned(),
         created: false,
+        reused: false,
         mermaid,
     })
 }
@@ -262,6 +305,7 @@ pub fn save_module_tree(
     tree: &ModuleTree,
     first: bool,
 ) -> Result<TreeSaveResult> {
+    validate_module_page_paths(tree)?;
     let output = session::output_dir(state);
     fs::create_dir_all(&output)?;
     let tree_path = output.join("module_tree.json");
@@ -289,7 +333,7 @@ pub fn save_module_tree(
             &mut assigned,
             &mut module_count,
             &mut leaf_count,
-        );
+        )?;
     }
     let known_ids = nodes.keys().cloned().collect::<BTreeSet<_>>();
     let candidate_ids =
@@ -570,15 +614,17 @@ pub fn overview_context(
     target_path: &[String],
     output_dir: &Path,
 ) -> Result<Value> {
+    validate_module_page_paths(tree)?;
     fn visit(
         modules: &ModuleTree,
         target_path: &[String],
         prefix: &[String],
         output_dir: &Path,
-    ) -> Value {
+    ) -> Result<Value> {
         let mut result = serde_json::Map::new();
         let target_is_here = prefix == target_path;
         for (name, module) in modules {
+            let doc_path = module_page_filename(name)?;
             let mut object = serde_json::Map::new();
             object.insert(
                 "path".to_string(),
@@ -591,11 +637,12 @@ pub fn overview_context(
             let mut current = prefix.to_vec();
             current.push(name.clone());
             let is_target = current == target_path;
+            object.insert("doc_path".to_string(), Value::String(doc_path.clone()));
             object.insert(
                 "is_target_for_overview_generation".to_string(),
                 json!(is_target),
             );
-            let children = visit(&module.children, target_path, &current, output_dir);
+            let children = visit(&module.children, target_path, &current, output_dir)?;
             if let Some(children_object) = children.as_object() {
                 object.insert(
                     "children".to_string(),
@@ -603,7 +650,7 @@ pub fn overview_context(
                 );
             }
             if target_is_here {
-                let docs_path = output_dir.join(module_page_filename(name));
+                let docs_path = output_dir.join(&doc_path);
                 object.insert(
                     "docs_path".to_string(),
                     if docs_path.is_file() {
@@ -615,10 +662,10 @@ pub fn overview_context(
             }
             result.insert(name.clone(), Value::Object(object));
         }
-        Value::Object(result)
+        Ok(Value::Object(result))
     }
 
-    Ok(visit(tree, target_path, &[], output_dir))
+    visit(tree, target_path, &[], output_dir)
 }
 
 /// Build the overview context used by architecture prompts.  The structural
@@ -1048,6 +1095,7 @@ pub fn finalize_metadata(state: &SessionState, model: &str) -> Result<Metadata> 
     } else {
         ModuleTree::new()
     };
+    validate_module_page_paths(&tree)?;
     let mut files_generated = Vec::new();
     for required in ["overview.md", "module_tree.json", "first_module_tree.json"] {
         if output.join(required).exists() {
@@ -1065,7 +1113,7 @@ pub fn finalize_metadata(state: &SessionState, model: &str) -> Result<Metadata> 
         &mut max_depth,
         &mut module_leaf_count,
         &mut files_generated,
-    );
+    )?;
     let architecture_anchors = collect_tree_ids(&tree).len();
     let metadata = Metadata {
         generation_info: crate::model::GenerationInfo {
@@ -1175,11 +1223,14 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
     }
 
     let tree: ModuleTree = session::read_json(&output.join("module_tree.json"))?;
+    validate_module_page_paths(&tree)?;
     let mut expected = BTreeSet::new();
-    collect_expected_pages(&tree, &mut expected);
+    collect_expected_pages(&tree, &mut expected)?;
+    expected.insert("overview.md".to_string());
     let missing = expected
-        .into_iter()
+        .iter()
         .filter(|page| !output.join(page).is_file())
+        .cloned()
         .collect::<Vec<_>>();
     if !missing.is_empty() {
         return Err(anyhow!(
@@ -1188,17 +1239,37 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
         ));
     }
 
+    let extra_pages = top_level_markdown_pages(&output)?
+        .into_iter()
+        .filter(|page| !expected.contains(page))
+        .collect::<Vec<_>>();
+    let mut broken_links = Vec::new();
+    let mut legacy_links = Vec::new();
+    for page in &expected {
+        let content = fs::read_to_string(output.join(page))?;
+        for target in markdown_link_targets(&content) {
+            if expected.contains(&target) {
+                continue;
+            }
+            if output.join(&target).is_file() {
+                legacy_links.push(json!({"page": page, "target": target}));
+            } else {
+                broken_links.push(json!({"page": page, "target": target}));
+            }
+        }
+    }
+
     let nodes: BTreeMap<String, Node> =
         session::read_json(&session::session_value_path(state, "components.json"))
             .unwrap_or_default();
     let mut builder = DocumentationReportBuilder::new(&output, &nodes);
-    builder.visit_modules(&tree);
+    builder.visit_modules(&tree)?;
     let overview_path = output.join("overview.md");
     let overview = fs::read_to_string(&overview_path).unwrap_or_default();
-    builder.visit_overview(&tree, &overview);
+    builder.visit_overview(&tree, &overview)?;
     let DocumentationReportBuilder {
         pages,
-        errors,
+        errors: builder_errors,
         page_count,
         valid_page_count,
         explanatory_page_count,
@@ -1206,10 +1277,34 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
         grounded_page_count,
         ..
     } = builder;
+    let mut errors = builder_errors;
+    errors.extend(
+        extra_pages
+            .iter()
+            .map(|page| format!("unexpected Markdown page: {page}")),
+    );
+    errors.extend(broken_links.iter().filter_map(|link| {
+        Some(format!(
+            "broken Markdown link in {}: {}",
+            link["page"].as_str()?,
+            link["target"].as_str()?
+        ))
+    }));
+    errors.extend(legacy_links.iter().filter_map(|link| {
+        Some(format!(
+            "legacy Markdown link in {}: {}",
+            link["page"].as_str()?,
+            link["target"].as_str()?
+        ))
+    }));
 
     let report = json!({
         "valid": errors.is_empty(),
         "errors": errors,
+        "extra_pages": extra_pages,
+        "broken_links": broken_links,
+        "legacy_links": legacy_links,
+        "prose_count_mode": "unicode-aware-v1",
         "page_count": page_count,
         "valid_page_count": valid_page_count,
         "explanatory_page_count": explanatory_page_count,
@@ -1222,6 +1317,9 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
             "parent_child_links": true,
             "architecture_diagrams": true,
             "template_only_rejection": true,
+            "canonical_page_paths": true,
+            "no_extra_markdown_pages": true,
+            "no_broken_markdown_links": true,
         },
     });
     session::write_json(
@@ -1229,6 +1327,327 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
         &report,
     )?;
     Ok(report)
+}
+
+/// Inspect or migrate a generated output directory whose old pages may have
+/// been written under pre-canonical module names.  The operation is dry-run
+/// by default.  Applying a migration always moves mapped legacy pages into a
+/// timestamped backup directory and leaves unmapped extra pages untouched.
+pub fn reconcile_output(
+    output: &Path,
+    tree_path: &Path,
+    metadata_path: Option<&Path>,
+    aliases_path: Option<&Path>,
+    apply: bool,
+) -> Result<Value> {
+    let tree: ModuleTree = session::read_json(tree_path)?;
+    validate_module_page_paths(&tree)?;
+    if !output.is_dir() {
+        return Err(anyhow!(
+            "documentation output directory does not exist: {}",
+            output.display()
+        ));
+    }
+
+    let mut canonical_pages = BTreeSet::from(["overview.md".to_string()]);
+    collect_expected_pages(&tree, &mut canonical_pages)?;
+    let extra_pages = top_level_markdown_pages(output)?
+        .into_iter()
+        .filter(|page| !canonical_pages.contains(page))
+        .collect::<Vec<_>>();
+    let missing_canonical_pages = canonical_pages
+        .iter()
+        .filter(|page| !output.join(page).is_file())
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let metadata_pages = metadata_path
+        .filter(|path| path.is_file())
+        .map(session::read_json::<Value>)
+        .transpose()?
+        .and_then(|value| {
+            value
+                .get("files_generated")
+                .and_then(Value::as_array)
+                .map(|files| {
+                    files
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .filter(|file| file.ends_with(".md"))
+                        .map(str::to_string)
+                        .collect::<BTreeSet<_>>()
+                })
+        })
+        .unwrap_or_default();
+    let metadata_missing = canonical_pages
+        .difference(&metadata_pages)
+        .cloned()
+        .collect::<Vec<_>>();
+    let metadata_unexpected = metadata_pages
+        .difference(&canonical_pages)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let aliases = read_reconcile_aliases(aliases_path)?;
+    let mut missing_alias_sources = Vec::new();
+    let mut proposed_moves = Vec::new();
+    for (source, target) in &aliases {
+        if !canonical_pages.contains(target) {
+            return Err(anyhow!(
+                "reconcile alias target is not a canonical page: {source} -> {target}"
+            ));
+        }
+        if canonical_pages.contains(source) {
+            return Err(anyhow!(
+                "reconcile alias source is already canonical: {source}"
+            ));
+        }
+        let source_path = output.join(source);
+        if !source_path.is_file() {
+            missing_alias_sources.push(source.clone());
+        } else {
+            proposed_moves.push(json!({"from": source, "to": target}));
+        }
+    }
+
+    let mut alias_links = Vec::new();
+    let mut broken_links = Vec::new();
+    let mut legacy_links = Vec::new();
+    for page in &canonical_pages {
+        let path = output.join(page);
+        if !path.is_file() {
+            continue;
+        }
+        let content = fs::read_to_string(&path)?;
+        for target in markdown_link_targets(&content) {
+            if let Some(canonical) = aliases.get(&target) {
+                alias_links.push(json!({
+                    "page": page,
+                    "from": target,
+                    "to": canonical,
+                }));
+            } else if canonical_pages.contains(&target) {
+                continue;
+            } else if output.join(&target).is_file() {
+                legacy_links.push(json!({"page": page, "target": target}));
+            } else {
+                broken_links.push(json!({"page": page, "target": target}));
+            }
+        }
+    }
+
+    let preserved_extra_pages = extra_pages
+        .iter()
+        .filter(|page| !aliases.contains_key(*page))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut report = json!({
+        "output": output,
+        "tree_path": tree_path,
+        "metadata_path": metadata_path,
+        "aliases_path": aliases_path,
+        "canonical_pages": canonical_pages,
+        "metadata_pages": metadata_pages,
+        "metadata_missing": metadata_missing,
+        "metadata_unexpected": metadata_unexpected,
+        "missing_canonical_pages": missing_canonical_pages,
+        "extra_pages": extra_pages,
+        "aliases": aliases,
+        "proposed_moves": proposed_moves,
+        "alias_links": alias_links,
+        "legacy_links": legacy_links,
+        "broken_links": broken_links,
+        "missing_alias_sources": missing_alias_sources,
+        "preserved_extra_pages": preserved_extra_pages,
+        "applied": false,
+    });
+
+    if !apply {
+        return Ok(report);
+    }
+    if !missing_alias_sources.is_empty() {
+        return Err(anyhow!(
+            "cannot apply reconcile: alias source pages are missing: {}",
+            missing_alias_sources.join(", ")
+        ));
+    }
+    if !missing_canonical_pages.is_empty() {
+        return Err(anyhow!(
+            "cannot apply reconcile while canonical pages are missing: {}",
+            missing_canonical_pages.join(", ")
+        ));
+    }
+
+    let mut rewrites = Vec::new();
+    for page in &canonical_pages {
+        let path = output.join(page);
+        if !path.is_file() {
+            continue;
+        }
+        let content = fs::read_to_string(&path)?;
+        let (rewritten, changes) = rewrite_markdown_links(&content, &aliases);
+        if !changes.is_empty() {
+            rewrites.push((page.clone(), rewritten, changes));
+        }
+    }
+
+    let backup_dir = output
+        .join(".reconcile-backup")
+        .join(Utc::now().format("%Y%m%dT%H%M%S%.fZ").to_string());
+    if !aliases.is_empty() || !rewrites.is_empty() {
+        fs::create_dir_all(&backup_dir)?;
+    }
+    let mut rewritten_pages = Vec::new();
+    for (page, rewritten, _) in &rewrites {
+        let source = output.join(page);
+        fs::copy(&source, backup_dir.join(page))
+            .with_context(|| format!("backup canonical page {}", source.display()))?;
+        session::write_text(&source, rewritten)?;
+        rewritten_pages.push(page.clone());
+    }
+    let mut moved_pages = Vec::new();
+    for source in aliases.keys() {
+        let source_path = output.join(source);
+        if source_path.is_file() {
+            let backup_path = backup_dir.join(source);
+            fs::rename(&source_path, &backup_path)
+                .with_context(|| format!("move legacy page {} to backup", source_path.display()))?;
+            moved_pages.push(source.clone());
+        }
+    }
+    report["applied"] = Value::Bool(true);
+    report["backup_dir"] = Value::String(backup_dir.to_string_lossy().into_owned());
+    report["rewritten_pages"] = json!(rewritten_pages);
+    report["moved_pages"] = json!(moved_pages);
+    Ok(report)
+}
+
+fn read_reconcile_aliases(path: Option<&Path>) -> Result<BTreeMap<String, String>> {
+    let Some(path) = path else {
+        return Ok(BTreeMap::new());
+    };
+    let value: Value = session::read_json(path)?;
+    let object = value
+        .get("aliases")
+        .and_then(Value::as_object)
+        .or_else(|| value.as_object())
+        .ok_or_else(|| anyhow!("reconcile aliases must be a JSON object"))?;
+    let mut aliases = BTreeMap::new();
+    for (source, target) in object {
+        let target = target
+            .as_str()
+            .ok_or_else(|| anyhow!("reconcile alias target for '{source}' must be a string"))?;
+        let source = reconcile_page_name(source)?;
+        let target = reconcile_page_name(target)?;
+        if aliases.insert(source.clone(), target).is_some() {
+            return Err(anyhow!("duplicate reconcile alias source: {source}"));
+        }
+    }
+    Ok(aliases)
+}
+
+fn reconcile_page_name(value: &str) -> Result<String> {
+    let value = value.trim().strip_prefix("./").unwrap_or(value.trim());
+    if value.is_empty() || value.contains('/') || value.contains('\\') || !value.ends_with(".md") {
+        return Err(anyhow!(
+            "reconcile page name must be a flat .md filename: {value}"
+        ));
+    }
+    Ok(percent_decode(value))
+}
+
+fn rewrite_markdown_links(
+    content: &str,
+    aliases: &BTreeMap<String, String>,
+) -> (String, Vec<(String, String)>) {
+    let mut output = String::with_capacity(content.len());
+    let mut in_fence = false;
+    let mut changes = Vec::new();
+    for line in content.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") {
+            in_fence = !in_fence;
+            output.push_str(line);
+            continue;
+        }
+        if in_fence {
+            output.push_str(line);
+            continue;
+        }
+        let (rewritten, line_changes) = rewrite_markdown_line(line, aliases);
+        output.push_str(&rewritten);
+        changes.extend(line_changes);
+    }
+    if !content.ends_with('\n') && output.is_empty() {
+        output.push_str(content);
+    }
+    (output, changes)
+}
+
+fn rewrite_markdown_line(
+    line: &str,
+    aliases: &BTreeMap<String, String>,
+) -> (String, Vec<(String, String)>) {
+    let mut output = String::with_capacity(line.len());
+    let mut changes = Vec::new();
+    let mut cursor = 0usize;
+    while let Some(relative_start) = line[cursor..].find("](") {
+        let start = cursor + relative_start;
+        if line[..start].chars().filter(|ch| *ch == '`').count() % 2 == 1 {
+            output.push_str(&line[cursor..start + 2]);
+            cursor = start + 2;
+            continue;
+        }
+        let target_start = start + 2;
+        let Some(relative_end) = line[target_start..].find(')') else {
+            output.push_str(&line[cursor..]);
+            cursor = line.len();
+            break;
+        };
+        let end = target_start + relative_end;
+        output.push_str(&line[cursor..target_start]);
+        let raw = &line[target_start..end];
+        if let Some((rewritten, from, to)) = rewrite_markdown_target(raw, aliases) {
+            output.push_str(&rewritten);
+            changes.push((from, to));
+        } else {
+            output.push_str(raw);
+        }
+        cursor = end;
+    }
+    output.push_str(&line[cursor..]);
+    (output, changes)
+}
+
+fn rewrite_markdown_target(
+    raw: &str,
+    aliases: &BTreeMap<String, String>,
+) -> Option<(String, String, String)> {
+    let leading = raw.len() - raw.trim_start().len();
+    let trimmed = &raw[leading..];
+    let (token, suffix_start, angle) = if let Some(value) = trimmed.strip_prefix('<') {
+        let end = value.find('>')?;
+        (&value[..end], end + 1, true)
+    } else {
+        let end = trimmed.find(char::is_whitespace).unwrap_or(trimmed.len());
+        (&trimmed[..end], end, false)
+    };
+    let path_end = token.find(['#', '?']).unwrap_or(token.len());
+    let source = reconcile_page_name(&token[..path_end]).ok()?;
+    let target = aliases.get(&source)?;
+    let mut rewritten = String::new();
+    rewritten.push_str(&raw[..leading]);
+    if angle {
+        rewritten.push('<');
+        rewritten.push_str(target);
+        rewritten.push_str(&token[path_end..]);
+        rewritten.push('>');
+        rewritten.push_str(&trimmed[suffix_start..]);
+    } else {
+        rewritten.push_str(target);
+        rewritten.push_str(&trimmed[path_end..]);
+    }
+    Some((rewritten, source, target.clone()))
 }
 
 pub fn validate_mermaid(content: &str) -> MermaidReport {
@@ -1616,16 +2035,16 @@ impl<'a> DocumentationReportBuilder<'a> {
         }
     }
 
-    fn visit_modules(&mut self, modules: &ModuleTree) {
+    fn visit_modules(&mut self, modules: &ModuleTree) -> Result<()> {
         for (name, module) in modules {
-            let page = module_page_filename(name);
+            let page = module_page_filename(name)?;
             let path = self.output.join(&page);
             let content = fs::read_to_string(&path).unwrap_or_default();
             let required_links = module
                 .children
                 .keys()
                 .map(|child| module_page_filename(child))
-                .collect::<Vec<_>>();
+                .collect::<Result<Vec<_>>>()?;
             let labels = module
                 .children
                 .keys()
@@ -1645,15 +2064,16 @@ impl<'a> DocumentationReportBuilder<'a> {
                 },
             );
             self.record_page(&page, result);
-            self.visit_modules(&module.children);
+            self.visit_modules(&module.children)?;
         }
+        Ok(())
     }
 
-    fn visit_overview(&mut self, tree: &ModuleTree, content: &str) {
+    fn visit_overview(&mut self, tree: &ModuleTree, content: &str) -> Result<()> {
         let overview_links = tree
             .keys()
             .map(|name| module_page_filename(name))
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>>>()?;
         let mut labels = Vec::new();
         collect_module_labels(tree, &mut labels);
         let result = assess_page(
@@ -1669,6 +2089,7 @@ impl<'a> DocumentationReportBuilder<'a> {
             },
         );
         self.record_page("overview.md", result);
+        Ok(())
     }
 
     fn record_page(&mut self, page: &str, result: Value) {
@@ -1829,6 +2250,7 @@ fn assess_page(
         "errors": page_errors,
         "explanatory": explanatory,
         "prose_words": prose_words,
+        "prose_count_mode": "unicode-aware-v1",
         "semantic_sections": semantic_sections,
         "grounded_components": grounded_components,
         "component_count": module.components.len(),
@@ -1887,13 +2309,177 @@ fn markdown_prose_word_count(content: &str) -> usize {
         {
             continue;
         }
-        words += trimmed
-            .split_whitespace()
-            .map(|word| word.trim_matches(|ch: char| !ch.is_alphanumeric() && ch != '_'))
-            .filter(|word| !word.is_empty())
-            .count();
+        words += prose_units_in_line(trimmed);
     }
     words
+}
+
+fn top_level_markdown_pages(output: &Path) -> Result<Vec<String>> {
+    let mut pages = Vec::new();
+    if !output.is_dir() {
+        return Ok(pages);
+    }
+    for entry in fs::read_dir(output)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file()
+            || entry.path().extension().and_then(|value| value.to_str()) != Some("md")
+        {
+            continue;
+        }
+        if let Some(name) = entry.file_name().to_str() {
+            pages.push(name.to_string());
+        }
+    }
+    pages.sort();
+    Ok(pages)
+}
+
+/// Return local Markdown page destinations while ignoring fenced code blocks,
+/// external URLs, fragments, query strings, and link titles.  The returned
+/// paths are normalized to the flat output directory used by the wiki.
+pub fn markdown_link_targets(content: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut in_fence = false;
+    for line in content.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence {
+            continue;
+        }
+        let mut cursor = 0usize;
+        while let Some(relative_start) = line[cursor..].find("](") {
+            let start = cursor + relative_start;
+            if line[..start].chars().filter(|ch| *ch == '`').count() % 2 == 1 {
+                cursor = start + 2;
+                continue;
+            }
+            let target_start = start + 2;
+            let Some(relative_end) = line[target_start..].find(')') else {
+                break;
+            };
+            let raw = &line[target_start..target_start + relative_end];
+            if let Some(target) = normalize_markdown_target(raw) {
+                result.push(target);
+            }
+            cursor = target_start + relative_end + 1;
+        }
+    }
+    result.sort();
+    result.dedup();
+    result
+}
+
+fn normalize_markdown_target(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    let token = if let Some(value) = raw.strip_prefix('<') {
+        value.split_once('>')?.0
+    } else {
+        raw.split_whitespace().next()?
+    };
+    if token.is_empty()
+        || token.contains("://")
+        || token.starts_with('/')
+        || token.starts_with('#')
+        || token.starts_with("../")
+    {
+        return None;
+    }
+    let path = token.split(['#', '?']).next().unwrap_or(token);
+    let path = path.strip_prefix("./").unwrap_or(path);
+    if !path.ends_with(".md") {
+        return None;
+    }
+    Some(percent_decode(path))
+}
+
+fn percent_decode(value: &str) -> String {
+    let mut bytes = Vec::with_capacity(value.len());
+    let mut chars = value.as_bytes().iter().copied();
+    while let Some(byte) = chars.next() {
+        if byte == b'%' {
+            let Some(high) = chars.next() else {
+                bytes.push(byte);
+                break;
+            };
+            let Some(low) = chars.next() else {
+                bytes.extend([byte, high]);
+                break;
+            };
+            let hex = [high, low];
+            if let Ok(text) = std::str::from_utf8(&hex) {
+                if let Ok(decoded) = u8::from_str_radix(text, 16) {
+                    bytes.push(decoded);
+                    continue;
+                }
+            }
+            bytes.extend([byte, high, low]);
+        } else {
+            bytes.push(byte);
+        }
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+fn prose_units_in_line(line: &str) -> usize {
+    let mut cleaned = String::new();
+    let mut chars = line.chars().peekable();
+    let mut in_inline_code = false;
+    while let Some(ch) = chars.next() {
+        if ch == '`' {
+            in_inline_code = !in_inline_code;
+            continue;
+        }
+        if in_inline_code {
+            continue;
+        }
+        if ch == ']' && chars.peek() == Some(&'(') {
+            cleaned.push(ch);
+            cleaned.push(chars.next().expect("peeked opening parenthesis"));
+            for target in chars.by_ref() {
+                if target == ')' {
+                    break;
+                }
+            }
+            continue;
+        }
+        cleaned.push(ch);
+    }
+
+    let mut units = 0usize;
+    let mut in_word = false;
+    for ch in cleaned.chars() {
+        if is_cjk_character(ch) {
+            if in_word {
+                units += 1;
+                in_word = false;
+            }
+            units += 1;
+        } else if ch.is_alphanumeric() || ch == '_' {
+            in_word = true;
+        } else if in_word {
+            units += 1;
+            in_word = false;
+        }
+    }
+    if in_word {
+        units += 1;
+    }
+    units
+}
+
+fn is_cjk_character(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x3040..=0x30ff
+            | 0x3400..=0x4dbf
+            | 0x4e00..=0x9fff
+            | 0xac00..=0xd7af
+            | 0xf900..=0xfaff
+            | 0x20000..=0x2ffff
+    )
 }
 
 fn contains_markdown_link(content: &str, page: &str) -> bool {
@@ -1911,7 +2497,7 @@ fn collect_processing(
     assigned: &mut BTreeSet<String>,
     module_count: &mut usize,
     leaf_count: &mut usize,
-) {
+) -> Result<()> {
     let mut current_path = parent_path.to_vec();
     current_path.push(name.to_string());
     let mut child_names = Vec::new();
@@ -1925,7 +2511,7 @@ fn collect_processing(
             assigned,
             module_count,
             leaf_count,
-        );
+        )?;
     }
     assigned.extend(module.components.iter().cloned());
     let is_leaf = module.children.is_empty();
@@ -1933,13 +2519,16 @@ fn collect_processing(
         *leaf_count += 1;
     }
     *module_count += 1;
+    let doc_path = module_page_filename(name)?;
     order.push(ProcessingItem {
         module: name.to_string(),
+        doc_path,
         path: current_path,
         is_leaf,
         children: child_names,
         components: module.components.clone(),
     });
+    Ok(())
 }
 
 /// Assess the final tree rather than merely checking that its IDs are known.
@@ -2139,14 +2728,14 @@ fn collect_metadata(
     max_depth: &mut usize,
     leaf_count: &mut usize,
     files: &mut Vec<String>,
-) {
+) -> Result<()> {
     for (name, module) in tree {
         *count += 1;
         *max_depth = (*max_depth).max(depth);
         if module.children.is_empty() {
             *leaf_count += 1;
         }
-        let file = module_page_filename(name);
+        let file = module_page_filename(name)?;
         if output.join(&file).exists() && !files.iter().any(|item| item == &file) {
             files.push(file);
         }
@@ -2158,15 +2747,17 @@ fn collect_metadata(
             max_depth,
             leaf_count,
             files,
-        );
+        )?;
     }
+    Ok(())
 }
 
-fn collect_expected_pages(tree: &ModuleTree, expected: &mut BTreeSet<String>) {
+pub fn collect_expected_pages(tree: &ModuleTree, expected: &mut BTreeSet<String>) -> Result<()> {
     for (name, module) in tree {
-        expected.insert(module_page_filename(name));
-        collect_expected_pages(&module.children, expected);
+        expected.insert(module_page_filename(name)?);
+        collect_expected_pages(&module.children, expected)?;
     }
+    Ok(())
 }
 
 fn document_path(state: &SessionState, requested: &str) -> Result<PathBuf> {
@@ -2204,7 +2795,47 @@ fn document_path(state: &SessionState, requested: &str) -> Result<PathBuf> {
     Ok(candidate)
 }
 
-fn sanitize_module_name(name: &str) -> String {
+fn reject_known_legacy_module_page(state: &SessionState, path: &Path) -> Result<()> {
+    if path.extension().and_then(|value| value.to_str()) != Some("md") {
+        return Ok(());
+    }
+    let output = session::output_dir(state);
+    let tree_path = output.join("module_tree.json");
+    let first_tree_path = output.join("first_module_tree.json");
+    if !tree_path.is_file() || !first_tree_path.is_file() {
+        return Ok(());
+    }
+    let tree: ModuleTree = session::read_json(&tree_path)?;
+    validate_module_page_paths(&tree)?;
+    let filename = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    let mut canonical = BTreeSet::from(["overview.md".to_string()]);
+    collect_expected_pages(&tree, &mut canonical)?;
+    if canonical.contains(filename) {
+        return Ok(());
+    }
+
+    let first_tree: ModuleTree = session::read_json(&first_tree_path)?;
+    let mut legacy = BTreeSet::new();
+    fn collect_legacy_names(tree: &ModuleTree, names: &mut BTreeSet<String>) {
+        for (name, module) in tree {
+            names.insert(format!("{name}.md"));
+            names.insert(format!("{}.md", legacy_module_stem(name)));
+            collect_legacy_names(&module.children, names);
+        }
+    }
+    collect_legacy_names(&first_tree, &mut legacy);
+    if legacy.contains(filename) {
+        return Err(anyhow!(
+            "legacy module page path '{filename}' is not writable; use the canonical page path from processing_order.json"
+        ));
+    }
+    Ok(())
+}
+
+fn legacy_module_stem(name: &str) -> String {
     let mut result = String::new();
     for ch in name.chars() {
         if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' || ch == '&' {
@@ -2219,16 +2850,60 @@ fn sanitize_module_name(name: &str) -> String {
         result
     };
     if RESERVED_STEMS.contains(&result.as_str()) {
-        format!("{}_module", result)
+        format!("{result}_module")
     } else {
         result
     }
 }
 
-/// Return the flat Markdown filename used for a module everywhere in the
+fn canonical_module_stem(name: &str) -> Result<String> {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+    {
+        return Err(anyhow!(
+            "invalid module name '{name}': use a non-empty ASCII name containing only letters, digits, '_' or '-'"
+        ));
+    }
+    if RESERVED_STEMS.contains(&name) {
+        Ok(format!("{name}_module"))
+    } else {
+        Ok(name.to_string())
+    }
+}
+
+/// Return the canonical Markdown filename used for a module everywhere in the
 /// generation and update workflows.
-pub fn module_page_filename(name: &str) -> String {
-    format!("{}.md", sanitize_module_name(name))
+pub fn module_page_filename(name: &str) -> Result<String> {
+    Ok(format!("{}.md", canonical_module_stem(name)?))
+}
+
+/// Validate the module-to-page mapping before any page or tree artifacts are
+/// written.  The mapping is flat, so names must be unique across the entire
+/// tree, not merely among siblings.
+pub fn validate_module_page_paths(tree: &ModuleTree) -> Result<()> {
+    fn visit(
+        modules: &ModuleTree,
+        parent_path: &[String],
+        seen: &mut BTreeMap<String, String>,
+    ) -> Result<()> {
+        for (name, module) in modules {
+            let page = module_page_filename(name)?;
+            let mut path = parent_path.to_vec();
+            path.push(name.clone());
+            let logical_path = path.join("/");
+            if let Some(previous) = seen.insert(page.clone(), logical_path.clone()) {
+                return Err(anyhow!(
+                    "module page filename collision for '{page}': '{previous}' and '{logical_path}'"
+                ));
+            }
+            visit(&module.children, &path, seen)?;
+        }
+        Ok(())
+    }
+
+    visit(tree, &[], &mut BTreeMap::new())
 }
 
 fn history_key(path: &Path, timestamp: &str) -> String {
@@ -2392,8 +3067,38 @@ flowchart LR
 
     #[test]
     fn reserved_module_names_are_safe() {
-        assert_eq!(sanitize_module_name("overview"), "overview_module");
-        assert_eq!(sanitize_module_name("Core Services"), "Core_Services");
-        assert_eq!(module_page_filename("overview"), "overview_module.md");
+        assert_eq!(
+            canonical_module_stem("overview").unwrap(),
+            "overview_module"
+        );
+        assert!(canonical_module_stem("Core Services").is_err());
+        assert_eq!(
+            module_page_filename("overview").unwrap(),
+            "overview_module.md"
+        );
+    }
+
+    #[test]
+    fn canonical_page_validation_rejects_collisions_and_non_ascii_keys() {
+        assert!(module_page_filename("中文模块").is_err());
+        let mut tree = ModuleTree::new();
+        tree.insert("overview".to_string(), Module::default());
+        tree.insert("overview_module".to_string(), Module::default());
+        let error = validate_module_page_paths(&tree).expect_err("page collision must fail");
+        assert!(error.to_string().contains("collision"));
+    }
+
+    #[test]
+    fn prose_counter_counts_natural_cjk_and_ignores_code_and_links() {
+        let content = "# 标题\n\n本模块负责读取配置并把请求交给运行时执行。\n\n`inline_code` [实现](Runtime.md)\n\n```rust\nlet ignored = true;\n```\n";
+        let count = markdown_prose_word_count(content);
+        assert!(
+            count >= 20,
+            "natural CJK prose should count by characters: {count}"
+        );
+        assert!(
+            count < 40,
+            "links and code should not inflate prose: {count}"
+        );
     }
 }

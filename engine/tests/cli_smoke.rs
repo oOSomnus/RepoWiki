@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use tempfile::tempdir;
 
 fn run<I, S>(args: I) -> Value
@@ -54,6 +54,19 @@ where
     (output.status.success(), value)
 }
 
+fn spawn<I, S>(args: I) -> std::process::Child
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    Command::new(env!("CARGO_BIN_EXE_codewiki"))
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn codewiki")
+}
+
 #[test]
 fn default_output_dir_is_repowiki_and_document_prefixes_are_normalized() {
     let repo = tempdir().expect("repo tempdir");
@@ -101,6 +114,50 @@ fn default_output_dir_is_repowiki_and_document_prefixes_are_normalized() {
 }
 
 #[test]
+fn doc_reconcile_is_file_side_and_defaults_to_a_dry_run() {
+    let output = tempdir().expect("output tempdir");
+    let aliases = tempdir().expect("aliases tempdir");
+    fs::write(
+        output.path().join("module_tree.json"),
+        r#"{"API":{"components":[],"children":{}}}"#,
+    )
+    .expect("write tree");
+    fs::write(output.path().join("overview.md"), "# Overview\n").expect("write overview");
+    fs::write(output.path().join("API.md"), "# API\n\n[old](old.md)\n").expect("write page");
+    fs::write(output.path().join("old.md"), "# Old\n").expect("write alias");
+    let aliases_path = aliases.path().join("aliases.json");
+    fs::write(&aliases_path, r#"{"old.md":"API.md"}"#).expect("write aliases");
+    let output_arg = output.path().to_string_lossy().to_string();
+    let aliases_arg = aliases_path.to_string_lossy().to_string();
+
+    let dry_run = run([
+        "doc",
+        "reconcile",
+        "--output",
+        output_arg.as_str(),
+        "--aliases-file",
+        aliases_arg.as_str(),
+    ]);
+    assert_eq!(dry_run["result"]["applied"], json!(false));
+    assert!(output.path().join("old.md").exists());
+
+    let applied = run([
+        "doc",
+        "reconcile",
+        "--output",
+        output_arg.as_str(),
+        "--aliases-file",
+        aliases_arg.as_str(),
+        "--apply",
+    ]);
+    assert_eq!(applied["result"]["applied"], json!(true));
+    assert!(!output.path().join("old.md").exists());
+    assert!(fs::read_to_string(output.path().join("API.md"))
+        .expect("read rewritten page")
+        .contains("[old](API.md)"));
+}
+
+#[test]
 fn file_side_workflow_creates_reference_artifacts() {
     let repo = tempdir().expect("repo tempdir");
     let output = tempdir().expect("output tempdir");
@@ -129,6 +186,19 @@ fn file_side_workflow_creates_reference_artifacts() {
     assert_eq!(analysis["summary"]["total_components"], 3);
     assert!(Path::new(analysis["component_index_path"].as_str().unwrap()).exists());
     assert!(Path::new(analysis["candidate_module_tree_path"].as_str().unwrap()).exists());
+    let workflow: Value = serde_json::from_str(
+        &fs::read_to_string(analysis["workflow_path"].as_str().unwrap())
+            .expect("workflow contract"),
+    )
+    .expect("workflow contract JSON");
+    assert_eq!(
+        workflow["host_contract"]["session_writes"],
+        json!("serialized")
+    );
+    assert_eq!(
+        workflow["host_contract"]["retry_policy"]["doc_write"],
+        json!("same_content_only")
+    );
 
     let vars = repo.path().join("vars.json");
     let vars_arg = vars.to_string_lossy().to_string();
@@ -279,6 +349,91 @@ fn recursive_tree_commands_are_file_side_and_work_outside_repo_cwd() {
     .expect("write cluster response");
     let root_tree = work.join("root-tree.json");
     fs::write(&root_tree, "{}").expect("write empty tree");
+
+    let missing_response = work.join("missing-response.txt");
+    let missing_tree = work.join("missing-response-tree.json");
+    let (success, error) = run_failure([
+        "tree",
+        "apply-cluster",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        session,
+        "--tree-file",
+        root_tree.to_str().unwrap(),
+        "--response-file",
+        missing_response.to_str().unwrap(),
+        "--input-ids-file",
+        input_ids.to_str().unwrap(),
+        "--scope",
+        "repo",
+        "--output-tree-file",
+        missing_tree.to_str().unwrap(),
+    ]);
+    assert!(!success);
+    assert!(error["error"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("cluster response"));
+    assert!(!missing_tree.exists());
+    assert_eq!(
+        fs::read_to_string(&root_tree).expect("read untouched tree"),
+        "{}"
+    );
+
+    let empty_response = work.join("empty-response.txt");
+    fs::write(&empty_response, "\n \n").expect("write empty response");
+    let (success, error) = run_failure([
+        "tree",
+        "apply-cluster",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        session,
+        "--tree-file",
+        root_tree.to_str().unwrap(),
+        "--response-file",
+        empty_response.to_str().unwrap(),
+        "--input-ids-file",
+        input_ids.to_str().unwrap(),
+        "--scope",
+        "repo",
+        "--output-tree-file",
+        missing_tree.to_str().unwrap(),
+    ]);
+    assert!(!success);
+    assert!(error["error"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("non-empty"));
+    assert!(!missing_tree.exists());
+
+    let invalid_ids = work.join("invalid-ids.json");
+    fs::write(&invalid_ids, r#"{"module_name":"not-an-id"}"#).expect("write invalid ID object");
+    let (success, error) = run_failure([
+        "tree",
+        "apply-cluster",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        session,
+        "--tree-file",
+        root_tree.to_str().unwrap(),
+        "--response-file",
+        response.to_str().unwrap(),
+        "--input-ids-file",
+        invalid_ids.to_str().unwrap(),
+        "--scope",
+        "repo",
+        "--output-tree-file",
+        missing_tree.to_str().unwrap(),
+    ]);
+    assert!(!success);
+    assert!(error["error"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("input IDs"));
+
     let clustered_tree = work.join("clustered-tree.json");
     let clustered = run_from(
         scratch.path(),
@@ -445,6 +600,138 @@ fn recursive_tree_commands_are_file_side_and_work_outside_repo_cwd() {
     );
     assert_eq!(closed["cleaned"], true);
     assert!(output.path().join("metadata.json").is_file());
+}
+
+#[test]
+fn concurrent_document_writes_are_serialized_and_idempotent() {
+    let repo = tempdir().expect("repo tempdir");
+    let output = tempdir().expect("output tempdir");
+    let repo_arg = repo.path().to_string_lossy().to_string();
+    let output_arg = output.path().to_string_lossy().to_string();
+    fs::write(repo.path().join("app.py"), "def run():\n    return 1\n").expect("write fixture");
+    let analysis = run([
+        "generate",
+        "--repo",
+        repo_arg.as_str(),
+        "--output",
+        output_arg.as_str(),
+    ]);
+    let session = analysis["session_id"].as_str().expect("session id");
+
+    let mut children = Vec::new();
+    for index in 0..8 {
+        let path = format!("page-{index}.md");
+        let content = format!("# Page {index}\n");
+        children.push(spawn([
+            "doc",
+            "write",
+            "--repo-root",
+            repo_arg.as_str(),
+            "--session",
+            session,
+            "--path",
+            path.as_str(),
+            "--content",
+            content.as_str(),
+        ]));
+    }
+    for child in children {
+        let output = child.wait_with_output().expect("wait for document writer");
+        assert!(
+            output.status.success(),
+            "stdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    for index in 0..8 {
+        assert!(output.path().join(format!("page-{index}.md")).is_file());
+    }
+    let info = run([
+        "session",
+        "info",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        session,
+    ]);
+    assert_eq!(info["docs_written"], json!(8));
+
+    let mut same_path_children = Vec::new();
+    for _ in 0..2 {
+        same_path_children.push(spawn([
+            "doc",
+            "write",
+            "--repo-root",
+            repo_arg.as_str(),
+            "--session",
+            session,
+            "--path",
+            "same.md",
+            "--content",
+            "# Same\n",
+        ]));
+    }
+    let results = same_path_children
+        .into_iter()
+        .map(|child| child.wait_with_output().expect("wait for same-path writer"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| result.status.success())
+            .count(),
+        1
+    );
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| !result.status.success())
+            .count(),
+        1
+    );
+
+    let reused = run([
+        "doc",
+        "write",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        session,
+        "--path",
+        "same.md",
+        "--content",
+        "# Same\n",
+        "--if-existing",
+        "same",
+    ]);
+    assert_eq!(reused["result"]["created"], json!(false));
+    assert_eq!(reused["result"]["reused"], json!(true));
+
+    let (success, error) = run_failure([
+        "doc",
+        "write",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        session,
+        "--path",
+        "same.md",
+        "--content",
+        "# Different\n",
+        "--if-existing",
+        "same",
+    ]);
+    assert!(!success);
+    assert!(error["error"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("different"));
+    assert_eq!(
+        fs::read_to_string(output.path().join("same.md")).expect("read same page"),
+        "# Same\n"
+    );
 }
 
 #[test]

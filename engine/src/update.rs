@@ -80,7 +80,7 @@ pub fn plan(state: &SessionState, options: &UpdateOptions) -> Result<Value> {
     let active = active_ids(&diff);
     let mut write_sets = BTreeMap::new();
     for id in &active {
-        let page = module_page_for_node(state, id).unwrap_or_else(|| "overview.md".to_string());
+        let page = module_page_for_node(state, id)?.unwrap_or_else(|| "overview.md".to_string());
         write_sets.insert(id.clone(), vec![page, "overview.md".to_string()]);
     }
     let record = UpdateRecord {
@@ -243,6 +243,7 @@ pub fn apply_routes(state: &SessionState, decisions_path: &Path) -> Result<Value
             }));
         }
     }
+    docs::validate_module_page_paths(&tree)?;
     let tree_path = session::module_tree_path(state);
     session::write_json(&tree_path, &tree)?;
     let saved = docs::save_module_tree(state, &tree, false)?;
@@ -329,8 +330,9 @@ pub fn context(state: &SessionState) -> Result<Value> {
 pub fn stale_scan(state: &SessionState) -> Result<Value> {
     let output = session::output_dir(state);
     let tree = docs::read_tree_file(&session::module_tree_path(state)).unwrap_or_default();
+    docs::validate_module_page_paths(&tree)?;
     let mut expected = BTreeSet::from(["overview.md".to_string()]);
-    collect_expected_pages(&tree, &mut expected);
+    docs::collect_expected_pages(&tree, &mut expected)?;
     let mut missing_pages = Vec::new();
     for page in &expected {
         if !output.join(page).is_file() {
@@ -354,7 +356,7 @@ pub fn stale_scan(state: &SessionState) -> Result<Value> {
                 extra_pages.push(name);
             }
             let content = fs::read_to_string(&path)?;
-            for target in markdown_targets(&content) {
+            for target in docs::markdown_link_targets(&content) {
                 if !output.join(&target).is_file() {
                     broken_links.push(
                         json!({"page": path.file_name().unwrap_or_default(), "target": target}),
@@ -571,42 +573,6 @@ fn create_leaf(
     true
 }
 
-fn collect_expected_pages(tree: &ModuleTree, expected: &mut BTreeSet<String>) {
-    for (name, module) in tree {
-        expected.insert(docs::module_page_filename(name));
-        collect_expected_pages(&module.children, expected);
-    }
-}
-
-fn markdown_targets(content: &str) -> Vec<String> {
-    let mut result = Vec::new();
-    let mut remaining = content;
-    while let Some(start) = remaining.find("](") {
-        let target_start = start + 2;
-        let Some(end) = remaining[target_start..].find(')') else {
-            break;
-        };
-        let raw = &remaining[target_start..target_start + end];
-        let target = raw
-            .split('#')
-            .next()
-            .unwrap_or(raw)
-            .split('?')
-            .next()
-            .unwrap_or(raw)
-            .trim()
-            .trim_matches('<')
-            .trim_matches('>');
-        if target.ends_with(".md") && !target.contains("://") && !target.starts_with('/') {
-            result.push(target.to_string());
-        }
-        remaining = &remaining[target_start + end + 1..];
-    }
-    result.sort();
-    result.dedup();
-    result
-}
-
 fn graph_diff(
     previous: &BTreeMap<String, Node>,
     current: &BTreeMap<String, Node>,
@@ -746,8 +712,8 @@ fn is_no_change(diff: &ChangeSet) -> bool {
         && diff.edge_changes.is_empty()
 }
 
-fn module_page_for_node(state: &SessionState, id: &str) -> Option<String> {
-    let tree = docs::read_tree_file(&session::module_tree_path(state)).ok()?;
+fn module_page_for_node(state: &SessionState, id: &str) -> Result<Option<String>> {
+    let tree = docs::read_tree_file(&session::module_tree_path(state))?;
     deepest_module_page(&tree, id)
 }
 
@@ -755,22 +721,28 @@ fn module_page_for_node(state: &SessionState, id: &str) -> Option<String> {
 /// can describe the whole subtree.  Routing must therefore prefer the
 /// deepest matching child page, otherwise an update to a leaf is incorrectly
 /// sent to its first ancestor.
-fn deepest_module_page(tree: &ModuleTree, id: &str) -> Option<String> {
-    fn visit(name: &str, module: &crate::model::Module, id: &str) -> Option<String> {
+fn deepest_module_page(tree: &ModuleTree, id: &str) -> Result<Option<String>> {
+    docs::validate_module_page_paths(tree)?;
+
+    fn visit(name: &str, module: &crate::model::Module, id: &str) -> Result<Option<String>> {
         for (child_name, child) in &module.children {
-            if let Some(value) = visit(child_name, child, id) {
-                return Some(value);
+            if let Some(value) = visit(child_name, child, id)? {
+                return Ok(Some(value));
             }
         }
-        module
-            .components
-            .iter()
-            .any(|component| component == id)
-            .then(|| docs::module_page_filename(name))
+        if module.components.iter().any(|component| component == id) {
+            Ok(Some(docs::module_page_filename(name)?))
+        } else {
+            Ok(None)
+        }
     }
 
-    tree.iter()
-        .find_map(|(name, module)| visit(name, module, id))
+    for (name, module) in tree {
+        if let Some(page) = visit(name, module, id)? {
+            return Ok(Some(page));
+        }
+    }
+    Ok(None)
 }
 
 fn load_update_options(state: &SessionState) -> Result<UpdateOptions> {
@@ -1105,7 +1077,7 @@ mod tests {
         let tree = ModuleTree::from([("Root".to_string(), root)]);
 
         assert_eq!(
-            deepest_module_page(&tree, "leaf-id"),
+            deepest_module_page(&tree, "leaf-id").expect("valid module page paths"),
             Some("Leaf.md".to_string())
         );
     }
@@ -1113,7 +1085,9 @@ mod tests {
     #[test]
     fn markdown_target_scan_ignores_external_links_and_fragments() {
         assert_eq!(
-            markdown_targets("[one](one.md) [external](https://x/two.md) [two](two.md#part)"),
+            docs::markdown_link_targets(
+                "[one](one.md) [external](https://x/two.md) [two](two.md#part)",
+            ),
             vec!["one.md".to_string(), "two.md".to_string()]
         );
     }

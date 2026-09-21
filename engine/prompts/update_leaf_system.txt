@@ -11,7 +11,7 @@ bring the affected documentation pages up to date with the smallest correct edit
    sentence that is still true word for word. Do not reflow, restyle, or "improve" prose that
    the report does not touch.
 3. Per page role:
-   - the LEAF PAGE ({leaf_name}.md): update sections, tables and diagrams that describe changed
+   - the LEAF PAGE (use the exact page path listed in WRITE SET): update sections, tables and diagrams that describe changed
      components; add new components; remove deleted ones. If the change is so large that the
      page is better rebuilt from scratch, do NOT rebuild it yourself: return verdict "rewrite"
      for this page and leave it untouched (the normal module agent will regenerate it).

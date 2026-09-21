@@ -16,9 +16,15 @@ child and neighboring modules.
 <GUIDANCE>
 Read the supplied module tree and source evidence. Choose a structure that
 matches the implementation; do not copy the examples' headings or prose.
-The host will write this response to `{module_name}.md`.
+The host will write this response to the exact canonical path `{doc_path}`.
+Do not substitute a localized module label or invent another filename.
 Explain why the selected components form one module instead of presenting an
 inventory. Use concrete source paths, types, functions, and relationships.
+
+Write several source-grounded prose paragraphs and include at least one
+descriptive section about responsibilities, interfaces, behavior, lifecycle,
+or data flow. Section names remain free-form; do not turn this requirement
+into a fixed template.
 
 Use one or more Mermaid diagrams only when they explain distinct architecture
 questions such as composition, execution sequence, or data movement. Every

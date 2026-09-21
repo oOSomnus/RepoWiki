@@ -483,8 +483,12 @@
   "metadata": {
     "documentation_profile": "architecture",
     "documentation_quality": {
+      "broken_links": [],
       "checks": {
         "architecture_diagrams": true,
+        "canonical_page_paths": true,
+        "no_broken_markdown_links": true,
+        "no_extra_markdown_pages": true,
         "parent_child_links": true,
         "semantic_sections": true,
         "source_grounding": true,
@@ -492,7 +496,9 @@
       },
       "errors": [],
       "explanatory_page_count": 6,
+      "extra_pages": [],
       "grounded_page_count": 2,
+      "legacy_links": [],
       "mermaid_page_count": 4,
       "page_count": 6,
       "pages": {
@@ -521,7 +527,8 @@
           "mermaid_blocks": 1,
           "missing_links": [],
           "module": "Native",
-          "prose_words": 78,
+          "prose_count_mode": "unicode-aware-v1",
+          "prose_words": 79,
           "role": "module_overview",
           "semantic_sections": 3,
           "valid": true
@@ -551,7 +558,8 @@
           "mermaid_blocks": 1,
           "missing_links": [],
           "module": "Platform",
-          "prose_words": 64,
+          "prose_count_mode": "unicode-aware-v1",
+          "prose_words": 67,
           "role": "module_overview",
           "semantic_sections": 3,
           "valid": true
@@ -581,7 +589,8 @@
           "mermaid_blocks": 0,
           "missing_links": [],
           "module": "Python",
-          "prose_words": 92,
+          "prose_count_mode": "unicode-aware-v1",
+          "prose_words": 97,
           "role": "leaf",
           "semantic_sections": 3,
           "valid": true
@@ -611,7 +620,8 @@
           "mermaid_blocks": 0,
           "missing_links": [],
           "module": "Rust",
-          "prose_words": 92,
+          "prose_count_mode": "unicode-aware-v1",
+          "prose_words": 97,
           "role": "leaf",
           "semantic_sections": 3,
           "valid": true
@@ -641,7 +651,8 @@
           "mermaid_blocks": 1,
           "missing_links": [],
           "module": "Scripting",
-          "prose_words": 66,
+          "prose_count_mode": "unicode-aware-v1",
+          "prose_words": 71,
           "role": "module_overview",
           "semantic_sections": 3,
           "valid": true
@@ -671,12 +682,14 @@
           "mermaid_blocks": 1,
           "missing_links": [],
           "module": "Repository overview",
-          "prose_words": 88,
+          "prose_count_mode": "unicode-aware-v1",
+          "prose_words": 94,
           "role": "repository_overview",
           "semantic_sections": 3,
           "valid": true
         }
       },
+      "prose_count_mode": "unicode-aware-v1",
       "valid": true,
       "valid_page_count": 6
     },
@@ -769,6 +782,7 @@
       "components": [
         "rust/service.rs::RustService"
       ],
+      "doc_path": "Rust.md",
       "is_leaf": true,
       "module": "Rust",
       "path": [
@@ -785,6 +799,7 @@
         "c/service.c::CService",
         "rust/service.rs::RustService"
       ],
+      "doc_path": "Native.md",
       "is_leaf": false,
       "module": "Native",
       "path": [
@@ -796,6 +811,7 @@
       "components": [
         "python/service.py::PythonService"
       ],
+      "doc_path": "Python.md",
       "is_leaf": true,
       "module": "Python",
       "path": [
@@ -812,6 +828,7 @@
         "python/service.py::PythonService",
         "typescript/service.ts::TypeScriptService"
       ],
+      "doc_path": "Scripting.md",
       "is_leaf": false,
       "module": "Scripting",
       "path": [
@@ -830,6 +847,7 @@
         "rust/service.rs::RustService",
         "typescript/service.ts::TypeScriptService"
       ],
+      "doc_path": "Platform.md",
       "is_leaf": false,
       "module": "Platform",
       "path": [
@@ -839,19 +857,19 @@
   ],
   "prompt_hashes": {
     "cluster": [
-      "61af8aa38a235f0dae5d778e45be5b6d22b55fe01e6d5b07073f5daf134d80c8"
+      "54a1c2a332dae5149a40c3ceaec116c4e97366d0c3a4aa8a313c0b0442e5d9d1"
     ],
     "overview_module": [
-      "b60214e2f5f239ed4099552ce1bbbf5c83123b116412bdd6ab8a376e8c9fce0a",
-      "c13d111f124102cb4549d1a0cac7b595079e536a1faf23f63f5d38527519c09b",
-      "af8695493389d6ce5d3ce4e4e7f664aa4f3edb01d5b808ac638c696beb70c22d"
+      "420b39255e105a90cf986d0d0bab1a3ade2ffcea4a0f49b32c7294477a3cd500",
+      "df93947a1900d85f8090c43c8067529459ec3898abfc3353a23c43c8d2050ce4",
+      "e0d386137c91be76ea59ec1a6bce7ca2355fc250b34be4777f6169cc183dd38f"
     ],
     "overview_repo": [
-      "fed5f15b9ad1549ca8bd4009ce985b93897232b893e079d20d3e26a89f16a1b0"
+      "93c2455d1f7c2022d3334dbf7345d02378c2b45f29f6939c401783bfcca09297"
     ],
     "system_leaf": [
-      "2eebe2e6dff46fb8df96909ad28eeeb69fc8ad668375ce5ab668b050c997ed46",
-      "2eebe2e6dff46fb8df96909ad28eeeb69fc8ad668375ce5ab668b050c997ed46"
+      "483c35bf4d1664154572c08c589a676048de57ddd1ee68ff99678c50c083b69c",
+      "0ebc921b00b4771551c6bb086b125cf5f9eb3509c7b9a61f0df4f466cf5f4f01"
     ],
     "user": [
       "28eb0746f1f35ae1e60e7c9299a257a7e0c70af794ddf9dfdab3317c4e500862",

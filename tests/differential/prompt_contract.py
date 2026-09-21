@@ -78,12 +78,16 @@ def main() -> int:
             "architecture documentation writer",
             "codewiki doc write",
             "Mermaid",
+            "several source-grounded prose paragraphs",
+            "quality floor",
         ],
         "system_complex.txt": [
             "architecture documentation writer",
             "already-selected architecture module",
             "codewiki doc write",
             "selected components form one module",
+            "several source-grounded prose paragraphs",
+            "fixed template",
         ],
         "filter_folders.txt": ["relative paths", "shortlist", "JSON format"],
         "update_leaf_user.txt": [
