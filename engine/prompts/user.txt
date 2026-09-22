@@ -17,9 +17,19 @@ Write a source-grounded architecture page for {module_name}.
 </CORE_COMPONENT_CODES>
 
 The page must explain the module's role in the system, its important
-interfaces, and a real control or data flow tied to the supplied source. Use a
-free-form structure appropriate to the module. Do not produce a directory
-listing, component inventory, repeated template, or generic explanation.
+interfaces, and a real control or data flow tied to the supplied source.
+Explain the responsibility boundary, connect important types/functions in
+prose, and cover state/lifecycle, dependencies, and error/resource behavior
+when evidenced. Use at least two distinct source path or symbol anchors when
+the supplied component set contains at least two components. Use several
+substantive paragraphs across at least two semantic areas; do not pad the page
+to meet a length target. Use a free-form structure appropriate to the module.
+Do not produce a directory listing, component inventory, repeated template,
+or generic explanation.
+
+The reference examples are supplied in full, not as excerpts. Use their
+information density and explanation style, but derive every fact from the
+target repository's evidence and write original prose.
 
 Add Mermaid only when it makes the architecture easier to understand. Prefer
 concrete module/interface/storage names and relationships from the supplied

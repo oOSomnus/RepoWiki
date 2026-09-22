@@ -56,6 +56,7 @@ fn nested_tree() -> ModuleTree {
             path: Some("src/api".to_string()),
             components: vec!["src/api.rs::Api".to_string()],
             children: BTreeMap::new(),
+            decomposition_review: None,
         },
     );
     root_children.insert(
@@ -64,6 +65,7 @@ fn nested_tree() -> ModuleTree {
             path: Some("src/runtime".to_string()),
             components: vec!["src/runtime.rs::Runtime".to_string()],
             children: BTreeMap::new(),
+            decomposition_review: None,
         },
     );
     ModuleTree::from([(
@@ -75,6 +77,7 @@ fn nested_tree() -> ModuleTree {
                 "src/runtime.rs::Runtime".to_string(),
             ],
             children: root_children,
+            decomposition_review: None,
         },
     )])
 }

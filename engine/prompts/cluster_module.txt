@@ -1,6 +1,6 @@
-You are refining the architecture map for the existing module {module_name}.
-The goal is to make the module easier to read, not to enumerate every source
-symbol.
+You are reviewing the decomposition of the existing architecture module
+{module_name}. The goal is to help readers understand real internal
+boundaries, not enumerate source symbols.
 
 <MODULE_TREE>
 {module_tree}
@@ -10,29 +10,46 @@ symbol.
 {potential_core_components}
 </CANDIDATE_COMPONENTS>
 
-Return child modules only when they represent distinct responsibilities,
-interfaces, execution stages, state, storage, or integrations. Keep the tree
-shallow. Do not split a cohesive implementation merely because it contains
-many functions, tests, generated types, or files.
+Review the evidence for distinct responsibilities, interfaces, execution
+stages, state/storage areas, or integrations. Split only where a child would
+have a useful independent explanation and page. A large but cohesive module
+may remain a leaf; explain that decision and set its breadth risk honestly.
+Do not split only because a module has many files or functions. Do not create
+directory buckets, directory-shaped children, test/generated-code pages, or
+synthetic page-count growth.
 
 Child keys become canonical Markdown page names. Use non-empty ASCII keys
-containing only letters, digits, `_`, or `-`; put localized wording in page
-titles and prose rather than in the key.
+containing only letters, digits, `_`, or `-`; use localized wording in page
+titles and prose. Select representative component IDs only, copied exactly
+from the candidates.
 
-Each child may select representative component IDs only. IDs must be copied
-exactly from the input. Components that are not selected remain available in
-the dependency graph and do not need a documentation page.
-
-Return only this JSON marker:
+Return child groups in the first marker. If the module is cohesive, return an
+empty object. Every child must include its own decomposition review. Then
+return a review for the current module in the second marker:
 <GROUPED_COMPONENTS>
 {
-  "Child Module": {
+  "Child_Module": {
     "path": "src/or/relevant/path",
     "components": ["exact/file/path::Representative"],
-    "children": {}
+    "children": {},
+    "decomposition_review": {
+      "decision": "retain_leaf",
+      "breadth_risk": "low",
+      "reason": "This is one cohesive implementation boundary in the supplied source."
+    }
   }
 }
 </GROUPED_COMPONENTS>
+<DECOMPOSITION_REVIEW>
+{
+  "decision": "split",
+  "breadth_risk": "high",
+  "reason": "The source shows independently understandable parsing and execution stages."
+}
+</DECOMPOSITION_REVIEW>
 
-Do not create a directory-shaped child, do not invent IDs, and do not return a
-component inventory disguised as an architecture tree.
+Use `decision: "split"` when one or more child groups are returned and
+`decision: "retain_leaf"` when the child object is empty. Choose
+`breadth_risk` from `low`, `medium`, or `high`. For a retained high-risk leaf,
+give the specific source-backed reason that makes a split unhelpful. Do not
+invent IDs or return a component inventory disguised as a module tree.

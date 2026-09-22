@@ -30,8 +30,11 @@ stale_fix_system, stale_fix_user.
 | overview_module | module_name, repo_structure | few_shot_examples, architecture_context |
 | overview_repo | repo_name, repo_structure | artifact_index, few_shot_examples, architecture_context |
 
-The cluster response uses GROUPED_COMPONENTS or GROUPED_MODULES markers. Those
-are response-format markers, not input variable names. In particular,
+The cluster response uses GROUPED_COMPONENTS or GROUPED_MODULES markers. A
+module-scope clustering response also contains a DECOMPOSITION_REVIEW marker
+for the current parent. Every module entry carries a `decomposition_review`
+object with `decision`, `breadth_risk`, and `reason`. These are
+response-format markers and fields, not input variable names. In particular,
 grouped_components, grouped_modules, and core_component_codes must not be
 substituted for potential_core_components or
 formatted_core_component_codes.
@@ -41,11 +44,15 @@ groups them by file, marks artifact files, inlines readable source, and renders
 the module tree as an indented outline. `artifact_index` adds the artifact
 usage note and index to documentation prompts.
 
-Use `scope=repo` for the first semantic partition and `scope=module` for every
-recursive refinement. Module refinement receives the current tree and exact
-parent component IDs; it returns child groups while the parent retains its
-aggregate component list. A prompt response is not a license to stop
-recursion: the saved tree's quality diagnostics decide whether a leaf fits.
+Use `scope=repo` for the first semantic partition and `scope=module` to review
+each first-level module and every broad module below it. Module refinement
+receives the current tree and exact parent component IDs; it returns child
+groups while the parent retains its aggregate component list. A module may
+return an empty GROUPED_COMPONENTS object only with a `retain_leaf` review.
+`tree save --require-decomposition-review` requires a review for every final
+tree entry and checks that `split` matches nodes with children and
+`retain_leaf` matches leaves. High-risk retained leaves remain visible as
+warnings.
 
 ## Update prompts
 

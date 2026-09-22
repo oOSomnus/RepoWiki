@@ -1,38 +1,51 @@
 You are defining the architecture map for a repository. This is not a source
-index and it is not a directory classification task.
+index or a directory classification task.
 
 <CANDIDATE_COMPONENTS>
 {potential_core_components}
 </CANDIDATE_COMPONENTS>
 
-Choose a small set of reader-facing architectural modules. A module should
-represent a real subsystem, interface, execution stage, state boundary,
-storage boundary, or integration surface. Do not create a page for tests,
-generated protocol types, isolated helpers, or implementation trivia unless
-it forms a meaningful system boundary.
+Choose reader-facing modules for the repository's real subsystems, interfaces,
+execution stages, state and storage boundaries, and integrations. Cover the
+major distinct responsibilities visible in the candidates. Do not merge
+separate responsibilities merely to keep the module count small. Do not create
+pages for tests, generated protocol types, isolated helpers, or implementation
+trivia unless they form a meaningful system boundary.
 
-Select only a few representative component IDs per module. Every selected ID
-must be copied exactly from the input. It is acceptable, and expected, for
-many candidate components to remain only in the analysis graph.
+Select a few representative component IDs per module. Copy each selected ID
+exactly from the input. The component list is evidence selection, not an
+exhaustive partition; unselected candidates remain in the analysis graph.
+
+Review every proposed module for decomposition. Use `split` when there are
+reader-meaningful child boundaries such as distinct interfaces, execution
+stages, state/storage areas, or integrations. Use `retain_leaf` only when the
+module is cohesive or no evidence supports a useful split. Set `breadth_risk`
+to `low`, `medium`, or `high`; a broad module that remains a leaf must have a
+concrete explanation. Do not split only to increase page count, and do not
+force a directory-shaped hierarchy.
 
 Module keys become canonical Markdown page names. Use non-empty ASCII keys
-containing only letters, digits, `_`, or `-`; do not use localized characters,
-spaces, `/`, or punctuation in keys. Put localized wording in the Markdown
-title and prose instead. Use names that describe the responsibility a reader needs to understand, not
-the nearest directory. Prefer a shallow architecture with a small number of
-meaningful modules. Build, packaging, and test infrastructure may be grouped
-as one secondary module, but must not dominate the runtime architecture.
+containing only letters, digits, `_`, or `-`; put localized wording in the
+Markdown title and prose. Name modules by responsibility, not nearest folder.
+Build, packaging, and test infrastructure may be one secondary module, but
+must not dominate the runtime architecture.
 
-Return only this JSON marker. Do not return Markdown:
+Return only this JSON marker. Include a decomposition review for every module:
 <GROUPED_COMPONENTS>
 {
-  "Module Name": {
+  "Module_Name": {
     "path": "src/or/relevant/path",
     "components": ["exact/file/path::Representative"],
-    "children": {}
+    "children": {},
+    "decomposition_review": {
+      "decision": "split",
+      "breadth_risk": "medium",
+      "reason": "The module contains distinct request routing and execution stages."
+    }
   }
 }
 </GROUPED_COMPONENTS>
 
-The components list is an evidence selection, not an exhaustive partition.
-Never invent an ID, silently change an ID, or use a bare symbol name.
+Use `decision: "split"` when a module has children to discover; otherwise use
+`decision: "retain_leaf"`. Every selected ID must be copied exactly from the
+input. Never invent an ID, silently change an ID, or use a bare symbol name.

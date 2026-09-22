@@ -9,6 +9,7 @@ examples shipped with the Skill instead of comparing prompt implementations.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 
@@ -36,14 +37,17 @@ def main() -> int:
         "cluster_repo.txt": [
             "architecture map",
             "representative component IDs",
-            "not a directory classification task",
-            "not an exhaustive partition",
+            "directory classification task",
+            "decomposition_review",
+            "breadth_risk",
             "<GROUPED_COMPONENTS>",
         ],
         "cluster_module.txt": [
-            "existing module",
+            "existing architecture module",
             "representative component IDs",
-            "Keep the tree\nshallow",
+            "<DECOMPOSITION_REVIEW>",
+            "retain_leaf",
+            "high-risk leaf",
             "directory-shaped child",
             "<GROUPED_COMPONENTS>",
         ],
@@ -78,16 +82,18 @@ def main() -> int:
             "architecture documentation writer",
             "codewiki doc write",
             "Mermaid",
-            "several source-grounded prose paragraphs",
-            "quality floor",
+            "substantive article",
+            "two distinct source anchors",
+            "complete reference article",
         ],
         "system_complex.txt": [
             "architecture documentation writer",
             "already-selected architecture module",
             "codewiki doc write",
             "selected components form one module",
-            "several source-grounded prose paragraphs",
-            "fixed template",
+            "two distinct anchors",
+            "complete reference article",
+            "fixed headings",
         ],
         "filter_folders.txt": ["relative paths", "shortlist", "JSON format"],
         "update_leaf_user.txt": [
@@ -159,14 +165,42 @@ def main() -> int:
         )
     require(
         (FEW_SHOTS / "README.md").read_text(encoding="utf-8"),
-        ["clickhouse-overview.md", "clickhouse-storage-engine.md"],
+        [
+            "clickhouse-overview.md",
+            "clickhouse-storage-engine.md",
+            "complete, unabridged",
+            "9dc8cf8c41705960f2002f3489a6dc302c936114",
+        ],
         "few-shots/README.md",
     )
+    skill_text = (ROOT / "skill" / "SKILL.md").read_text(encoding="utf-8")
+    require(
+        skill_text,
+        [
+            "Audit every first-level module",
+            "--require-decomposition-review",
+            "one new worker with isolated context per Markdown page",
+            "at most four workers",
+            "fresh reviewer/repair worker",
+        ],
+        "skill/SKILL.md",
+    )
+    expected_hashes = {
+        "clickhouse-overview.md": "e9c9a826600ef7e49c28a340f54e41e6f6e4d9b0530fc6ee443a6f4bbada2e05",
+        "clickhouse-storage-engine.md": "c6623b0fcaea9f2d4bd634eef386dcfc15ab41636b02b05eb24d4b73166c3faf",
+        "clickhouse-query-pipeline.md": "62b905b3e74262659845e77e15266fb1747ea52a2ee1da7ede59e60a502cb8cb",
+        "clickhouse-ast-create-query.md": "12ca6ed91f5f8e8a31bd029845618a898dd59d9027eca01a6b124e60f1c9677a",
+    }
     for path in FEW_SHOTS.glob("*.md"):
         if path.name == "README.md":
             continue
         text = path.read_text(encoding="utf-8")
-        require(text, ["architecture", "mermaid"], f"few-shots/{path.name}")
+        require(text.lower(), ["architecture", "mermaid"], f"few-shots/{path.name}")
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if digest != expected_hashes.get(path.name):
+            raise PromptContractFailure(
+                f"{path.name} is not the complete pinned reference article: {digest}"
+            )
 
     print(
         "PASS architecture prompt contract: "

@@ -23,6 +23,12 @@ Do not use a fixed heading order, repeat a page template, or produce a flat
 module list. The module links are navigation; the prose must explain why the
 modules are connected.
 
+Explain the system purpose, the main transformations between entry points and
+results, the responsibilities and boundaries along that path, and where state
+or data is persisted or handed to external systems. Tie the explanation to
+named modules and source evidence; do not use a feature list as a substitute
+for the architecture narrative.
+
 The overview must contain one primary Mermaid architecture diagram. It must
 show a concrete end-to-end path with meaningful module or interface names,
 grounded relationships, and a visible endpoint such as a result, persisted

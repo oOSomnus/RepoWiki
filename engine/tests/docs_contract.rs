@@ -1,5 +1,8 @@
 use codewiki::docs::{self, EditOperation};
-use codewiki::model::{ArtifactIndex, ChangeSet, Module, ModuleTree, Node, Summary};
+use codewiki::model::{
+    ArtifactIndex, BreadthRisk, ChangeSet, DecompositionDecision, DecompositionReview, Module,
+    ModuleTree, Node, Summary,
+};
 use codewiki::session;
 use codewiki::update;
 use serde_json::{json, Value};
@@ -63,7 +66,65 @@ fn module(components: &[&str], children: BTreeMap<String, Module>) -> Module {
         path: None,
         components: components.iter().map(|id| (*id).to_string()).collect(),
         children,
+        decomposition_review: None,
     }
+}
+
+fn decomposition_review(
+    decision: DecompositionDecision,
+    breadth_risk: BreadthRisk,
+    reason: &str,
+) -> DecompositionReview {
+    DecompositionReview {
+        decision,
+        breadth_risk,
+        reason: reason.to_string(),
+    }
+}
+
+#[test]
+fn strict_tree_save_requires_reviews_and_reports_high_risk_leaves() {
+    let (_repo, state) = prepared_session(&[("root", "rust"), ("leaf", "rust")], &["root", "leaf"]);
+    let child = Module {
+        components: vec!["leaf".to_string()],
+        decomposition_review: Some(decomposition_review(
+            DecompositionDecision::RetainLeaf,
+            BreadthRisk::High,
+            "The candidates share one lifecycle and expose no separate interface.",
+        )),
+        ..Module::default()
+    };
+    let tree = ModuleTree::from([(
+        "Root".to_string(),
+        Module {
+            components: vec!["root".to_string(), "leaf".to_string()],
+            children: BTreeMap::from([("Leaf".to_string(), child)]),
+            decomposition_review: Some(decomposition_review(
+                DecompositionDecision::Split,
+                BreadthRisk::High,
+                "The root contains separate runtime and storage responsibilities.",
+            )),
+            ..Module::default()
+        },
+    )]);
+
+    let saved = docs::save_module_tree_with_review(&state, &tree, false, true)
+        .expect("reviewed tree should save");
+    assert!(saved.decomposition_review_valid);
+    assert_eq!(saved.decomposition_review_warnings.len(), 1);
+    assert_eq!(
+        saved.decomposition_review_warnings[0]["path"],
+        json!(["Root", "Leaf"])
+    );
+    let validation: Value = session::read_json(std::path::Path::new(&saved.validation_path))
+        .expect("read review validation");
+    assert_eq!(validation["decomposition_review"]["required"], json!(true));
+    assert_eq!(validation["decomposition_review"]["valid"], json!(true));
+
+    let unreviewed = ModuleTree::from([("Unreviewed".to_string(), Module::default())]);
+    let error = docs::save_module_tree_with_review(&state, &unreviewed, false, true)
+        .expect_err("strict save must reject a missing decision");
+    assert!(error.to_string().contains("no decomposition review"));
 }
 
 #[test]
@@ -514,6 +575,7 @@ fn overview_context_aggregates_full_dependency_graph_into_architecture_modules()
                 path: Some("src/api".to_string()),
                 components: vec!["api".to_string()],
                 children: BTreeMap::new(),
+                decomposition_review: None,
             },
         ),
         (
@@ -522,6 +584,7 @@ fn overview_context_aggregates_full_dependency_graph_into_architecture_modules()
                 path: Some("src/runtime".to_string()),
                 components: vec!["runtime".to_string()],
                 children: BTreeMap::new(),
+                decomposition_review: None,
             },
         ),
         (
@@ -530,6 +593,7 @@ fn overview_context_aggregates_full_dependency_graph_into_architecture_modules()
                 path: Some("src/storage".to_string()),
                 components: Vec::new(),
                 children: BTreeMap::new(),
+                decomposition_review: None,
             },
         ),
     ]);

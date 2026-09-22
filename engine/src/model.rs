@@ -130,6 +130,30 @@ pub struct Module {
     pub components: Vec<String>,
     #[serde(default)]
     pub children: BTreeMap<String, Module>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decomposition_review: Option<DecompositionReview>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DecompositionDecision {
+    Split,
+    RetainLeaf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum BreadthRisk {
+    Low,
+    Medium,
+    High,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct DecompositionReview {
+    pub decision: DecompositionDecision,
+    pub breadth_risk: BreadthRisk,
+    pub reason: String,
 }
 
 pub type ModuleTree = BTreeMap<String, Module>;

@@ -1,5 +1,8 @@
 use codewiki::docs;
-use codewiki::model::{ArtifactIndex, Module, ModuleTree, Node, Summary};
+use codewiki::model::{
+    ArtifactIndex, BreadthRisk, DecompositionDecision, DecompositionReview, Module, ModuleTree,
+    Node, Summary,
+};
 use codewiki::session;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -154,6 +157,49 @@ fn cluster_response_preserves_exact_leaf_coverage_and_parent_aggregates() {
 }
 
 #[test]
+fn module_cluster_can_review_and_retain_a_cohesive_leaf() {
+    let (_repo, state) = prepared_session(
+        &[("src/runtime.rs::run", "function", "fn run() {}")],
+        &["src/runtime.rs::run"],
+        Summary::default(),
+    );
+    let mut tree = ModuleTree::from([(
+        "Runtime".to_string(),
+        Module {
+            path: Some("src/runtime.rs".to_string()),
+            components: vec!["src/runtime.rs::run".to_string()],
+            ..Module::default()
+        },
+    )]);
+    let response = r#"
+<GROUPED_COMPONENTS>{}</GROUPED_COMPONENTS>
+<DECOMPOSITION_REVIEW>
+{"decision":"retain_leaf","breadth_risk":"medium","reason":"The module is one cohesive runtime entry point with no separate interface in the supplied source."}
+</DECOMPOSITION_REVIEW>
+"#;
+    let result = docs::apply_cluster_response(
+        &state,
+        &mut tree,
+        response,
+        &["src/runtime.rs::run".to_string()],
+        "module",
+        &["Runtime".to_string()],
+    )
+    .expect("retain-leaf review should apply");
+
+    assert_eq!(result["decision"], json!("retain_leaf"));
+    assert!(tree["Runtime"].children.is_empty());
+    assert_eq!(
+        tree["Runtime"].decomposition_review,
+        Some(DecompositionReview {
+            decision: DecompositionDecision::RetainLeaf,
+            breadth_risk: BreadthRisk::Medium,
+            reason: "The module is one cohesive runtime entry point with no separate interface in the supplied source.".to_string(),
+        })
+    );
+}
+
+#[test]
 fn malformed_or_partial_cluster_response_keeps_only_valid_architecture_anchors() {
     let (_repo, state) = prepared_session(
         &[
@@ -225,6 +271,7 @@ fn super_group_preserves_existing_pages_and_rejects_invalid_members() {
                 path: Some("src/api".to_string()),
                 components: vec!["src/a.rs::A".to_string()],
                 children: BTreeMap::new(),
+                decomposition_review: None,
             },
         ),
         (
@@ -233,6 +280,7 @@ fn super_group_preserves_existing_pages_and_rejects_invalid_members() {
                 path: Some("src/runtime".to_string()),
                 components: vec!["src/b.rs::B".to_string()],
                 children: BTreeMap::new(),
+                decomposition_review: None,
             },
         ),
     ]);
@@ -267,6 +315,7 @@ fn overview_context_strips_components_and_exposes_only_target_children_docs() {
             path: Some("src/api".to_string()),
             components: vec!["a".to_string()],
             children: BTreeMap::new(),
+            decomposition_review: None,
         },
     );
     let mut tree = ModuleTree::new();
@@ -276,6 +325,7 @@ fn overview_context_strips_components_and_exposes_only_target_children_docs() {
             path: Some("src".to_string()),
             components: vec!["a".to_string(), "b".to_string()],
             children: child,
+            decomposition_review: None,
         },
     );
     let output = tempdir().expect("overview docs directory");
@@ -317,6 +367,7 @@ fn artifact_candidates_remain_analysis_evidence_until_selected() {
             path: Some("src".to_string()),
             components: vec!["src/main.rs::main".to_string()],
             children: BTreeMap::new(),
+            decomposition_review: None,
         },
     )]);
     let saved = docs::save_module_tree(&state, &tree, true).expect("save architecture tree");
@@ -352,6 +403,7 @@ fn final_tree_quality_distinguishes_batch_size_from_leaf_size() {
                 path: Some("src".to_string()),
                 components: vec!["src/a.rs::A".to_string()],
                 children: BTreeMap::new(),
+                decomposition_review: None,
             },
         ),
         (
@@ -360,6 +412,7 @@ fn final_tree_quality_distinguishes_batch_size_from_leaf_size() {
                 path: Some("src".to_string()),
                 components: vec!["src/b.rs::B".to_string()],
                 children: BTreeMap::new(),
+                decomposition_review: None,
             },
         ),
     ]);

@@ -1,16 +1,18 @@
 # Architecture documentation few-shots
 
-These examples are derived from the ClickHouse pages published by the
-CodeWiki reference viewer. They are prompt demonstrations, not facts about the
-repository being documented.
+The four Markdown files below contain complete, unabridged reference articles
+from the public CodeWiki ClickHouse demo. They are prompt examples, not facts
+about the repository being documented. They were copied from commit
+`9dc8cf8c41705960f2002f3489a6dc302c936114`:
 
-The host should select one or two examples that match the requested page:
+- `clickhouse-overview.md` — [upstream overview](https://github.com/FSoft-AI4Code/codewiki-demo/blob/9dc8cf8c41705960f2002f3489a6dc302c936114/docs/ClickHouse--ClickHouse-docs/overview.md)
+- `clickhouse-storage-engine.md` — [upstream Storage Engine](https://github.com/FSoft-AI4Code/codewiki-demo/blob/9dc8cf8c41705960f2002f3489a6dc302c936114/docs/ClickHouse--ClickHouse-docs/Storage_Engine.md)
+- `clickhouse-query-pipeline.md` — [upstream Query Pipeline](https://github.com/FSoft-AI4Code/codewiki-demo/blob/9dc8cf8c41705960f2002f3489a6dc302c936114/docs/ClickHouse--ClickHouse-docs/Query_Pipeline.md)
+- `clickhouse-ast-create-query.md` — [upstream AST Create Query](https://github.com/FSoft-AI4Code/codewiki-demo/blob/9dc8cf8c41705960f2002f3489a6dc302c936114/docs/ClickHouse--ClickHouse-docs/AST_Create_Query.md)
 
-- `clickhouse-overview.md` for repository-level end-to-end architecture;
-- `clickhouse-storage-engine.md` for a parent module and its children;
-- `clickhouse-query-pipeline.md` for execution and resource flow;
-- `clickhouse-ast-create-query.md` for a complex implementation module.
-
-The model may imitate the examples' level of architectural specificity and
-diagram discipline, but must choose its own headings, prose, nodes, and edges
-from the target repository's source.
+Pass complete, role-matched articles to writers: the overview to the
+repository overview prompt; Storage Engine and Query Pipeline to parent/module
+overview prompts; AST Create Query to leaf or complex implementation prompts.
+Do not excerpt the reference body. Writers may learn its information density,
+architecture explanation, and diagram discipline, but must derive all facts,
+headings, nodes, and edges from the target repository.
