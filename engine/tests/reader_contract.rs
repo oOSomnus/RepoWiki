@@ -99,7 +99,28 @@ fn manifest_follows_tree_and_keeps_extra_pages() {
         .pages
         .iter()
         .any(|page| page.filename == "notes.md"));
-    assert!(manifest.warnings.is_empty());
+    assert!(manifest
+        .pages
+        .iter()
+        .all(|page| page.filename.ends_with(".md")));
+}
+
+#[test]
+fn reader_rejects_incomplete_current_outputs() {
+    for required in [
+        "metadata.json",
+        "module_tree.json",
+        "overview.md",
+        "Platform.md",
+        "API.md",
+    ] {
+        let (_repository, wiki) = fixture();
+        fs::remove_file(wiki.join(required)).expect("remove required output");
+        assert!(
+            WikiReader::open(&wiki).is_err(),
+            "reader should reject missing {required}"
+        );
+    }
 }
 
 #[test]

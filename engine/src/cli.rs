@@ -1,7 +1,7 @@
 use crate::analyzer::{self, AnalyzeOptions};
 use crate::docs::{self, EditOperation};
 use crate::html;
-use crate::model::{Module, ModuleTree, Node, UpdateOptions};
+use crate::model::{ModuleTree, Node, UpdateOptions};
 use crate::prompts::{self, PromptType};
 use crate::session::{self, SessionState};
 use crate::update;
@@ -110,8 +110,6 @@ struct CommonAnalysisArgs {
     no_artifacts: bool,
     #[arg(long, default_value_t = false)]
     with_prose: bool,
-    #[arg(long, default_value_t = false)]
-    github_pages: bool,
 }
 
 #[derive(Debug, Args)]
@@ -136,12 +134,7 @@ struct GenerateArgs {
 
 #[derive(Debug, Args, Clone)]
 struct UpdateArgs {
-    #[arg(
-        long,
-        alias = "update-rung",
-        default_value = "3",
-        value_parser = parse_update_rung
-    )]
+    #[arg(long, default_value = "3", value_parser = parse_update_rung)]
     rung: String,
     #[arg(long, default_value_t = 0.95)]
     tau_ren: f64,
@@ -281,7 +274,6 @@ enum DocCommand {
     Edit(EditDocArgs),
     View(ViewDocArgs),
     Validate(ValidateDocArgs),
-    Reconcile(ReconcileDocArgs),
 }
 
 #[derive(Debug, Args)]
@@ -326,20 +318,6 @@ struct ViewDocArgs {
 struct ValidateDocArgs {
     #[arg(long)]
     session: String,
-}
-
-#[derive(Debug, Args)]
-struct ReconcileDocArgs {
-    #[arg(long, default_value = ".repowiki")]
-    output: PathBuf,
-    #[arg(long)]
-    tree_file: Option<PathBuf>,
-    #[arg(long)]
-    metadata_file: Option<PathBuf>,
-    #[arg(long)]
-    aliases_file: Option<PathBuf>,
-    #[arg(long, default_value_t = false)]
-    apply: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -469,7 +447,6 @@ fn dispatch(command: Command) -> Result<()> {
             DocCommand::Edit(args) => edit_doc(args)?,
             DocCommand::View(args) => view_doc(args)?,
             DocCommand::Validate(args) => validate_doc(args)?,
-            DocCommand::Reconcile(args) => reconcile_doc(args)?,
         },
         Command::Update { command } => match command {
             UpdateCommand::Plan(args) => update_plan(args)?,
@@ -512,7 +489,6 @@ fn analyze_command(
         artifacts,
         no_artifacts,
         with_prose,
-        github_pages,
     } = common;
     let options = AnalyzeOptions {
         include,
@@ -589,7 +565,6 @@ fn analyze_command(
             },
             "artifact_token_budget": artifact_token_budget,
             "artifact_exclude": artifact_exclude,
-            "github_pages": github_pages,
             "prompt_types": prompts::catalog(),
             "prompt_specs": prompts::catalog_specs(),
             "logical_tool_mapping": {
@@ -604,7 +579,6 @@ fn analyze_command(
                 "write_doc_file": "codewiki doc write",
                 "edit_doc_file": "codewiki doc edit",
                 "validate_doc": "codewiki doc validate",
-                "reconcile_doc": "codewiki doc reconcile",
                 "close_session": "codewiki session close"
             },
             "generation_contract": {
@@ -677,28 +651,8 @@ fn get_prompt(args: GetPromptArgs) -> Result<Value> {
         } else {
             BTreeMap::new()
         };
-        if matches!(kind, PromptType::SystemComplex | PromptType::SystemLeaf) {
-            if let Some(module_name) = vars.get("module_name").and_then(Value::as_str) {
-                let canonical = docs::module_page_filename(module_name)?;
-                match vars.get("doc_path").and_then(Value::as_str) {
-                    Some(path) if path != canonical => {
-                        return Err(anyhow!(
-                            "prompt '{}' doc_path must be '{}', got '{}'",
-                            kind.as_str(),
-                            canonical,
-                            path
-                        ));
-                    }
-                    Some(_) => {}
-                    None => {
-                        vars.insert("doc_path".to_string(), Value::String(canonical));
-                    }
-                }
-            }
-        }
         let nodes: BTreeMap<String, Node> =
-            session::read_json(&session::session_value_path(state, "components.json"))
-                .unwrap_or_default();
+            session::read_json(&session::session_value_path(state, "components.json"))?;
         if let Some(ids) = prompt_component_ids(&vars)? {
             if kind == PromptType::Cluster && !vars.contains_key("potential_core_components") {
                 let listing = prompts::format_component_listing(&ids, &nodes);
@@ -778,8 +732,7 @@ fn artifact_prompt_value(state: &SessionState) -> Result<Option<Value>> {
 fn save_tree(args: SaveTreeArgs) -> Result<Value> {
     let session = args.session.clone();
     with_locked_session(&session, move |state| {
-        let mut tree: ModuleTree = docs::read_tree_file(&args.tree_file)?;
-        normalize_tree_component_ids(state, &mut tree)?;
+        let tree: ModuleTree = docs::read_tree_file(&args.tree_file)?;
         let result = docs::save_module_tree(state, &tree, args.first)?;
         Ok(json!({
             "ok": true,
@@ -932,41 +885,6 @@ fn read_component_id_list(path: &Path) -> Result<Vec<String>> {
         .collect())
 }
 
-fn normalize_tree_component_ids(state: &SessionState, tree: &mut ModuleTree) -> Result<()> {
-    let nodes: BTreeMap<String, Node> =
-        session::read_json(&session::session_value_path(state, "components.json"))?;
-    let mut aliases = BTreeMap::<String, String>::new();
-    let mut ambiguous = BTreeMap::<String, bool>::new();
-    for node in nodes.values() {
-        let short_name = node.name.rsplit('.').next().unwrap_or(&node.name);
-        let alias = format!("{}::{}", node.relative_path, short_name);
-        if let Some(existing) = aliases.get(&alias) {
-            if existing != &node.id {
-                ambiguous.insert(alias.clone(), true);
-            }
-        } else {
-            aliases.insert(alias, node.id.clone());
-        }
-    }
-    for alias in ambiguous.keys() {
-        aliases.remove(alias);
-    }
-    fn visit(module: &mut Module, aliases: &BTreeMap<String, String>) {
-        for component in &mut module.components {
-            if let Some(canonical) = aliases.get(component) {
-                *component = canonical.clone();
-            }
-        }
-        for child in module.children.values_mut() {
-            visit(child, aliases);
-        }
-    }
-    for module in tree.values_mut() {
-        visit(module, &aliases);
-    }
-    Ok(())
-}
-
 fn load_order(args: SessionArg) -> Result<Value> {
     let session = args.session.clone();
     with_locked_session(&session, |state| {
@@ -1027,25 +945,6 @@ fn validate_doc(args: ValidateDocArgs) -> Result<Value> {
             "result": docs::validate_documentation_report(state)?
         }))
     })
-}
-
-fn reconcile_doc(args: ReconcileDocArgs) -> Result<Value> {
-    let tree_file = args
-        .tree_file
-        .unwrap_or_else(|| args.output.join("module_tree.json"));
-    let metadata_file = args
-        .metadata_file
-        .unwrap_or_else(|| args.output.join("metadata.json"));
-    Ok(json!({
-        "ok": true,
-        "result": docs::reconcile_output(
-            &args.output,
-            &tree_file,
-            Some(&metadata_file),
-            args.aliases_file.as_deref(),
-            args.apply,
-        )?
-    }))
 }
 
 fn update_plan(args: UpdatePlanArgs) -> Result<Value> {
@@ -1137,20 +1036,7 @@ fn load_session(session_id: &str) -> Result<SessionState> {
     let repo = std::env::var_os("CODEWIKI_SESSION_REPO")
         .map(PathBuf::from)
         .unwrap_or(std::env::current_dir()?);
-    session::load(&repo, session_id).or_else(|_| {
-        find_session(&repo, session_id)?.ok_or_else(|| anyhow!("session not found: {session_id}"))
-    })
-}
-
-fn find_session(start: &Path, session_id: &str) -> Result<Option<SessionState>> {
-    let mut current = Some(start);
-    while let Some(path) = current {
-        if let Ok(state) = session::load(path, session_id) {
-            return Ok(Some(state));
-        }
-        current = path.parent();
-    }
-    Ok(None)
+    session::load(&repo, session_id)
 }
 
 fn print_json(value: &Value) -> Result<()> {

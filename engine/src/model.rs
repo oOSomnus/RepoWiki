@@ -52,8 +52,6 @@ pub struct Node {
     pub class_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub component_id: Option<String>,
     pub language: String,
     pub qualified_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -135,15 +133,6 @@ pub struct Module {
 }
 
 pub type ModuleTree = BTreeMap<String, Module>;
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ProcessingItem {
-    pub module_name: String,
-    pub doc_path: String,
-    pub is_leaf: bool,
-    pub components: Vec<String>,
-    pub children: Vec<String>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ChangeSet {

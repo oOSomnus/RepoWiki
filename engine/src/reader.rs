@@ -4,8 +4,9 @@
 //! directory and a couple of launch options, while this module owns manifest
 //! construction, page-path validation, HTTP routing, and browser launch.
 
-use crate::docs::{module_page_filename, validate_module_page_paths};
+use crate::docs::{collect_expected_pages, module_page_filename, validate_module_page_paths};
 use crate::model::ModuleTree;
+use crate::session;
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -82,14 +83,12 @@ pub struct ReaderManifest {
     pub navigation: Vec<NavigationNode>,
     pub pages: Vec<PageDescriptor>,
     pub info: ReaderInfo,
-    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NavigationNode {
     pub name: String,
     pub filename: String,
-    pub available: bool,
     pub children: Vec<NavigationNode>,
 }
 
@@ -98,7 +97,6 @@ pub struct PageDescriptor {
     pub filename: String,
     pub title: String,
     pub path: Vec<String>,
-    pub available: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -125,12 +123,7 @@ impl WikiReader {
         if !root.is_dir() {
             return Err(anyhow!("wiki path is not a directory: {}", root.display()));
         }
-        if !has_markdown_page(&root)? {
-            return Err(anyhow!(
-                "wiki directory contains no top-level Markdown pages: {}",
-                root.display()
-            ));
-        }
+        read_current_output(&root)?;
         Ok(Self { root })
     }
 
@@ -192,9 +185,6 @@ pub fn load_manifest(wiki_dir: &Path) -> Result<ReaderManifest> {
 pub fn run(config: ReaderConfig) -> Result<()> {
     let reader = Arc::new(WikiReader::open(&config.wiki_dir)?);
     let initial_manifest = reader.manifest()?;
-    for warning in &initial_manifest.warnings {
-        eprintln!("warning: {warning}");
-    }
 
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, config.port))
         .with_context(|| format!("bind local reader port {}", config.port))?;
@@ -229,12 +219,9 @@ pub fn run(config: ReaderConfig) -> Result<()> {
 }
 
 fn build_manifest(root: &Path) -> Result<ReaderManifest> {
-    let mut warnings = Vec::new();
-    let metadata = read_optional_json(root, "metadata.json", &mut warnings);
-    let tree = read_tree(root, &mut warnings);
-    validate_module_page_paths(&tree).context("validate module_tree.json page paths")?;
-    let title = repository_title(root, metadata.as_ref());
-    let info = reader_info(metadata.as_ref());
+    let (metadata, tree) = read_current_output(root)?;
+    let title = repository_title(root, Some(&metadata));
+    let info = reader_info(Some(&metadata));
 
     let mut pages = BTreeMap::new();
     let mut page_order = Vec::new();
@@ -246,11 +233,8 @@ fn build_manifest(root: &Path) -> Result<ReaderManifest> {
                 filename: "overview.md".to_string(),
                 title: "Overview".to_string(),
                 path: Vec::new(),
-                available: true,
             },
         );
-    } else {
-        warnings.push("overview.md is missing; the first available page will be used".to_string());
     }
 
     let mut navigation = Vec::new();
@@ -262,7 +246,6 @@ fn build_manifest(root: &Path) -> Result<ReaderManifest> {
             &[],
             &mut pages,
             &mut page_order,
-            &mut warnings,
         )?);
     }
 
@@ -277,7 +260,6 @@ fn build_manifest(root: &Path) -> Result<ReaderManifest> {
                 title: page_title(&filename),
                 filename,
                 path: Vec::new(),
-                available: true,
             },
         );
     }
@@ -292,7 +274,6 @@ fn build_manifest(root: &Path) -> Result<ReaderManifest> {
         navigation,
         pages,
         info,
-        warnings,
     })
 }
 
@@ -303,14 +284,11 @@ fn build_navigation_node(
     parent_path: &[String],
     pages: &mut BTreeMap<String, PageDescriptor>,
     page_order: &mut Vec<String>,
-    warnings: &mut Vec<String>,
 ) -> Result<NavigationNode> {
     let filename = module_page_filename(name)
         .with_context(|| format!("build page path for module '{name}'"))?;
-    let available = safe_page_path(root, &filename).is_ok();
-    if !available {
-        warnings.push(format!("module page is missing or unsafe: {filename}"));
-    }
+    safe_page_path(root, &filename)
+        .with_context(|| format!("module page is missing or unsafe: {filename}"))?;
 
     let mut path = parent_path.to_owned();
     path.push(name.to_string());
@@ -321,21 +299,19 @@ fn build_navigation_node(
             filename: filename.clone(),
             title: name.to_string(),
             path: path.clone(),
-            available,
         },
     );
 
     let mut children = Vec::new();
     for (child_name, child) in &module.children {
         children.push(build_navigation_node(
-            root, child_name, child, &path, pages, page_order, warnings,
+            root, child_name, child, &path, pages, page_order,
         )?);
     }
 
     Ok(NavigationNode {
         name: name.to_string(),
         filename,
-        available,
         children,
     })
 }
@@ -352,41 +328,20 @@ fn add_page(
     pages.insert(page.filename.clone(), page);
 }
 
-fn read_tree(root: &Path, warnings: &mut Vec<String>) -> ModuleTree {
-    let path = root.join("module_tree.json");
-    if !path.is_file() {
-        warnings.push("module_tree.json is missing; using a flat page list".to_string());
-        return ModuleTree::new();
-    }
-    match fs::read_to_string(&path)
-        .with_context(|| format!("read {}", path.display()))
-        .and_then(|contents| {
-            serde_json::from_str(&contents).with_context(|| format!("parse {}", path.display()))
-        }) {
-        Ok(tree) => tree,
-        Err(error) => {
-            warnings.push(format!("could not load module_tree.json: {error:#}"));
-            ModuleTree::new()
-        }
-    }
-}
+fn read_current_output(root: &Path) -> Result<(Value, ModuleTree)> {
+    let metadata: Value =
+        session::read_json(&root.join("metadata.json")).context("read current metadata.json")?;
+    let tree: ModuleTree = session::read_json(&root.join("module_tree.json"))
+        .context("read current module_tree.json")?;
+    validate_module_page_paths(&tree).context("validate module_tree.json page paths")?;
 
-fn read_optional_json(root: &Path, filename: &str, warnings: &mut Vec<String>) -> Option<Value> {
-    let path = root.join(filename);
-    if !path.is_file() {
-        return None;
+    let mut expected = BTreeSet::from(["overview.md".to_string()]);
+    collect_expected_pages(&tree, &mut expected)?;
+    for filename in expected {
+        safe_page_path(root, &filename)
+            .with_context(|| format!("read required documentation page {filename}"))?;
     }
-    match fs::read_to_string(&path)
-        .with_context(|| format!("read {filename}"))
-        .and_then(|contents| {
-            serde_json::from_str(&contents).with_context(|| format!("parse {filename}"))
-        }) {
-        Ok(value) => Some(value),
-        Err(error) => {
-            warnings.push(format!("could not load {filename}: {error:#}"));
-            None
-        }
-    }
+    Ok((metadata, tree))
 }
 
 fn reader_info(metadata: Option<&Value>) -> ReaderInfo {
@@ -437,10 +392,6 @@ fn usize_field(value: Option<&Value>, name: &str) -> Option<usize> {
         .and_then(|value| value.get(name))
         .and_then(Value::as_u64)
         .and_then(|value| usize::try_from(value).ok())
-}
-
-fn has_markdown_page(root: &Path) -> Result<bool> {
-    Ok(!top_level_markdown_files(root)?.is_empty())
 }
 
 fn top_level_markdown_files(root: &Path) -> Result<Vec<String>> {

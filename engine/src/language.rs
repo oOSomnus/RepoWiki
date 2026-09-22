@@ -371,7 +371,6 @@ impl<'a> Collector<'a> {
                     base_classes,
                     class_name: declaration.class_name.clone(),
                     display_name: Some(format!("{} {}", component_type.as_str(), declaration.name)),
-                    component_id: Some(id.clone()),
                     language: self.language.as_str().to_string(),
                     qualified_name: declaration.qualified_name.clone(),
                     artifact_class: self.artifact.map(str::to_string),

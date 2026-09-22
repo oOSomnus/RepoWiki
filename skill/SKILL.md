@@ -44,7 +44,6 @@ codewiki tree order
 codewiki doc write
 codewiki doc edit
 codewiki doc validate
-codewiki doc reconcile
 codewiki session close
 ```
 
@@ -227,11 +226,6 @@ codewiki session close --repo-root <repo> --session <session_id>
 If validation is structurally valid but reports fewer explanatory pages than
 total pages, surface that as a quality warning. It does not replace the hard
 validity gate, but it should trigger a review of short or list-like pages.
-
-If migrating an older output with Chinese or underscore alias pages, first run
-`codewiki doc reconcile` as a dry run, provide an explicit aliases JSON map,
-apply it, then run validation. The migration backs up mapped pages and keeps
-unmapped extras for manual review.
 
 The report must be valid. It checks that every architecture module has a page,
 pages contain source-grounded explanation, parent links are complete, and

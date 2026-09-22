@@ -549,7 +549,6 @@ fn resolve_relationships(nodes: &mut BTreeMap<String, Node>, relationships: Vec<
     for node in nodes.values() {
         for name in [
             node.id.as_str(),
-            node.component_id.as_deref().unwrap_or_default(),
             node.name.as_str(),
             node.qualified_name.as_str(),
         ] {
@@ -795,7 +794,6 @@ fn extract_artifact_components(
         end_line: line_count,
         node_type: Some("artifact_file".to_string()),
         display_name: Some(relative.to_string()),
-        component_id: Some(file_id.clone()),
         language: "Artifact".to_string(),
         qualified_name: file_id,
         artifact_class: Some(class.to_string()),
@@ -818,7 +816,6 @@ fn extract_artifact_components(
             end_line,
             node_type: Some("artifact_unit".to_string()),
             display_name: Some(format!("{relative}::{name}")),
-            component_id: Some(id.clone()),
             language: "Artifact".to_string(),
             qualified_name: id,
             artifact_class: Some(class.to_string()),

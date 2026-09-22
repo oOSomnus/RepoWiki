@@ -139,7 +139,7 @@ fn languages_are_written_as_stable_component_counts() {
 }
 
 #[test]
-fn processing_order_accepts_legacy_item_names() {
+fn processing_order_rejects_legacy_item_names() {
     let (_repo, state) = prepared_session(&[("leaf", "python")], &["leaf"]);
     let path = session::session_value_path(&state, "processing_order.json");
     session::write_json(
@@ -154,95 +154,19 @@ fn processing_order_accepts_legacy_item_names() {
     )
     .expect("write legacy processing order");
 
-    let order = docs::read_processing_order(&state).expect("read legacy processing order");
-    let serialized = serde_json::to_value(order).expect("serialize processing order");
-    assert_eq!(serialized[0]["module"], json!("leaf"));
-    assert_eq!(serialized[0]["path"], json!(["leaf"]));
-    assert_eq!(serialized[0]["is_leaf"], json!(true));
-    assert_eq!(serialized[0]["components"], json!(["leaf"]));
-    assert_eq!(serialized[0]["children"], Value::Null);
+    assert!(docs::read_processing_order(&state).is_err());
 }
 
 #[test]
-fn reconcile_dry_run_and_apply_rewrite_aliases_with_recoverable_backup() {
-    let (repo, state) = prepared_session(&[("api", "rust")], &["api"]);
-    let tree = ModuleTree::from([(
-        "API".to_string(),
-        Module {
-            components: vec!["api".to_string()],
-            ..Module::default()
-        },
-    )]);
-    docs::save_module_tree(&state, &tree, true).expect("save canonical tree");
-    let output = session::output_dir(&state);
-    fs::write(output.join("API.md"), "# API\n\n[old](旧.md#details)\n")
-        .expect("write canonical page");
-    fs::write(output.join("overview.md"), "# Overview\n").expect("write overview");
-    fs::write(output.join("旧.md"), "# Legacy\n").expect("write legacy page");
-    fs::write(output.join("keep.md"), "# Manual note\n").expect("write unknown extra");
-    session::write_json(
-        &output.join("metadata.json"),
-        &json!({"files_generated": ["overview.md", "API.md", "旧.md"]}),
-    )
-    .expect("write metadata fixture");
-    let aliases = repo.path().join("aliases.json");
-    session::write_json(&aliases, &json!({"旧.md": "API.md"})).expect("write aliases");
-
-    let dry_run = docs::reconcile_output(
-        &output,
-        &output.join("module_tree.json"),
-        Some(&output.join("metadata.json")),
-        Some(&aliases),
-        false,
-    )
-    .expect("reconcile dry run");
-    assert_eq!(dry_run["applied"], json!(false));
-    assert!(dry_run["extra_pages"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|page| page == "旧.md"));
-    assert_eq!(dry_run["alias_links"][0]["to"], json!("API.md"));
-
-    let applied = docs::reconcile_output(
-        &output,
-        &output.join("module_tree.json"),
-        Some(&output.join("metadata.json")),
-        Some(&aliases),
-        true,
-    )
-    .expect("apply reconcile");
-    assert_eq!(applied["applied"], json!(true));
-    assert!(!output.join("旧.md").exists());
-    assert!(output.join("keep.md").exists());
-    assert!(fs::read_to_string(output.join("API.md"))
-        .expect("read rewritten page")
-        .contains("[old](API.md#details)"));
-    let backup = std::path::PathBuf::from(applied["backup_dir"].as_str().unwrap());
-    assert!(backup.join("旧.md").is_file());
-    assert!(backup.join("API.md").is_file());
-}
-
-#[test]
-fn document_writes_reject_known_legacy_module_aliases() {
-    let (_repo, mut state) = prepared_session(&[("api", "rust")], &["api"]);
-    let tree = ModuleTree::from([(
-        "API".to_string(),
-        Module {
-            components: vec!["api".to_string()],
-            ..Module::default()
-        },
-    )]);
-    docs::save_module_tree(&state, &tree, false).expect("save final tree");
-    session::write_json(
-        &session::output_dir(&state).join("first_module_tree.json"),
-        &ModuleTree::from([("中文模块".to_string(), Module::default())]),
-    )
-    .expect("write historical tree snapshot");
-
-    let error = docs::write_document(&mut state, "中文模块.md", "# legacy\n")
-        .expect_err("legacy alias must not be regenerated");
-    assert!(error.to_string().contains("legacy module page path"));
+fn document_paths_require_current_flat_markdown_names() {
+    let (_repo, mut state) = prepared_session(&[], &[]);
+    for path in [".repowiki/guide.md", "docs/guide.md", "guide"] {
+        assert!(
+            docs::write_document(&mut state, path, "# Guide\n").is_err(),
+            "old or extensionless path should be rejected: {path}"
+        );
+    }
+    docs::write_document(&mut state, "guide.md", "# Guide\n").expect("write current path");
 }
 
 #[test]
@@ -251,11 +175,11 @@ fn edit_insert_is_multiline_and_undo_pops_each_saved_version() {
     docs::write_document(&mut state, "guide.md", "zero\none\n").expect("write document");
 
     let insert: EditOperation = serde_json::from_value(json!({
-        "command": "insert",
-        "new_str": "alpha\nbeta",
-        "insert_line": 1
+        "kind": "insert",
+        "text": "alpha\nbeta",
+        "line": 1
     }))
-    .expect("decode reference insert");
+    .expect("decode current insert");
     docs::edit_document(&mut state, "guide.md", &[insert]).expect("insert lines");
     assert_eq!(
         fs::read_to_string(std::path::Path::new(&state.output_dir).join("guide.md"))
@@ -264,41 +188,32 @@ fn edit_insert_is_multiline_and_undo_pops_each_saved_version() {
     );
 
     let replace: EditOperation = serde_json::from_value(json!({
-        "command": "str_replace",
-        "old_str": "beta",
-        "new_str": "BETA"
+        "kind": "str_replace",
+        "old": "beta",
+        "new": "BETA"
     }))
-    .expect("decode reference replace");
+    .expect("decode current replace");
     docs::edit_document(&mut state, "guide.md", &[replace]).expect("replace text");
-    docs::edit_document(
-        &mut state,
-        "guide.md",
-        &[EditOperation {
-            kind: Some("undo".to_string()),
-            ..EditOperation::default()
-        }],
-    )
-    .expect("undo replace");
+    docs::edit_document(&mut state, "guide.md", &[EditOperation::Undo]).expect("undo replace");
     assert_eq!(
         fs::read_to_string(std::path::Path::new(&state.output_dir).join("guide.md"))
             .expect("read undone replacement"),
         "zero\nalpha\nbeta\none\n"
     );
 
-    docs::edit_document(
-        &mut state,
-        "guide.md",
-        &[EditOperation {
-            command: Some("undo".to_string()),
-            ..EditOperation::default()
-        }],
-    )
-    .expect("undo insert");
+    docs::edit_document(&mut state, "guide.md", &[EditOperation::Undo]).expect("undo insert");
     assert_eq!(
         fs::read_to_string(std::path::Path::new(&state.output_dir).join("guide.md"))
             .expect("read undone insertion"),
         "zero\none\n"
     );
+
+    assert!(serde_json::from_value::<EditOperation>(json!({
+        "command": "replace",
+        "old_str": "beta",
+        "new_str": "BETA"
+    }))
+    .is_err());
 }
 
 #[test]
@@ -558,6 +473,18 @@ fn super_group_preserves_existing_modules_and_overview_context_links_children() 
         context["Platform"]["children"]["API"]["docs_path"],
         Value::Null
     );
+}
+
+#[test]
+fn malformed_super_group_response_is_rejected_without_mutating_the_tree() {
+    let mut tree = BTreeMap::new();
+    tree.insert("API".to_string(), module(&["a"], BTreeMap::new()));
+
+    let error = docs::apply_super_group_response(&mut tree, "not a grouped response")
+        .expect_err("malformed super-group response must be retried by the host");
+    assert!(error.to_string().contains("invalid super-group response"));
+    assert!(tree.contains_key("API"));
+    assert!(!tree.contains_key("Platform"));
 }
 
 #[test]

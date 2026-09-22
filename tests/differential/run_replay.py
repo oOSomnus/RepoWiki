@@ -425,10 +425,8 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
         expected_documents = transcript["documents"]
         written_documents: list[str] = []
         for item in ordered:
-            module_name = item.get("module_name", item.get("module"))
-            if not module_name:
-                raise ReplayFailure(f"processing order item has no module name: {item}")
-            doc_path = item.get("doc_path", document_path_for(module_name))
+            module_name = item["module"]
+            doc_path = item["doc_path"]
             if item["is_leaf"]:
                 ids = item["components"]
                 source_text = "\n".join(source_by_id[component_id] for component_id in ids)
