@@ -1,11 +1,9 @@
-use crate::docs;
 use crate::session::{self, SessionState};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
 
 /// Generate a self-contained client-side viewer for the optional HTML output.
 ///
@@ -13,11 +11,8 @@ use std::path::Path;
 /// `file://` as well as from a static host such as GitHub Pages.
 pub fn generate(state: &SessionState) -> Result<String> {
     let output = session::output_dir(state);
-    let tree: Value = read_json_or_default(
-        &output.join("module_tree.json"),
-        Value::Object(serde_json::Map::new()),
-    );
-    let metadata: Value = read_json_or_default(&output.join("metadata.json"), Value::Null);
+    let tree: Value = session::read_json(&output.join("module_tree.json"))?;
+    let metadata: Value = session::read_json(&output.join("metadata.json"))?;
 
     let mut pages = BTreeMap::new();
     if output.exists() {
@@ -35,9 +30,9 @@ pub fn generate(state: &SessionState) -> Result<String> {
             pages.insert(stem, session::read_text(&path)?);
         }
     }
-    let overview = pages.get("overview").cloned().unwrap_or_else(|| {
-        "# CodeWiki\n\nThe host agent has not written an overview yet.".to_string()
-    });
+    if !pages.contains_key("overview") {
+        return Err(anyhow!("incomplete documentation: missing overview.md"));
+    }
 
     let html = format_template(
         script_json(&tree)?,
@@ -46,12 +41,7 @@ pub fn generate(state: &SessionState) -> Result<String> {
     );
     let path = output.join("index.html");
     session::write_text(&path, &html)?;
-    let _ = docs::validate_mermaid(&overview);
     Ok(path.to_string_lossy().into_owned())
-}
-
-fn read_json_or_default(path: &Path, fallback: Value) -> Value {
-    session::read_json(path).unwrap_or(fallback)
 }
 
 fn script_json<T: Serialize>(value: &T) -> Result<String> {
@@ -193,14 +183,6 @@ fn format_template(tree_json: String, pages_json: String, metadata_json: String)
         .replace("__CODEWIKI_TREE__", &tree_json)
         .replace("__CODEWIKI_PAGES__", &pages_json)
         .replace("__CODEWIKI_METADATA__", &metadata_json)
-}
-
-pub fn copy_reference_asset(output: &Path, asset: &Path) -> Result<()> {
-    if asset.exists() {
-        fs::create_dir_all(output)?;
-        fs::copy(asset, output.join(asset.file_name().unwrap_or_default()))?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

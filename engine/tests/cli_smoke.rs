@@ -68,7 +68,7 @@ where
 }
 
 #[test]
-fn default_output_dir_is_repowiki_and_document_prefixes_are_normalized() {
+fn default_output_dir_is_repowiki_and_document_paths_are_strict() {
     let repo = tempdir().expect("repo tempdir");
     let repo_arg = repo.path().to_string_lossy().to_string();
     fs::write(repo.path().join("app.py"), "def run():\n    return 1\n").expect("write fixture");
@@ -83,6 +83,21 @@ fn default_output_dir_is_repowiki_and_document_prefixes_are_normalized() {
     assert!(output.is_dir());
     assert!(!repo.path().join("docs").exists());
 
+    for path in [".repowiki/guide.md", "docs/legacy.md"] {
+        let (success, _) = run_failure([
+            "doc",
+            "write",
+            "--repo-root",
+            repo_arg.as_str(),
+            "--session",
+            session,
+            "--path",
+            path,
+            "--content",
+            "# Guide\n",
+        ]);
+        assert!(!success, "legacy document path should fail: {path}");
+    }
     run([
         "doc",
         "write",
@@ -91,70 +106,13 @@ fn default_output_dir_is_repowiki_and_document_prefixes_are_normalized() {
         "--session",
         session,
         "--path",
-        ".repowiki/guide.md",
+        "guide.md",
         "--content",
         "# Guide\n",
     ]);
-    run([
-        "doc",
-        "write",
-        "--repo-root",
-        repo_arg.as_str(),
-        "--session",
-        session,
-        "--path",
-        "docs/legacy.md",
-        "--content",
-        "# Legacy\n",
-    ]);
 
     assert!(output.join("guide.md").is_file());
-    assert!(output.join("legacy.md").is_file());
     assert!(!output.join(".repowiki").exists());
-}
-
-#[test]
-fn doc_reconcile_is_file_side_and_defaults_to_a_dry_run() {
-    let output = tempdir().expect("output tempdir");
-    let aliases = tempdir().expect("aliases tempdir");
-    fs::write(
-        output.path().join("module_tree.json"),
-        r#"{"API":{"components":[],"children":{}}}"#,
-    )
-    .expect("write tree");
-    fs::write(output.path().join("overview.md"), "# Overview\n").expect("write overview");
-    fs::write(output.path().join("API.md"), "# API\n\n[old](old.md)\n").expect("write page");
-    fs::write(output.path().join("old.md"), "# Old\n").expect("write alias");
-    let aliases_path = aliases.path().join("aliases.json");
-    fs::write(&aliases_path, r#"{"old.md":"API.md"}"#).expect("write aliases");
-    let output_arg = output.path().to_string_lossy().to_string();
-    let aliases_arg = aliases_path.to_string_lossy().to_string();
-
-    let dry_run = run([
-        "doc",
-        "reconcile",
-        "--output",
-        output_arg.as_str(),
-        "--aliases-file",
-        aliases_arg.as_str(),
-    ]);
-    assert_eq!(dry_run["result"]["applied"], json!(false));
-    assert!(output.path().join("old.md").exists());
-
-    let applied = run([
-        "doc",
-        "reconcile",
-        "--output",
-        output_arg.as_str(),
-        "--aliases-file",
-        aliases_arg.as_str(),
-        "--apply",
-    ]);
-    assert_eq!(applied["result"]["applied"], json!(true));
-    assert!(!output.path().join("old.md").exists());
-    assert!(fs::read_to_string(output.path().join("API.md"))
-        .expect("read rewritten page")
-        .contains("[old](API.md)"));
 }
 
 #[test]
@@ -202,7 +160,30 @@ fn file_side_workflow_creates_reference_artifacts() {
 
     let vars = repo.path().join("vars.json");
     let vars_arg = vars.to_string_lossy().to_string();
-    fs::write(&vars, r#"{"module_name":"Service"}"#).expect("write vars");
+    fs::write(&vars, r#"{"module_name":"Service"}"#).expect("write incomplete vars");
+    let (success, error) = run_failure([
+        "prompt",
+        "get",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        session,
+        "--type",
+        "system_leaf",
+        "--vars-file",
+        vars_arg.as_str(),
+    ]);
+    assert!(!success);
+    assert!(error["error"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("doc_path"));
+
+    fs::write(
+        &vars,
+        r#"{"module_name":"Service","doc_path":"Service.md"}"#,
+    )
+    .expect("write current vars");
     let prompt = run([
         "prompt",
         "get",
@@ -221,7 +202,7 @@ fn file_side_workflow_creates_reference_artifacts() {
     let tree_arg = tree.to_string_lossy().to_string();
     fs::write(
         &tree,
-        r#"{"Service":{"path":".","components":["app.py::Service","app.py::run","app.py::helper"],"children":{}}}"#,
+        r#"{"Service":{"path":".","components":["app.py::Service","app.py::Service.run","app.py::helper"],"children":{}}}"#,
     )
     .expect("write tree");
     let saved = run([

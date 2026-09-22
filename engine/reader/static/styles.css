@@ -78,9 +78,6 @@ button { color: inherit; }
 .info-card { margin-bottom: 16px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-strong); }
 .info-row { margin: 3px 0; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .info-row strong { display: inline-block; min-width: 72px; color: var(--text); font-weight: 600; }
-.warning-list { margin-bottom: 16px; padding: 10px 12px; border: 1px solid var(--warning-border); border-radius: 8px; background: var(--warning-bg); color: var(--text); font-size: 12px; }
-.warning-list strong { display: block; margin-bottom: 4px; }
-.warning-list ul { margin: 0; padding-left: 18px; }
 .search-label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 12px; font-weight: 600; }
 .nav-filter { width: 100%; margin-bottom: 16px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; outline: none; background: var(--panel-strong); color: var(--text); }
 .nav-filter:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }

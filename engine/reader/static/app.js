@@ -25,7 +25,6 @@
       previous: 'Previous',
       next: 'Next',
       onThisPage: 'On this page',
-      unavailable: 'Page unavailable',
       loadError: 'Could not load this page.',
       copy: 'Copy code',
       copied: 'Copied',
@@ -50,7 +49,6 @@
       previous: '上一页',
       next: '下一页',
       onThisPage: '本页目录',
-      unavailable: '页面不可用',
       loadError: '无法加载此页面。',
       copy: '复制代码',
       copied: '已复制',
@@ -117,7 +115,6 @@
     const manifest = state.manifest;
     $('#brand-title').textContent = manifest.title || 'RepoWiki';
     renderInfo(manifest.info || {});
-    renderWarnings(manifest.warnings || []);
     renderNavigation(manifest.navigation || []);
     renderExtraPages(manifest.pages || []);
   }
@@ -147,26 +144,6 @@
     card.hidden = false;
   }
 
-  function renderWarnings(warnings) {
-    const container = $('#warning-list');
-    container.replaceChildren();
-    if (!warnings.length) {
-      container.hidden = true;
-      return;
-    }
-    const title = document.createElement('strong');
-    title.textContent = state.language === 'zh' ? '读取提示' : 'Reader warnings';
-    container.appendChild(title);
-    const list = document.createElement('ul');
-    warnings.forEach((warning) => {
-      const item = document.createElement('li');
-      item.textContent = warning;
-      list.appendChild(item);
-    });
-    container.appendChild(list);
-    container.hidden = false;
-  }
-
   function renderNavigation(nodes) {
     const navigation = $('#navigation');
     navigation.replaceChildren();
@@ -185,8 +162,6 @@
     link.className = 'nav-item';
     link.dataset.file = node.filename;
     link.textContent = node.name;
-    link.disabled = !node.available;
-    link.title = node.available ? node.name : t('unavailable');
     link.addEventListener('click', () => navigateTo(node.filename));
     row.appendChild(link);
 
@@ -223,7 +198,6 @@
       button.className = 'nav-item extra-page';
       button.dataset.file = page.filename;
       button.textContent = page.title;
-      button.disabled = !page.available;
       button.addEventListener('click', () => navigateTo(page.filename));
       list.appendChild(button);
     });
@@ -288,9 +262,9 @@
   }
 
   function defaultPage() {
-    const overview = (state.manifest.pages || []).find((page) => page.filename === 'overview.md' && page.available);
+    const overview = (state.manifest.pages || []).find((page) => page.filename === 'overview.md');
     if (overview) return overview.filename;
-    const first = (state.manifest.pages || []).find((page) => page.available);
+    const first = (state.manifest.pages || [])[0];
     return first ? first.filename : null;
   }
 
@@ -453,7 +427,7 @@
   function renderPager(filename) {
     const pager = $('#pager');
     pager.replaceChildren();
-    const pages = (state.manifest.pages || []).filter((page) => page.available);
+    const pages = state.manifest.pages || [];
     const index = pages.findIndex((page) => page.filename === filename);
     if (index === -1 || pages.length < 2) {
       pager.hidden = true;

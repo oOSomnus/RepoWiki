@@ -9,7 +9,7 @@ failure has this shape and exits non-zero:
 
 --help and --version are the only intentional text-output exceptions.
 
-The commands use a file-side channel so large code and prompts do not need to travel through stdout. When the current working directory is not the analyzed repository, pass `--repo-root <repo>` to every session-based command: components, prompts, trees, documents, updates, html, and session close/info. `doc reconcile` is output-directory based and does not require a session.
+The commands use a file-side channel so large code and prompts do not need to travel through stdout. When the current working directory is not the analyzed repository, pass `--repo-root <repo>` to every session-based command: components, prompts, trees, documents, updates, html, and session close/info.
 
 For one session, commands that write session or output state are serialized by
 the CLI with a cross-process session lock. The host must still issue these
@@ -179,21 +179,8 @@ architecture quality, and required child links. A valid report has `valid:
 true`. It rejects list-only or fixed-template pages, parent pages with no
 useful architecture diagram or child links, and a repository overview without
 a grounded end-to-end diagram and top-level links. It also rejects extra
-top-level Markdown pages, broken local Markdown links, and links to legacy
-aliases. Natural CJK prose is counted by Unicode-aware units; do not insert
+top-level Markdown pages, broken local Markdown links, and non-canonical local
+links. Natural CJK prose is counted by Unicode-aware units; do not insert
 artificial spaces between Chinese characters. The report is copied into
 metadata.json when the session closes. `session close` runs the same check as
 a hard gate, so a page file existing on disk is not sufficient.
-
-For an already-generated output directory, inspect or apply an explicit legacy
-page migration with:
-
-~~~text
-codewiki doc reconcile --output <repo>/.repowiki --aliases-file <aliases.json>
-codewiki doc reconcile --output <repo>/.repowiki --aliases-file <aliases.json> --apply
-~~~
-
-The first command is a dry run. The apply form rewrites canonical-page links
-and moves only mapped legacy pages into a timestamped `.reconcile-backup/`
-directory; unknown extra pages remain untouched. Run documentation validation
-after applying a migration.

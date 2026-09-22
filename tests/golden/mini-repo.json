@@ -135,7 +135,6 @@
     "graph": {
       "c/service.c::CService": {
         "base_classes": [],
-        "component_id": "c/service.c::CService",
         "component_type": "struct",
         "depends_on": [],
         "display_name": "struct CService",
@@ -154,7 +153,6 @@
       },
       "cpp/service.cpp::CppService": {
         "base_classes": [],
-        "component_id": "cpp/service.cpp::CppService",
         "component_type": "struct",
         "depends_on": [],
         "display_name": "struct CppService",
@@ -173,7 +171,6 @@
       },
       "csharp/Service.cs::CSharpService": {
         "base_classes": [],
-        "component_id": "csharp/Service.cs::CSharpService",
         "component_type": "class",
         "depends_on": [],
         "display_name": "class CSharpService",
@@ -192,7 +189,6 @@
       },
       "go/service.go::GoService": {
         "base_classes": [],
-        "component_id": "go/service.go::GoService",
         "component_type": "struct",
         "depends_on": [],
         "display_name": "struct GoService",
@@ -211,7 +207,6 @@
       },
       "java/Service.java::JavaService": {
         "base_classes": [],
-        "component_id": "java/Service.java::JavaService",
         "component_type": "class",
         "depends_on": [],
         "display_name": "class JavaService",
@@ -230,7 +225,6 @@
       },
       "javascript/service.js::JavaScriptService": {
         "base_classes": [],
-        "component_id": "javascript/service.js::JavaScriptService",
         "component_type": "class",
         "depends_on": [],
         "display_name": "class JavaScriptService",
@@ -249,7 +243,6 @@
       },
       "kotlin/Service.kt::KotlinService": {
         "base_classes": [],
-        "component_id": "kotlin/Service.kt::KotlinService",
         "component_type": "class",
         "depends_on": [],
         "display_name": "class KotlinService",
@@ -268,7 +261,6 @@
       },
       "php/Service.php::PhpService": {
         "base_classes": [],
-        "component_id": "php/Service.php::PhpService",
         "component_type": "class",
         "depends_on": [],
         "display_name": "class PhpService",
@@ -287,7 +279,6 @@
       },
       "python/service.py::PythonService": {
         "base_classes": [],
-        "component_id": "python/service.py::PythonService",
         "component_type": "class",
         "depends_on": [],
         "display_name": "class PythonService",
@@ -306,7 +297,6 @@
       },
       "ruby/service.rb::RubyService": {
         "base_classes": [],
-        "component_id": "ruby/service.rb::RubyService",
         "component_type": "class",
         "depends_on": [],
         "display_name": "class RubyService",
@@ -325,7 +315,6 @@
       },
       "rust/service.rs::RustService": {
         "base_classes": [],
-        "component_id": "rust/service.rs::RustService",
         "component_type": "struct",
         "depends_on": [],
         "display_name": "struct RustService",
@@ -344,7 +333,6 @@
       },
       "scala/Service.scala::ScalaService": {
         "base_classes": [],
-        "component_id": "scala/Service.scala::ScalaService",
         "component_type": "class",
         "depends_on": [],
         "display_name": "class ScalaService",
@@ -363,7 +351,6 @@
       },
       "typescript/service.ts::TypeScriptService": {
         "base_classes": [],
-        "component_id": "typescript/service.ts::TypeScriptService",
         "component_type": "class",
         "depends_on": [],
         "display_name": "class TypeScriptService",
@@ -498,7 +485,6 @@
       "explanatory_page_count": 6,
       "extra_pages": [],
       "grounded_page_count": 2,
-      "legacy_links": [],
       "mermaid_page_count": 4,
       "page_count": 6,
       "pages": {

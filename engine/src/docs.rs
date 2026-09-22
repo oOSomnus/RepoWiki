@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 const RESERVED_STEMS: &[&str] = &[
     "overview",
@@ -81,20 +81,14 @@ pub struct ProcessingItem {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ProcessingItemInput {
-    #[serde(default)]
-    module: Option<String>,
-    #[serde(default)]
-    module_name: Option<String>,
-    #[serde(default)]
-    path: Option<Value>,
-    #[serde(default)]
-    doc_path: Option<String>,
-    #[serde(default)]
+    module: String,
+    doc_path: String,
+    path: Vec<String>,
     is_leaf: bool,
     #[serde(default)]
     children: Vec<String>,
-    #[serde(default)]
     components: Vec<String>,
 }
 
@@ -104,35 +98,18 @@ impl<'de> Deserialize<'de> for ProcessingItem {
         D: serde::Deserializer<'de>,
     {
         let input = ProcessingItemInput::deserialize(deserializer)?;
-        let module = input
-            .module
-            .or(input.module_name)
-            .ok_or_else(|| serde::de::Error::custom("processing item has no module"))?;
-        let path = match input.path {
-            Some(Value::Array(path)) => serde_json::from_value(Value::Array(path))
-                .map_err(|error| serde::de::Error::custom(error.to_string()))?,
-            Some(Value::String(_)) | None => vec![module.clone()],
-            Some(value) => {
-                return Err(serde::de::Error::custom(format!(
-                    "processing item path must be an array, got {value}"
-                )))
-            }
-        };
-        let canonical_doc_path = module_page_filename(&module)
+        let canonical_doc_path = module_page_filename(&input.module)
             .map_err(|error| serde::de::Error::custom(error.to_string()))?;
-        let doc_path = match input.doc_path {
-            Some(path) if path == canonical_doc_path => path,
-            Some(path) => {
-                return Err(serde::de::Error::custom(format!(
-                    "processing item doc_path must be '{canonical_doc_path}', got '{path}'"
-                )))
-            }
-            None => canonical_doc_path,
-        };
+        if input.doc_path != canonical_doc_path {
+            return Err(serde::de::Error::custom(format!(
+                "processing item doc_path must be '{canonical_doc_path}', got '{}'",
+                input.doc_path
+            )));
+        }
         Ok(Self {
-            module,
-            doc_path,
-            path,
+            module: input.module,
+            doc_path: input.doc_path,
+            path: input.path,
             is_leaf: input.is_leaf,
             children: input.children,
             components: input.components,
@@ -140,20 +117,15 @@ impl<'de> Deserialize<'de> for ProcessingItem {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct EditOperation {
-    #[serde(default)]
-    pub kind: Option<String>,
-    #[serde(default)]
-    pub command: Option<String>,
-    #[serde(default, alias = "old_str")]
-    pub old: Option<String>,
-    #[serde(default, alias = "new_str")]
-    pub new: Option<String>,
-    #[serde(default, alias = "insert_line")]
-    pub line: Option<usize>,
-    #[serde(default)]
-    pub text: Option<String>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", deny_unknown_fields)]
+pub enum EditOperation {
+    #[serde(rename = "str_replace")]
+    StrReplace { old: String, new: String },
+    #[serde(rename = "insert")]
+    Insert { line: usize, text: String },
+    #[serde(rename = "undo")]
+    Undo,
 }
 
 pub fn write_document(
@@ -171,7 +143,6 @@ pub fn write_document_with_policy(
     reuse_if_same: bool,
 ) -> Result<WriteResult> {
     let path = document_path(state, requested)?;
-    reject_known_legacy_module_page(state, &path)?;
     if path.exists() {
         if reuse_if_same && session::read_text(&path)? == content {
             return Ok(WriteResult {
@@ -207,7 +178,6 @@ pub fn edit_document(
     operations: &[EditOperation],
 ) -> Result<WriteResult> {
     let path = document_path(state, requested)?;
-    reject_known_legacy_module_page(state, &path)?;
     let mut content = session::read_text(&path)?;
     let history =
         session::session_root(Path::new(&state.repo_path), &state.session_id).join("history");
@@ -215,15 +185,8 @@ pub fn edit_document(
     let mut pending_history = Vec::new();
     let mut consumed_history = Vec::new();
     for operation in operations {
-        let kind = operation
-            .kind
-            .as_deref()
-            .or(operation.command.as_deref())
-            .unwrap_or_default();
-        match kind {
-            "str_replace" | "replace" => {
-                let old = operation.old.as_deref().unwrap_or_default();
-                let new = operation.new.as_deref().unwrap_or_default();
+        match operation {
+            EditOperation::StrReplace { old, new } => {
                 let count = content.matches(old).count();
                 let expected = 1usize;
                 if old.is_empty() || count != expected {
@@ -236,21 +199,15 @@ pub fn edit_document(
                 push_pending_history(&mut history_stack, &mut pending_history, &content);
                 content = content.replacen(old, new, 1);
             }
-            "insert" => {
-                let line = operation.line.unwrap_or(0);
-                let text = operation
-                    .text
-                    .as_deref()
-                    .or(operation.new.as_deref())
-                    .unwrap_or_default();
+            EditOperation::Insert { line, text } => {
                 push_pending_history(&mut history_stack, &mut pending_history, &content);
                 let mut lines: Vec<String> = content.split('\n').map(str::to_string).collect();
-                let insert_line = line.min(lines.len());
+                let insert_line = (*line).min(lines.len());
                 let inserted = text.split('\n').map(str::to_string).collect::<Vec<_>>();
                 lines.splice(insert_line..insert_line, inserted);
                 content = lines.join("\n");
             }
-            "undo" => {
+            EditOperation::Undo => {
                 let previous = history_stack
                     .pop()
                     .ok_or_else(|| anyhow!("no edit history for {}", requested))?;
@@ -261,7 +218,6 @@ pub fn edit_document(
                 }
                 content = previous.content;
             }
-            other => return Err(anyhow!("unsupported edit operation: {other}")),
         }
     }
 
@@ -534,13 +490,13 @@ pub fn apply_cluster_response(
 /// aggregate IDs are preserved verbatim.
 pub fn apply_super_group_response(tree: &mut ModuleTree, response: &str) -> Result<Value> {
     let mut diagnostics = Vec::new();
-    let Some(grouping) = parse_grouped_modules(response, &mut diagnostics) else {
-        return Ok(json!({
-            "changed": false,
-            "diagnostics": diagnostics,
-            "top_level_count": tree.len(),
-        }));
-    };
+    let grouping = parse_grouped_modules(response, &mut diagnostics)
+        .ok_or_else(|| anyhow!("invalid super-group response: {}", diagnostics.join("; ")))?;
+    if grouping.is_empty() {
+        return Err(anyhow!(
+            "invalid super-group response: no module groups were returned"
+        ));
+    }
     let original = tree.clone();
     let names = original.keys().cloned().collect::<BTreeSet<_>>();
     let mut assigned = BTreeSet::new();
@@ -681,8 +637,7 @@ pub fn overview_context_for_session(
 ) -> Result<Value> {
     let structure = overview_context(tree, target_path, output_dir)?;
     let nodes: BTreeMap<String, Node> =
-        session::read_json(&session::session_value_path(state, "components.json"))
-            .unwrap_or_default();
+        session::read_json(&session::session_value_path(state, "components.json"))?;
     Ok(json!({
         "repo_structure": structure,
         "architecture_context": build_architecture_context(tree, target_path, &nodes),
@@ -1244,28 +1199,22 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
         .filter(|page| !expected.contains(page))
         .collect::<Vec<_>>();
     let mut broken_links = Vec::new();
-    let mut legacy_links = Vec::new();
     for page in &expected {
         let content = fs::read_to_string(output.join(page))?;
         for target in markdown_link_targets(&content) {
             if expected.contains(&target) {
                 continue;
             }
-            if output.join(&target).is_file() {
-                legacy_links.push(json!({"page": page, "target": target}));
-            } else {
-                broken_links.push(json!({"page": page, "target": target}));
-            }
+            broken_links.push(json!({"page": page, "target": target}));
         }
     }
 
     let nodes: BTreeMap<String, Node> =
-        session::read_json(&session::session_value_path(state, "components.json"))
-            .unwrap_or_default();
+        session::read_json(&session::session_value_path(state, "components.json"))?;
     let mut builder = DocumentationReportBuilder::new(&output, &nodes);
     builder.visit_modules(&tree)?;
     let overview_path = output.join("overview.md");
-    let overview = fs::read_to_string(&overview_path).unwrap_or_default();
+    let overview = fs::read_to_string(&overview_path)?;
     builder.visit_overview(&tree, &overview)?;
     let DocumentationReportBuilder {
         pages,
@@ -1290,20 +1239,12 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
             link["target"].as_str()?
         ))
     }));
-    errors.extend(legacy_links.iter().filter_map(|link| {
-        Some(format!(
-            "legacy Markdown link in {}: {}",
-            link["page"].as_str()?,
-            link["target"].as_str()?
-        ))
-    }));
 
     let report = json!({
         "valid": errors.is_empty(),
         "errors": errors,
         "extra_pages": extra_pages,
         "broken_links": broken_links,
-        "legacy_links": legacy_links,
         "prose_count_mode": "unicode-aware-v1",
         "page_count": page_count,
         "valid_page_count": valid_page_count,
@@ -1327,327 +1268,6 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
         &report,
     )?;
     Ok(report)
-}
-
-/// Inspect or migrate a generated output directory whose old pages may have
-/// been written under pre-canonical module names.  The operation is dry-run
-/// by default.  Applying a migration always moves mapped legacy pages into a
-/// timestamped backup directory and leaves unmapped extra pages untouched.
-pub fn reconcile_output(
-    output: &Path,
-    tree_path: &Path,
-    metadata_path: Option<&Path>,
-    aliases_path: Option<&Path>,
-    apply: bool,
-) -> Result<Value> {
-    let tree: ModuleTree = session::read_json(tree_path)?;
-    validate_module_page_paths(&tree)?;
-    if !output.is_dir() {
-        return Err(anyhow!(
-            "documentation output directory does not exist: {}",
-            output.display()
-        ));
-    }
-
-    let mut canonical_pages = BTreeSet::from(["overview.md".to_string()]);
-    collect_expected_pages(&tree, &mut canonical_pages)?;
-    let extra_pages = top_level_markdown_pages(output)?
-        .into_iter()
-        .filter(|page| !canonical_pages.contains(page))
-        .collect::<Vec<_>>();
-    let missing_canonical_pages = canonical_pages
-        .iter()
-        .filter(|page| !output.join(page).is_file())
-        .cloned()
-        .collect::<Vec<_>>();
-
-    let metadata_pages = metadata_path
-        .filter(|path| path.is_file())
-        .map(session::read_json::<Value>)
-        .transpose()?
-        .and_then(|value| {
-            value
-                .get("files_generated")
-                .and_then(Value::as_array)
-                .map(|files| {
-                    files
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .filter(|file| file.ends_with(".md"))
-                        .map(str::to_string)
-                        .collect::<BTreeSet<_>>()
-                })
-        })
-        .unwrap_or_default();
-    let metadata_missing = canonical_pages
-        .difference(&metadata_pages)
-        .cloned()
-        .collect::<Vec<_>>();
-    let metadata_unexpected = metadata_pages
-        .difference(&canonical_pages)
-        .cloned()
-        .collect::<Vec<_>>();
-
-    let aliases = read_reconcile_aliases(aliases_path)?;
-    let mut missing_alias_sources = Vec::new();
-    let mut proposed_moves = Vec::new();
-    for (source, target) in &aliases {
-        if !canonical_pages.contains(target) {
-            return Err(anyhow!(
-                "reconcile alias target is not a canonical page: {source} -> {target}"
-            ));
-        }
-        if canonical_pages.contains(source) {
-            return Err(anyhow!(
-                "reconcile alias source is already canonical: {source}"
-            ));
-        }
-        let source_path = output.join(source);
-        if !source_path.is_file() {
-            missing_alias_sources.push(source.clone());
-        } else {
-            proposed_moves.push(json!({"from": source, "to": target}));
-        }
-    }
-
-    let mut alias_links = Vec::new();
-    let mut broken_links = Vec::new();
-    let mut legacy_links = Vec::new();
-    for page in &canonical_pages {
-        let path = output.join(page);
-        if !path.is_file() {
-            continue;
-        }
-        let content = fs::read_to_string(&path)?;
-        for target in markdown_link_targets(&content) {
-            if let Some(canonical) = aliases.get(&target) {
-                alias_links.push(json!({
-                    "page": page,
-                    "from": target,
-                    "to": canonical,
-                }));
-            } else if canonical_pages.contains(&target) {
-                continue;
-            } else if output.join(&target).is_file() {
-                legacy_links.push(json!({"page": page, "target": target}));
-            } else {
-                broken_links.push(json!({"page": page, "target": target}));
-            }
-        }
-    }
-
-    let preserved_extra_pages = extra_pages
-        .iter()
-        .filter(|page| !aliases.contains_key(*page))
-        .cloned()
-        .collect::<Vec<_>>();
-    let mut report = json!({
-        "output": output,
-        "tree_path": tree_path,
-        "metadata_path": metadata_path,
-        "aliases_path": aliases_path,
-        "canonical_pages": canonical_pages,
-        "metadata_pages": metadata_pages,
-        "metadata_missing": metadata_missing,
-        "metadata_unexpected": metadata_unexpected,
-        "missing_canonical_pages": missing_canonical_pages,
-        "extra_pages": extra_pages,
-        "aliases": aliases,
-        "proposed_moves": proposed_moves,
-        "alias_links": alias_links,
-        "legacy_links": legacy_links,
-        "broken_links": broken_links,
-        "missing_alias_sources": missing_alias_sources,
-        "preserved_extra_pages": preserved_extra_pages,
-        "applied": false,
-    });
-
-    if !apply {
-        return Ok(report);
-    }
-    if !missing_alias_sources.is_empty() {
-        return Err(anyhow!(
-            "cannot apply reconcile: alias source pages are missing: {}",
-            missing_alias_sources.join(", ")
-        ));
-    }
-    if !missing_canonical_pages.is_empty() {
-        return Err(anyhow!(
-            "cannot apply reconcile while canonical pages are missing: {}",
-            missing_canonical_pages.join(", ")
-        ));
-    }
-
-    let mut rewrites = Vec::new();
-    for page in &canonical_pages {
-        let path = output.join(page);
-        if !path.is_file() {
-            continue;
-        }
-        let content = fs::read_to_string(&path)?;
-        let (rewritten, changes) = rewrite_markdown_links(&content, &aliases);
-        if !changes.is_empty() {
-            rewrites.push((page.clone(), rewritten, changes));
-        }
-    }
-
-    let backup_dir = output
-        .join(".reconcile-backup")
-        .join(Utc::now().format("%Y%m%dT%H%M%S%.fZ").to_string());
-    if !aliases.is_empty() || !rewrites.is_empty() {
-        fs::create_dir_all(&backup_dir)?;
-    }
-    let mut rewritten_pages = Vec::new();
-    for (page, rewritten, _) in &rewrites {
-        let source = output.join(page);
-        fs::copy(&source, backup_dir.join(page))
-            .with_context(|| format!("backup canonical page {}", source.display()))?;
-        session::write_text(&source, rewritten)?;
-        rewritten_pages.push(page.clone());
-    }
-    let mut moved_pages = Vec::new();
-    for source in aliases.keys() {
-        let source_path = output.join(source);
-        if source_path.is_file() {
-            let backup_path = backup_dir.join(source);
-            fs::rename(&source_path, &backup_path)
-                .with_context(|| format!("move legacy page {} to backup", source_path.display()))?;
-            moved_pages.push(source.clone());
-        }
-    }
-    report["applied"] = Value::Bool(true);
-    report["backup_dir"] = Value::String(backup_dir.to_string_lossy().into_owned());
-    report["rewritten_pages"] = json!(rewritten_pages);
-    report["moved_pages"] = json!(moved_pages);
-    Ok(report)
-}
-
-fn read_reconcile_aliases(path: Option<&Path>) -> Result<BTreeMap<String, String>> {
-    let Some(path) = path else {
-        return Ok(BTreeMap::new());
-    };
-    let value: Value = session::read_json(path)?;
-    let object = value
-        .get("aliases")
-        .and_then(Value::as_object)
-        .or_else(|| value.as_object())
-        .ok_or_else(|| anyhow!("reconcile aliases must be a JSON object"))?;
-    let mut aliases = BTreeMap::new();
-    for (source, target) in object {
-        let target = target
-            .as_str()
-            .ok_or_else(|| anyhow!("reconcile alias target for '{source}' must be a string"))?;
-        let source = reconcile_page_name(source)?;
-        let target = reconcile_page_name(target)?;
-        if aliases.insert(source.clone(), target).is_some() {
-            return Err(anyhow!("duplicate reconcile alias source: {source}"));
-        }
-    }
-    Ok(aliases)
-}
-
-fn reconcile_page_name(value: &str) -> Result<String> {
-    let value = value.trim().strip_prefix("./").unwrap_or(value.trim());
-    if value.is_empty() || value.contains('/') || value.contains('\\') || !value.ends_with(".md") {
-        return Err(anyhow!(
-            "reconcile page name must be a flat .md filename: {value}"
-        ));
-    }
-    Ok(percent_decode(value))
-}
-
-fn rewrite_markdown_links(
-    content: &str,
-    aliases: &BTreeMap<String, String>,
-) -> (String, Vec<(String, String)>) {
-    let mut output = String::with_capacity(content.len());
-    let mut in_fence = false;
-    let mut changes = Vec::new();
-    for line in content.split_inclusive('\n') {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("```") {
-            in_fence = !in_fence;
-            output.push_str(line);
-            continue;
-        }
-        if in_fence {
-            output.push_str(line);
-            continue;
-        }
-        let (rewritten, line_changes) = rewrite_markdown_line(line, aliases);
-        output.push_str(&rewritten);
-        changes.extend(line_changes);
-    }
-    if !content.ends_with('\n') && output.is_empty() {
-        output.push_str(content);
-    }
-    (output, changes)
-}
-
-fn rewrite_markdown_line(
-    line: &str,
-    aliases: &BTreeMap<String, String>,
-) -> (String, Vec<(String, String)>) {
-    let mut output = String::with_capacity(line.len());
-    let mut changes = Vec::new();
-    let mut cursor = 0usize;
-    while let Some(relative_start) = line[cursor..].find("](") {
-        let start = cursor + relative_start;
-        if line[..start].chars().filter(|ch| *ch == '`').count() % 2 == 1 {
-            output.push_str(&line[cursor..start + 2]);
-            cursor = start + 2;
-            continue;
-        }
-        let target_start = start + 2;
-        let Some(relative_end) = line[target_start..].find(')') else {
-            output.push_str(&line[cursor..]);
-            cursor = line.len();
-            break;
-        };
-        let end = target_start + relative_end;
-        output.push_str(&line[cursor..target_start]);
-        let raw = &line[target_start..end];
-        if let Some((rewritten, from, to)) = rewrite_markdown_target(raw, aliases) {
-            output.push_str(&rewritten);
-            changes.push((from, to));
-        } else {
-            output.push_str(raw);
-        }
-        cursor = end;
-    }
-    output.push_str(&line[cursor..]);
-    (output, changes)
-}
-
-fn rewrite_markdown_target(
-    raw: &str,
-    aliases: &BTreeMap<String, String>,
-) -> Option<(String, String, String)> {
-    let leading = raw.len() - raw.trim_start().len();
-    let trimmed = &raw[leading..];
-    let (token, suffix_start, angle) = if let Some(value) = trimmed.strip_prefix('<') {
-        let end = value.find('>')?;
-        (&value[..end], end + 1, true)
-    } else {
-        let end = trimmed.find(char::is_whitespace).unwrap_or(trimmed.len());
-        (&trimmed[..end], end, false)
-    };
-    let path_end = token.find(['#', '?']).unwrap_or(token.len());
-    let source = reconcile_page_name(&token[..path_end]).ok()?;
-    let target = aliases.get(&source)?;
-    let mut rewritten = String::new();
-    rewritten.push_str(&raw[..leading]);
-    if angle {
-        rewritten.push('<');
-        rewritten.push_str(target);
-        rewritten.push_str(&token[path_end..]);
-        rewritten.push('>');
-        rewritten.push_str(&trimmed[suffix_start..]);
-    } else {
-        rewritten.push_str(target);
-        rewritten.push_str(&trimmed[path_end..]);
-    }
-    Some((rewritten, source, target.clone()))
 }
 
 pub fn validate_mermaid(content: &str) -> MermaidReport {
@@ -2761,30 +2381,21 @@ pub fn collect_expected_pages(tree: &ModuleTree, expected: &mut BTreeSet<String>
 }
 
 fn document_path(state: &SessionState, requested: &str) -> Result<PathBuf> {
-    let requested = requested
-        .strip_prefix(".repowiki/")
-        .or_else(|| requested.strip_prefix("docs/"))
-        .unwrap_or(requested);
     let path = Path::new(requested);
     if requested.is_empty()
+        || requested.contains('/')
+        || requested.contains('\\')
         || path.is_absolute()
-        || path.components().any(|component| {
-            matches!(
-                component,
-                Component::ParentDir | Component::RootDir | Component::Prefix(_)
-            )
-        })
+        || path.components().count() != 1
+        || path.extension().and_then(|value| value.to_str()) != Some("md")
     {
-        return Err(anyhow!("unsafe document path: {requested}"));
+        return Err(anyhow!(
+            "document path must be a flat Markdown filename: {requested}"
+        ));
     }
-    let file = if path.extension().is_none() {
-        path.with_extension("md")
-    } else {
-        path.to_path_buf()
-    };
     let output = session::output_dir(state);
-    let candidate = output.join(file);
-    let canonical_parent = output.canonicalize().unwrap_or(output);
+    let candidate = output.join(path);
+    let canonical_parent = output.canonicalize()?;
     let parent = candidate.parent().unwrap_or(&candidate);
     if parent.exists() {
         let canonical = parent.canonicalize()?;
@@ -2793,67 +2404,6 @@ fn document_path(state: &SessionState, requested: &str) -> Result<PathBuf> {
         }
     }
     Ok(candidate)
-}
-
-fn reject_known_legacy_module_page(state: &SessionState, path: &Path) -> Result<()> {
-    if path.extension().and_then(|value| value.to_str()) != Some("md") {
-        return Ok(());
-    }
-    let output = session::output_dir(state);
-    let tree_path = output.join("module_tree.json");
-    let first_tree_path = output.join("first_module_tree.json");
-    if !tree_path.is_file() || !first_tree_path.is_file() {
-        return Ok(());
-    }
-    let tree: ModuleTree = session::read_json(&tree_path)?;
-    validate_module_page_paths(&tree)?;
-    let filename = path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default();
-    let mut canonical = BTreeSet::from(["overview.md".to_string()]);
-    collect_expected_pages(&tree, &mut canonical)?;
-    if canonical.contains(filename) {
-        return Ok(());
-    }
-
-    let first_tree: ModuleTree = session::read_json(&first_tree_path)?;
-    let mut legacy = BTreeSet::new();
-    fn collect_legacy_names(tree: &ModuleTree, names: &mut BTreeSet<String>) {
-        for (name, module) in tree {
-            names.insert(format!("{name}.md"));
-            names.insert(format!("{}.md", legacy_module_stem(name)));
-            collect_legacy_names(&module.children, names);
-        }
-    }
-    collect_legacy_names(&first_tree, &mut legacy);
-    if legacy.contains(filename) {
-        return Err(anyhow!(
-            "legacy module page path '{filename}' is not writable; use the canonical page path from processing_order.json"
-        ));
-    }
-    Ok(())
-}
-
-fn legacy_module_stem(name: &str) -> String {
-    let mut result = String::new();
-    for ch in name.chars() {
-        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' || ch == '&' {
-            result.push(ch);
-        } else {
-            result.push('_');
-        }
-    }
-    let result = if result.is_empty() {
-        "module".to_string()
-    } else {
-        result
-    };
-    if RESERVED_STEMS.contains(&result.as_str()) {
-        format!("{result}_module")
-    } else {
-        result
-    }
 }
 
 fn canonical_module_stem(name: &str) -> Result<String> {
