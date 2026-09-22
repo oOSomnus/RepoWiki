@@ -1179,12 +1179,10 @@ fn assess_decomposition_reviews(tree: &ModuleTree, required: bool) -> Value {
             match &module.decomposition_review {
                 Some(review) => {
                     *reviewed += 1;
-                    if review.reason.trim().is_empty() {
-                        if required {
-                            errors.push(format!(
-                                "module '{path_label}' has an empty decomposition reason"
-                            ));
-                        }
+                    if review.reason.trim().is_empty() && required {
+                        errors.push(format!(
+                            "module '{path_label}' has an empty decomposition reason"
+                        ));
                     }
                     let expected = if module.children.is_empty() {
                         DecompositionDecision::RetainLeaf

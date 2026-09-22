@@ -415,12 +415,12 @@
     "metadata_present": true
   },
   "documents": {
-    "Native.md": "# Native\n\n## Purpose\n\nNative is the selected native execution subsystem. It gives the Rust implementation a shared context while retaining the C service as a representative source anchor rather than creating a page for every analyzed language component.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  C --> Native\n  Rust --> Native\n```\n\nThe [Rust](Rust.md) page describes the concrete implementation selected for source-level reading; the parent retains the C anchor as evidence for the broader native boundary.\n\n## Responsibilities\n\nNative explains the native subsystem boundary and the relationship between its representative source anchors and the documented implementation page.\n",
-    "Platform.md": "# Platform\n\n## Purpose\n\nPlatform is the top-level subsystem that connects the selected native and scripting paths. It keeps the overview at the architectural boundary and leaves source details to the two child pages.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  Native --> Platform\n  Scripting --> Platform\n```\n\nThe [Native](Native.md) and [Scripting](Scripting.md) pages explain the two architectural branches and link onward to their representative implementation pages.\n\n## Responsibilities\n\nPlatform provides the end-to-end navigation boundary and the relationship between the selected execution and scripting surfaces.\n",
-    "Python.md": "# Python\n\n## Purpose\n\nThe Python module contains the PythonService implementation in python/service.py. It is the source-level scripting service surface for this fixture and gives callers a concrete type to work with. This page explains the analyzed component instead of treating the directory name as an architectural boundary.\n\n## Architecture\n\nThe PythonService implementation in python/service.py is a leaf with no recorded dependency edges. Its lifecycle is local: a caller reaches the service type, uses its fields or methods, and remains within this source file.\n\n## Responsibilities\n\nPythonService owns the scripting service representation. The [Scripting module](Scripting.md) supplies the parent architectural context.\n",
-    "Rust.md": "# Rust\n\n## Purpose\n\nThe Rust module contains the RustService implementation in rust/service.rs. It is the source-level native service surface for this fixture and gives callers a concrete type to work with. This page explains the analyzed component instead of treating the directory name as an architectural boundary.\n\n## Architecture\n\nThe RustService implementation in rust/service.rs is a leaf with no recorded dependency edges. Its lifecycle is local: a caller reaches the service type, uses its fields or methods, and remains within this source file.\n\n## Responsibilities\n\nRustService owns the native service representation. The [Native module](Native.md) supplies the parent architectural context.\n",
-    "Scripting.md": "# Scripting\n\n## Purpose\n\nScripting is the selected scripting-facing subsystem. It keeps Python and TypeScript as representative anchors for the cross-language service surface while using one documented child to explain the source behavior.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  Python --> Scripting\n  TypeScript --> Scripting\n```\n\nThe [Python](Python.md) page provides the concrete source-grounded explanation; the TypeScript anchor remains evidence for the wider subsystem boundary.\n\n## Responsibilities\n\nScripting explains how the selected language-facing anchors form one reader-facing subsystem without turning every implementation variant into a page.\n",
-    "overview.md": "# Replay Wiki\n\n## Purpose\n\nThis fixture repository demonstrates a cross-language service platform. The wiki organizes the analyzed implementations by architectural family so a reader can move from the end-to-end repository shape to a language-specific source page without mistaking directories for behavior.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  Client[Service client] --> Platform\n  Platform --> Native\n  Native --> Rust\n  Platform --> JVM\n  JVM --> Java\n  Platform --> Scripting\n  Scripting --> Python\n```\n\nThe [Platform](Platform.md) page is the starting point for the top-level architecture. It connects the family overviews to representative language implementations, which in turn link to the source-grounded leaf pages.\n\n## Responsibilities\n\nThis repository overview explains the request path through the platform, the subsystem relationships, and the boundary between architecture pages and implementation pages.\n"
+    "Native.md": "# Native\n\n## Purpose\n\nNative is the native-language branch of the replay repository's selected architecture tree. Its two source anchors are the declaration `CService` in `c/service.c` and the public unit struct `RustService` in `rust/service.rs`. The tree groups them for reader navigation because both are native-language examples; it does not claim that the C and Rust declarations implement a shared runtime service or call one another. Both files are deliberately small, so this page describes the boundary represented by the fixture rather than inferring production behavior that the sources do not contain.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  C --> Native\n  Rust --> Native\n```\n\nThe diagram expresses membership in the documentation tree. There is no call edge or data transfer shown in the analyzed source between `CService` and `RustService`. The C declaration has an empty struct body, while Rust declares a public unit struct with no fields or implementation block. These different language forms provide two concrete source anchors, but they do not establish equivalent interfaces, shared state, or an execution order. The [Rust](Rust.md) child page follows the Rust declaration in more detail; the C anchor remains at this level and is not represented by a separate child page.\n\n## Responsibilities\n\nThis module page gives the reader the native branch's scope and points to the available leaf explanation. It helps keep the selected native examples together while preserving their actual paths, so a reader can inspect each declaration directly. Since the fixture defines no methods, constructors, resource ownership, error handling, or cross-language adapter for these two types, none of those behaviors can be attributed to Native. The useful architectural fact is the distinction between the parent grouping and the source-level Rust page, not a runtime subsystem contract. Follow the Rust link for the only native child page and consult `c/service.c` for the other recorded declaration.",
+    "Platform.md": "# Platform\n\n## Purpose\n\nPlatform is the root of the replay repository's selected architecture tree. It gives readers one entry point to the native and scripting branches while keeping the underlying source declarations visible. The root records `CService` from `c/service.c`, `RustService` from `rust/service.rs`, `PythonService` from `python/service.py`, and `TypeScriptService` from `typescript/service.ts`. These four anchors are selected examples from a multi-language analysis fixture; they are not a complete inventory of every language file analyzed by the test. Platform is therefore a navigation boundary for this wiki, not evidence of a deployed cross-language platform.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  Native --> Platform\n  Scripting --> Platform\n```\n\nThe diagram summarizes the parent-child organization: Native groups the C and Rust examples, and Scripting groups the Python and TypeScript examples. The arrows describe how to browse the documentation tree, not calls between components. The selected source declarations are empty or contain no methods that could implement a request path. No client, transport, storage layer, or adapter is present in these four files, so the diagram must not be read as a runtime sequence or dependency graph. The source paths identify where the types are declared and let a reader verify the limited evidence behind each branch.\n\n## Responsibilities\n\nPlatform's responsibility is to orient the reader and preserve the boundary between family-level context and source-level pages. The [Native](Native.md) page explains why the two native declarations appear together, and the [Scripting](Scripting.md) page does the same for the two scripting declarations. Each branch links to one representative leaf page, Rust or Python. The C and TypeScript declarations remain visible as parent-level anchors in this selected tree. This arrangement keeps the wiki concise without implying that unselected analyzed files are absent from the repository. For operational details, inspect the leaf source pages and the original files; this root page intentionally makes only claims supported by the recorded grouping and paths.",
+    "Python.md": "# Python\n\n## Purpose\n\nThe Python page documents the scripting-language leaf selected beneath Scripting. The analyzed component is `PythonService` in `python/service.py`, whose entire class body is `pass`. This is a named class declaration with no methods, attributes, imports, or initialization behavior. It gives the replay tree a concrete Python source anchor, but it does not process a request or provide a callable service interface. The Scripting parent explains why the class is grouped with the TypeScript example; this page limits its description to the Python source itself.\n\n## Architecture and lifecycle\n\nThere is no control flow or lifecycle to trace in this file. Constructing a plain instance would use Python's default object behavior because the class defines no constructor, and the class body performs no work. The analyzer records the class as a component for navigation and documentation, while the empty body means there are no local dependencies, resource ownership rules, or error paths to report. The [Scripting](Scripting.md) page places this leaf in a family-level context, but the fixture contains no call or data edge from PythonService to TypeScriptService.\n\n## Responsibilities\n\nFor this replay fixture, PythonService's only supported responsibility is to serve as the selected Python declaration in the architecture tree. The word “Service” in its name is not enough to infer protocol handling or business behavior. Readers can check `python/service.py` to see the complete class body and can follow the parent link to compare its placement with the TypeScript anchor. More detailed operational documentation would need source that defines actual methods, state, or integrations; this page does not invent those details.",
+    "Rust.md": "# Rust\n\n## Purpose\n\nThe Rust page documents the source-level leaf selected beneath the Native module. Its component anchor is `RustService` in `rust/service.rs`, where the source declares `pub struct RustService;`. This syntax exposes a public unit struct: the declaration has no fields, stored state, methods, or constructor logic. That makes the file a useful minimal example for the offline replay, but it does not implement a service operation. The Native parent supplies family-level navigation, while this page stays with the evidence in the Rust source instead of attributing behavior to the broader label.\n\n## Architecture and lifecycle\n\nThe component has no lifecycle transitions to trace because the fixture contains only the type declaration. It allocates no resources, performs no work, calls no other analyzed component, and reports no errors. The analyzer records `RustService` as a source component because it is a named public type; that record is an architectural index entry, not proof of a runnable endpoint or a dependency relationship. The [Native](Native.md) page places it beside the separate C declaration, but the two declarations are not connected by code in this repository.\n\n## Responsibilities\n\nWithin this fixture, `RustService` contributes a Rust source anchor to the native branch and demonstrates how a leaf page links back to its parent. There is no interface contract to describe beyond the public type name, and no behavior should be inferred from the word “Service.” Readers looking for implementation details can verify the complete declaration in `rust/service.rs`; any claim about requests, state, errors, or integration would require source that is not present here.",
+    "Scripting.md": "# Scripting\n\n## Purpose\n\nScripting is the scripting-language branch of the replay repository's selected architecture tree. It groups the `PythonService` class in `python/service.py` with the `TypeScriptService` class in `typescript/service.ts`. Those names and paths are the source evidence for the branch. The grouping makes the two selected examples easy to compare in the wiki, but the fixture does not define an API shared between Python and TypeScript, nor does either class call the other. This distinction matters because a parent module is a documentation boundary; its existence alone is not proof of runtime integration.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  Python --> Scripting\n  TypeScript --> Scripting\n```\n\nThe diagram shows the two selected source anchors under one reader-facing label. In the Python file, `PythonService` has a `pass` body. In the TypeScript file, `TypeScriptService` has an empty class body. Neither declaration contains a method, field, import, or dependency edge that would explain request handling or data exchange. The arrows therefore represent tree membership, not execution flow. The [Python](Python.md) child page provides the detailed view for that selected implementation; TypeScript remains an anchor at this parent level rather than receiving a child page in this tree.\n\n## Responsibilities\n\nScripting supplies context for the selected scripting examples and keeps the parent page focused on their relationship in the documentation. It lets readers move from the family-level grouping to Python's source page while retaining the TypeScript path as evidence that the branch contains another language. The available files do not support claims about a shared lifecycle, protocol, interpreter boundary, or behavior between the two classes. Readers looking for concrete implementation details should use the child link and inspect the corresponding source rather than treating the family label as an implemented framework.",
+    "overview.md": "# Replay Wiki\n\n## Purpose\n\nThis overview is the entry point for the selected architecture tree built from the offline replay fixture. The fixture contains source files in several supported languages, while this tree chooses four declarations as architecture anchors: `CService` in `c/service.c`, `RustService` in `rust/service.rs`, `PythonService` in `python/service.py`, and `TypeScriptService` in `typescript/service.ts`. The selection demonstrates how a repository can be organized into a small set of reader-facing pages; it is not intended to claim that every analyzed language has a page or that these four declarations form a running application.\n\n## Architecture\n\n```mermaid\nflowchart LR\n  Platform --> Native\n  Native --> CService\n  Native --> Rust\n  Rust --> RustService\n  Platform --> Scripting\n  Scripting --> Python\n  Python --> PythonService\n  Scripting --> TypeScriptService\n```\n\nPlatform is the root page. Its Native branch groups the C and Rust anchors, and its Scripting branch groups Python and TypeScript. The tree gives readers family-level context first and then selected source detail through the Rust and Python leaves. The source declarations themselves are minimal: the C struct and Rust unit struct have no operations, and the Python and TypeScript classes have empty bodies. Accordingly, these branches represent documentation organization rather than a proven client-to-service control flow, language runtime handoff, or data pipeline. The diagram expands the family pages to show their selected source anchors and follows the Rust and Python child pages to their declarations. Each arrow records membership in the selected module tree, not a call from a client or interaction between language implementations. CService and TypeScriptService are parent-level evidence rather than separate leaf pages; RustService and PythonService appear below their leaf pages. This separates source membership from executable flow, which the empty declarations do not establish.\n\n## Responsibilities\n\nUse the [Platform](Platform.md) page to start browsing the module hierarchy. From there, [Native](Native.md) and [Scripting](Scripting.md) explain the selected family groupings, while their Rust and Python child pages describe the declarations chosen for source-level reading. The C and TypeScript paths remain supporting anchors on their parent pages. Other analyzed language files can exist without appearing in this deliberately selective architecture tree. This overview records that boundary so the reader does not mistake a curated page hierarchy for an exhaustive component list. For behavior beyond names, paths, and the empty declarations, consult richer repository sources; this fixture does not contain enough implementation to support additional runtime claims."
   },
   "first_module_tree": {
     "Platform": {
@@ -474,6 +474,7 @@
       "checks": {
         "architecture_diagrams": true,
         "canonical_page_paths": true,
+        "module_decomposition_review": false,
         "no_broken_markdown_links": true,
         "no_extra_markdown_pages": true,
         "parent_child_links": true,
@@ -484,7 +485,7 @@
       "errors": [],
       "explanatory_page_count": 6,
       "extra_pages": [],
-      "grounded_page_count": 2,
+      "grounded_page_count": 6,
       "mermaid_page_count": 4,
       "page_count": 6,
       "pages": {
@@ -498,7 +499,7 @@
             "edge_count": 2,
             "generic_node_count": 0,
             "grounded_edge_count": 2,
-            "grounded_node_count": 2,
+            "grounded_node_count": 3,
             "has_primary_path": true,
             "node_count": 3,
             "quality_issues": [],
@@ -508,13 +509,15 @@
           "component_count": 2,
           "errors": [],
           "explanatory": true,
-          "grounded_components": 0,
+          "grounded_components": 2,
+          "grounded_modules": 2,
           "mermaid_balanced": true,
           "mermaid_blocks": 1,
           "missing_links": [],
           "module": "Native",
-          "prose_count_mode": "unicode-aware-v1",
-          "prose_words": 79,
+          "prose_count_mode": "english_words",
+          "prose_floor": 200,
+          "prose_words": 285,
           "role": "module_overview",
           "semantic_sections": 3,
           "valid": true
@@ -539,13 +542,15 @@
           "component_count": 4,
           "errors": [],
           "explanatory": true,
-          "grounded_components": 0,
+          "grounded_components": 4,
+          "grounded_modules": 3,
           "mermaid_balanced": true,
           "mermaid_blocks": 1,
           "missing_links": [],
           "module": "Platform",
-          "prose_count_mode": "unicode-aware-v1",
-          "prose_words": 67,
+          "prose_count_mode": "english_words",
+          "prose_floor": 200,
+          "prose_words": 292,
           "role": "module_overview",
           "semantic_sections": 3,
           "valid": true
@@ -571,12 +576,14 @@
           "errors": [],
           "explanatory": true,
           "grounded_components": 1,
+          "grounded_modules": 1,
           "mermaid_balanced": true,
           "mermaid_blocks": 0,
           "missing_links": [],
           "module": "Python",
-          "prose_count_mode": "unicode-aware-v1",
-          "prose_words": 97,
+          "prose_count_mode": "english_words",
+          "prose_floor": 150,
+          "prose_words": 252,
           "role": "leaf",
           "semantic_sections": 3,
           "valid": true
@@ -602,12 +609,14 @@
           "errors": [],
           "explanatory": true,
           "grounded_components": 1,
+          "grounded_modules": 1,
           "mermaid_balanced": true,
           "mermaid_blocks": 0,
           "missing_links": [],
           "module": "Rust",
-          "prose_count_mode": "unicode-aware-v1",
-          "prose_words": 97,
+          "prose_count_mode": "english_words",
+          "prose_floor": 150,
+          "prose_words": 243,
           "role": "leaf",
           "semantic_sections": 3,
           "valid": true
@@ -622,7 +631,7 @@
             "edge_count": 2,
             "generic_node_count": 0,
             "grounded_edge_count": 2,
-            "grounded_node_count": 2,
+            "grounded_node_count": 3,
             "has_primary_path": true,
             "node_count": 3,
             "quality_issues": [],
@@ -632,13 +641,15 @@
           "component_count": 2,
           "errors": [],
           "explanatory": true,
-          "grounded_components": 0,
+          "grounded_components": 2,
+          "grounded_modules": 2,
           "mermaid_balanced": true,
           "mermaid_blocks": 1,
           "missing_links": [],
           "module": "Scripting",
-          "prose_count_mode": "unicode-aware-v1",
-          "prose_words": 71,
+          "prose_count_mode": "english_words",
+          "prose_floor": 200,
+          "prose_words": 265,
           "role": "module_overview",
           "semantic_sections": 3,
           "valid": true
@@ -650,12 +661,12 @@
             "blocks": 1,
             "diagram_kind": "flowchart",
             "disconnected_node_count": 0,
-            "edge_count": 7,
+            "edge_count": 8,
             "generic_node_count": 0,
-            "grounded_edge_count": 6,
-            "grounded_node_count": 5,
+            "grounded_edge_count": 8,
+            "grounded_node_count": 9,
             "has_primary_path": true,
-            "node_count": 8,
+            "node_count": 9,
             "quality_issues": [],
             "validator": "architecture-heuristic"
           },
@@ -664,20 +675,23 @@
           "errors": [],
           "explanatory": true,
           "grounded_components": 0,
+          "grounded_modules": 5,
           "mermaid_balanced": true,
           "mermaid_blocks": 1,
           "missing_links": [],
           "module": "Repository overview",
-          "prose_count_mode": "unicode-aware-v1",
-          "prose_words": 94,
+          "prose_count_mode": "english_words",
+          "prose_floor": 200,
+          "prose_words": 349,
           "role": "repository_overview",
           "semantic_sections": 3,
           "valid": true
         }
       },
-      "prose_count_mode": "unicode-aware-v1",
+      "prose_count_mode": "language-aware-v2",
       "valid": true,
-      "valid_page_count": 6
+      "valid_page_count": 6,
+      "warnings": []
     },
     "files_generated": [
       "overview.md",
@@ -843,23 +857,23 @@
   ],
   "prompt_hashes": {
     "cluster": [
-      "54a1c2a332dae5149a40c3ceaec116c4e97366d0c3a4aa8a313c0b0442e5d9d1"
+      "3ba0571c4a93095c751719d6f43500426788d4ad2e38221ce0b15b19503f1d71"
     ],
     "overview_module": [
-      "420b39255e105a90cf986d0d0bab1a3ade2ffcea4a0f49b32c7294477a3cd500",
-      "df93947a1900d85f8090c43c8067529459ec3898abfc3353a23c43c8d2050ce4",
-      "e0d386137c91be76ea59ec1a6bce7ca2355fc250b34be4777f6169cc183dd38f"
+      "1b21ce7171bca3d7ce874b718610a64105335a5476499ccb0059fefecf1ba9a0",
+      "ad5e4276d13959bbb983d3a62afbf97e3443c15edad3dd5dd59bdf03396e259d",
+      "d452df148b22c409030240a24956e6e0fd91c3111bb0c6645b81951d8d0d8520"
     ],
     "overview_repo": [
-      "93c2455d1f7c2022d3334dbf7345d02378c2b45f29f6939c401783bfcca09297"
+      "35a2da9d2e25ec1f1b62325c791260ac5f4fcb96ad769fd57b25479690a1e34e"
     ],
     "system_leaf": [
-      "483c35bf4d1664154572c08c589a676048de57ddd1ee68ff99678c50c083b69c",
-      "0ebc921b00b4771551c6bb086b125cf5f9eb3509c7b9a61f0df4f466cf5f4f01"
+      "e86b53d1c18128ede359c8a1ea841d13c3bc8a442d6f8fc2848788a09ee2ee7c",
+      "0ba4d2b084c2eb910a556fc1b331aa577d3ed526aa187f5c3e992c5ca80857e2"
     ],
     "user": [
-      "28eb0746f1f35ae1e60e7c9299a257a7e0c70af794ddf9dfdab3317c4e500862",
-      "f950de6150065e737343097fc7bbadbdb9446d177c59430b6324b3f07f6165af"
+      "4367d7c8f35296de06a6fb4efaf9f5b44836aa6d3ed5def493d848f740c980ec",
+      "5e6c07f0dc422839499ad5370d23222f497f18e16ff9b3ec3541b12968c1c759"
     ]
   },
   "validation": {
