@@ -5,6 +5,17 @@
 RepoWiki 是一个用于生成仓库 Wiki 的 Agent Skill。它使用可移植的 Rust
 分析器和运行时文档，让 Agent 能够分析仓库、整理模块，并写出对应的文档。
 
+## 在 Agent Harness 中使用
+
+在安装了本 Skill 的 Agent Harness 中，打开要分析的目标仓库，然后调用：
+
+```text
+/repo-wiki current repository
+```
+
+Skill 会分析当前工作目录，并将生成的 Wiki 写入 `.repowiki/`。然后可以
+使用[独立 Reader](#独立-reader)在本地查看。
+
 ## 构建与安装
 
 依赖：GNU Make、Rust/Cargo、Python 3，以及 `zip` 和 `unzip`。
@@ -61,3 +72,10 @@ make reader
 
 Reader 只监听本机、自动打开默认浏览器，并不会修改 Wiki。使用
 `--no-open` 只打印 URL，或使用 `--port <端口>` 指定端口。
+
+## 示例
+
+下面的截图是 Codex 生成并通过独立 Reader 打开的一个示例；其他 Harness
+也会生成相同的 `.repowiki` Reader 格式。
+
+![通过独立 Reader 打开的 RepoWiki 示例](examples/codex_overview.png)
