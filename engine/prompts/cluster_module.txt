@@ -53,3 +53,5 @@ Use `decision: "split"` when one or more child groups are returned and
 `breadth_risk` from `low`, `medium`, or `high`. For a retained high-risk leaf,
 give the specific source-backed reason that makes a split unhelpful. Do not
 invent IDs or return a component inventory disguised as a module tree.
+
+{custom_instructions}

@@ -28,6 +28,59 @@ def require(text: str, fragments: list[str], label: str) -> None:
         raise PromptContractFailure(f"{label} is missing: {missing}")
 
 
+def change_skill_contract() -> None:
+    skill_dir = ROOT / "change-wiki"
+    skill_text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    require(
+        skill_text,
+        [
+            "name: change-wiki",
+            "/change-wiki <base-ref>...<head-ref>",
+            ".repowiki/changes/",
+            "references/change-workflow.md",
+        ],
+        "change-wiki/SKILL.md",
+    )
+    agent_text = (skill_dir / "agents" / "openai.yaml").read_text(encoding="utf-8")
+    require(
+        agent_text,
+        ["allow_implicit_invocation: false"],
+        "change-wiki/agents/openai.yaml",
+    )
+    workflow_path = skill_dir / "references" / "change-workflow.md"
+    workflow_text = workflow_path.read_text(encoding="utf-8")
+    require(
+        workflow_text,
+        [
+            "rev-parse --verify --end-of-options",
+            "merge-base",
+            "diff --find-renames --name-status -z",
+            "diff --find-renames --unified=0",
+            "Do not fetch",
+            ".repowiki/.codewiki/sessions/",
+            "components: []",
+        ],
+        "change-wiki/references/change-workflow.md",
+    )
+
+    shared_files = [
+        "references/cli-contract.md",
+        "references/prompt-map.md",
+        "references/few-shots/README.md",
+        "references/few-shots/clickhouse-overview.md",
+        "references/few-shots/clickhouse-storage-engine.md",
+        "references/few-shots/clickhouse-query-pipeline.md",
+        "references/few-shots/clickhouse-ast-create-query.md",
+    ]
+    for relative in shared_files:
+        repo_copy = (ROOT / "skill" / relative).read_bytes()
+        change_copy = (skill_dir / relative).read_bytes()
+        if repo_copy != change_copy:
+            raise PromptContractFailure(
+                f"change-wiki/{relative} differs from the RepoWiki source reference"
+            )
+
+
 def main() -> int:
     current = {
         path.name: path.read_text(encoding="utf-8")
@@ -185,6 +238,7 @@ def main() -> int:
         ],
         "skill/SKILL.md",
     )
+    change_skill_contract()
     expected_hashes = {
         "clickhouse-overview.md": "e9c9a826600ef7e49c28a340f54e41e6f6e4d9b0530fc6ee443a6f4bbada2e05",
         "clickhouse-storage-engine.md": "c6623b0fcaea9f2d4bd634eef386dcfc15ab41636b02b05eb24d4b73166c3faf",

@@ -3,6 +3,8 @@
 
   const state = {
     manifest: null,
+    currentEditionId: null,
+    loadedEditionId: null,
     currentFile: null,
     loadToken: 0,
     language: (navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en',
@@ -12,6 +14,9 @@
   const strings = {
     en: {
       reader: 'Reader',
+      edition: 'Edition',
+      repositoryEdition: 'Repository',
+      changeEdition: 'Change',
       filter: 'Filter pages',
       otherPages: 'Other pages',
       overview: 'Overview',
@@ -36,6 +41,9 @@
     },
     zh: {
       reader: '阅读器',
+      edition: '版本',
+      repositoryEdition: '整个仓库',
+      changeEdition: '变更',
       filter: '筛选页面',
       otherPages: '其他页面',
       overview: '概览',
@@ -72,6 +80,7 @@
     configureThemeToggle();
     configureMobileMenu();
     configureNavigationFilter();
+    configureEditionSelector();
     configureDocumentLinks();
 
     try {
@@ -81,7 +90,7 @@
       renderManifest();
       window.addEventListener('hashchange', onHashChange);
       if (!location.hash) {
-        navigateTo(defaultPage());
+        navigateTo(defaultPage(), null, state.currentEditionId);
       } else {
         onHashChange();
       }
@@ -93,6 +102,7 @@
   function applyStaticLabels() {
     document.documentElement.lang = state.language === 'zh' ? 'zh-CN' : 'en';
     $('#brand-subtitle').textContent = t('reader');
+    $('#edition-label').textContent = t('edition');
     $('#search-label').textContent = t('filter');
     $('#nav-filter').placeholder = t('filter');
     $('#loading-text').textContent = t('loading');
@@ -111,12 +121,48 @@
     }
   }
 
+  function configureEditionSelector() {
+    $('#edition-selector').addEventListener('change', (event) => {
+      const edition = editionById(event.target.value);
+      if (!edition) return;
+      $('#nav-filter').value = '';
+      renderEdition(edition.id);
+      navigateTo(defaultPage(edition.id), null, edition.id);
+    });
+  }
+
   function renderManifest() {
-    const manifest = state.manifest;
-    $('#brand-title').textContent = manifest.title || 'RepoWiki';
-    renderInfo(manifest.info || {});
-    renderNavigation(manifest.navigation || []);
-    renderExtraPages(manifest.pages || []);
+    const editions = state.manifest.editions || [];
+    state.currentEditionId = state.manifest.default_edition || (editions[0] && editions[0].id) || null;
+    const selector = $('#edition-selector');
+    const picker = $('#edition-picker');
+    selector.replaceChildren();
+    editions.forEach((edition) => {
+      const option = document.createElement('option');
+      option.value = edition.id;
+      const kindLabel = edition.kind === 'repository' ? t('repositoryEdition') : t('changeEdition');
+      option.textContent = kindLabel + ' · ' + String(edition.label || edition.title || edition.id);
+      option.title = String(edition.title || edition.label || edition.id);
+      selector.appendChild(option);
+    });
+    picker.hidden = editions.length < 2;
+    renderEdition(state.currentEditionId);
+  }
+
+  function editionById(editionId) {
+    return (state.manifest.editions || []).find((edition) => edition.id === editionId) || null;
+  }
+
+  function renderEdition(editionId) {
+    const edition = editionById(editionId);
+    if (!edition) return false;
+    state.currentEditionId = edition.id;
+    $('#edition-selector').value = edition.id;
+    $('#brand-title').textContent = edition.title || edition.label || 'RepoWiki';
+    renderInfo(edition.info || {});
+    renderNavigation(edition.navigation || []);
+    renderExtraPages(edition.pages || [], edition.navigation || []);
+    return true;
   }
 
   function renderInfo(info) {
@@ -162,7 +208,7 @@
     link.className = 'nav-item';
     link.dataset.file = node.filename;
     link.textContent = node.name;
-    link.addEventListener('click', () => navigateTo(node.filename));
+    link.addEventListener('click', () => navigateTo(node.filename, null, state.currentEditionId));
     row.appendChild(link);
 
     if (node.children && node.children.length) {
@@ -185,9 +231,9 @@
     return wrapper;
   }
 
-  function renderExtraPages(pages) {
+  function renderExtraPages(pages, navigation) {
     const knownFiles = new Set();
-    flattenNavigation(state.manifest.navigation || []).forEach((node) => knownFiles.add(node.filename));
+    flattenNavigation(navigation).forEach((node) => knownFiles.add(node.filename));
     const extras = pages.filter((page) => !knownFiles.has(page.filename) && page.filename !== 'overview.md');
     const container = $('#extra-pages');
     const list = $('#extra-pages-list');
@@ -198,7 +244,7 @@
       button.className = 'nav-item extra-page';
       button.dataset.file = page.filename;
       button.textContent = page.title;
-      button.addEventListener('click', () => navigateTo(page.filename));
+      button.addEventListener('click', () => navigateTo(page.filename, null, state.currentEditionId));
       list.appendChild(button);
     });
     container.hidden = extras.length === 0;
@@ -261,58 +307,94 @@
     });
   }
 
-  function defaultPage() {
-    const overview = (state.manifest.pages || []).find((page) => page.filename === 'overview.md');
+  function defaultPage(editionId) {
+    const edition = editionById(editionId || state.currentEditionId);
+    const pages = edition ? edition.pages || [] : [];
+    const overview = pages.find((page) => page.filename === 'overview.md');
     if (overview) return overview.filename;
-    const first = (state.manifest.pages || [])[0];
+    const first = pages[0];
     return first ? first.filename : null;
   }
 
-  function buildHash(filename, anchor) {
-    return '#/' + encodeURIComponent(filename) + (anchor ? ':' + encodeURIComponent(anchor) : '');
+  function buildHash(editionId, filename, anchor) {
+    return '#/edition/' + encodeURIComponent(editionId) + '/' + encodeURIComponent(filename) +
+      (anchor ? ':' + encodeURIComponent(anchor) : '');
   }
 
-  function navigateTo(filename, anchor) {
+  function navigateTo(filename, anchor, editionId) {
     if (!filename) return;
-    const target = buildHash(filename, anchor);
+    const target = buildHash(editionId || state.currentEditionId, filename, anchor);
     if (location.hash === target) onHashChange();
     else location.hash = target;
     $('#sidebar').classList.remove('open');
   }
 
   function parseHash() {
-    if (!location.hash.startsWith('#/')) return { file: defaultPage(), anchor: null };
-    const raw = location.hash.slice(2);
-    const separator = raw.indexOf(':');
-    const filePart = separator === -1 ? raw : raw.slice(0, separator);
-    const anchorPart = separator === -1 ? null : raw.slice(separator + 1);
+    const hash = location.hash;
+    const defaultEditionId = state.manifest.default_edition || state.currentEditionId;
+    if (!hash.startsWith('#/')) {
+      return { editionId: defaultEditionId, file: defaultPage(defaultEditionId), anchor: null, legacy: true };
+    }
+
+    const editionRoute = hash.startsWith('#/edition/');
+    const raw = hash.slice(editionRoute ? '#/edition/'.length : 2);
+    let editionId = defaultEditionId;
+    let fileAndAnchor = raw;
+    if (editionRoute) {
+      const separator = raw.indexOf('/');
+      if (separator <= 0) return { invalid: true };
+      editionId = raw.slice(0, separator);
+      fileAndAnchor = raw.slice(separator + 1);
+    }
+    const anchorSeparator = fileAndAnchor.indexOf(':');
+    const filePart = anchorSeparator === -1 ? fileAndAnchor : fileAndAnchor.slice(0, anchorSeparator);
+    const anchorPart = anchorSeparator === -1 ? null : fileAndAnchor.slice(anchorSeparator + 1);
     try {
       return {
+        editionId: decodeURIComponent(editionId),
         file: decodeURIComponent(filePart),
-        anchor: anchorPart ? decodeURIComponent(anchorPart) : null
+        anchor: anchorPart ? decodeURIComponent(anchorPart) : null,
+        legacy: !editionRoute
       };
     } catch (_) {
-      return { file: defaultPage(), anchor: null };
+      return { invalid: true };
     }
   }
 
   function onHashChange() {
     const route = parseHash();
-    if (!route.file) {
+    const edition = route.invalid ? null : editionById(route.editionId);
+    if (!edition || !route.file) {
       showError(t('loadError'));
       return;
     }
+    if (route.legacy) {
+      history.replaceState(null, '', location.pathname + location.search +
+        buildHash(route.editionId, route.file, route.anchor));
+    }
+    if (route.editionId !== state.currentEditionId) {
+      $('#nav-filter').value = '';
+      renderEdition(route.editionId);
+    }
     setActiveNavigation(route.file);
-    if (route.file === state.currentFile && route.anchor) scrollToAnchor(route.anchor);
-    else if (route.file !== state.currentFile) loadPage(route.file, route.anchor);
-    else window.scrollTo(0, 0);
+    if (route.editionId !== state.loadedEditionId || route.file !== state.currentFile) {
+      loadPage(route.editionId, route.file, route.anchor);
+    } else if (route.anchor) {
+      scrollToAnchor(route.anchor);
+    } else {
+      window.scrollTo(0, 0);
+    }
   }
 
-  async function loadPage(filename, anchor) {
+  async function loadPage(editionId, filename, anchor) {
     const token = ++state.loadToken;
+    const edition = editionById(editionId);
     showLoading();
     try {
-      const response = await fetch('/api/pages/' + encodeURIComponent(filename), { cache: 'no-store' });
+      const response = await fetch(
+        '/api/editions/' + encodeURIComponent(editionId) + '/pages/' + encodeURIComponent(filename),
+        { cache: 'no-store' }
+      );
       if (!response.ok) throw new Error(t('loadError'));
       const markdown = await response.text();
       if (token !== state.loadToken) return;
@@ -321,10 +403,12 @@
       $('#loading').hidden = true;
       $('#error').hidden = true;
       state.currentFile = filename;
+      state.loadedEditionId = editionId;
       highlightCode();
       renderTOC();
       await renderMermaidDiagrams();
-      renderPager(filename);
+      if (token !== state.loadToken) return;
+      renderPager(edition, filename);
       if (anchor) scrollToAnchor(anchor);
       else window.scrollTo(0, 0);
     } catch (error) {
@@ -417,33 +501,33 @@
       if (!heading.id) return;
       const link = document.createElement('a');
       link.className = 'toc-link toc-' + heading.tagName.toLowerCase();
-      link.href = '#' + heading.id;
+      link.href = buildHash(state.currentEditionId, state.currentFile, heading.id);
       link.textContent = heading.textContent;
       toc.appendChild(link);
     });
     toc.hidden = false;
   }
 
-  function renderPager(filename) {
+  function renderPager(edition, filename) {
     const pager = $('#pager');
     pager.replaceChildren();
-    const pages = state.manifest.pages || [];
+    const pages = edition.pages || [];
     const index = pages.findIndex((page) => page.filename === filename);
     if (index === -1 || pages.length < 2) {
       pager.hidden = true;
       return;
     }
-    if (index > 0) pager.appendChild(pagerButton(t('previous'), pages[index - 1], 'previous'));
-    if (index + 1 < pages.length) pager.appendChild(pagerButton(t('next'), pages[index + 1], 'next'));
+    if (index > 0) pager.appendChild(pagerButton(t('previous'), pages[index - 1], 'previous', edition.id));
+    if (index + 1 < pages.length) pager.appendChild(pagerButton(t('next'), pages[index + 1], 'next', edition.id));
     pager.hidden = false;
   }
 
-  function pagerButton(label, page, direction) {
+  function pagerButton(label, page, direction, editionId) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'pager-button ' + direction;
     button.textContent = label + ': ' + page.title;
-    button.addEventListener('click', () => navigateTo(page.filename));
+    button.addEventListener('click', () => navigateTo(page.filename, null, editionId));
     return button;
   }
 
@@ -465,16 +549,20 @@
       const link = event.target.closest && event.target.closest('a');
       if (!link) return;
       const href = link.getAttribute('href') || '';
-      if (!href || href.startsWith('#/')) return;
+      if (!href || href.startsWith('#/edition/')) return;
       if (href.startsWith('#')) {
         event.preventDefault();
-        scrollToAnchor(href.slice(1));
+        let anchor = href.slice(1);
+        try {
+          anchor = decodeURIComponent(anchor);
+        } catch (_) {}
+        navigateTo(state.currentFile, anchor, state.currentEditionId);
         return;
       }
       const resolved = resolveInternalPage(href);
       if (!resolved) return;
       event.preventDefault();
-      navigateTo(resolved.file, resolved.anchor);
+      navigateTo(resolved.file, resolved.anchor, state.currentEditionId);
     });
   }
 
@@ -483,7 +571,8 @@
       const url = new URL(href, window.location.origin + '/');
       if (url.origin !== window.location.origin || !url.pathname.endsWith('.md')) return null;
       const filename = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
-      const page = (state.manifest.pages || []).find((item) => item.filename === filename);
+      const edition = editionById(state.currentEditionId);
+      const page = (edition ? edition.pages || [] : []).find((item) => item.filename === filename);
       const anchor = url.hash ? decodeURIComponent(url.hash.slice(1)) : null;
       return page ? { file: filename, anchor } : null;
     } catch (_) {

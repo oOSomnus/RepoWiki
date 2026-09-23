@@ -147,6 +147,57 @@ fn every_prompt_renders_without_known_unresolved_placeholders_or_legacy_tools() 
 }
 
 #[test]
+fn change_instructions_are_optional_for_architecture_prompts() {
+    for (kind, module_scope) in [
+        (PromptType::Cluster, false),
+        (PromptType::Cluster, true),
+        (PromptType::OverviewModule, false),
+        (PromptType::OverviewRepo, false),
+    ] {
+        let mut vars = renderable_vars(kind);
+        if module_scope {
+            vars.insert("scope".to_string(), Value::String("module".to_string()));
+            vars.insert(
+                "module_name".to_string(),
+                Value::String("Runtime".to_string()),
+            );
+            vars.insert(
+                "module_tree".to_string(),
+                json!({"Runtime": {"components": [], "children": {}}}),
+            );
+        }
+        vars.insert(
+            "custom_instructions".to_string(),
+            Value::String("Only document change-owned responsibilities.".to_string()),
+        );
+        let rendered = prompts::render(kind, &vars).expect("render custom instructions");
+        assert!(
+            rendered.contains("Only document change-owned responsibilities."),
+            "{} omitted custom instructions",
+            kind.as_str()
+        );
+
+        vars.remove("custom_instructions");
+        let without = prompts::render(kind, &vars).expect("render without custom instructions");
+        assert!(
+            !without.contains("{custom_instructions}"),
+            "{} left custom-instructions placeholder unresolved",
+            kind.as_str()
+        );
+
+        vars.insert(
+            "unrecognized_variable".to_string(),
+            Value::String("rejected".to_string()),
+        );
+        assert!(
+            prompts::render(kind, &vars).is_err(),
+            "{} accepted an unknown variable",
+            kind.as_str()
+        );
+    }
+}
+
+#[test]
 fn cluster_scope_selects_repository_or_module_architecture_contract() {
     let mut repo = string_vars(&[
         ("potential_core_components", "src/lib.rs::run"),

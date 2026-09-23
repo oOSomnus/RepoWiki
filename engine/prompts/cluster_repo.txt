@@ -49,3 +49,5 @@ Return only this JSON marker. Include a decomposition review for every module:
 Use `decision: "split"` when a module has children to discover; otherwise use
 `decision: "retain_leaf"`. Every selected ID must be copied exactly from the
 input. Never invent an ID, silently change an ID, or use a bare symbol name.
+
+{custom_instructions}

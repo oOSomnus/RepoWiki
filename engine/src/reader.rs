@@ -77,12 +77,29 @@ impl ReaderConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ReaderEditionKind {
+    Repository,
+    Change,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReaderManifest {
+pub struct ReaderEdition {
+    pub id: String,
+    pub kind: ReaderEditionKind,
+    pub label: String,
     pub title: String,
     pub navigation: Vec<NavigationNode>,
     pub pages: Vec<PageDescriptor>,
     pub info: ReaderInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReaderCatalog {
+    pub title: String,
+    pub default_edition: String,
+    pub editions: Vec<ReaderEdition>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +130,8 @@ pub struct ReaderInfo {
 #[derive(Debug, Clone)]
 pub struct WikiReader {
     root: PathBuf,
+    catalog: ReaderCatalog,
+    edition_roots: BTreeMap<String, PathBuf>,
 }
 
 impl WikiReader {
@@ -123,20 +142,116 @@ impl WikiReader {
         if !root.is_dir() {
             return Err(anyhow!("wiki path is not a directory: {}", root.display()));
         }
-        read_current_output(&root)?;
-        Ok(Self { root })
+
+        let mut editions = Vec::new();
+        let mut edition_roots = BTreeMap::new();
+        if has_bundle_marker(&root)? {
+            let edition = build_edition(&root, "repository", ReaderEditionKind::Repository, None)
+                .context("invalid repository edition")?;
+            edition_roots.insert(edition.id.clone(), root.clone());
+            editions.push(edition);
+        }
+
+        if let Some(changes_root) = canonical_changes_directory(&root)? {
+            let mut change_directories = Vec::new();
+            for entry in fs::read_dir(&changes_root)? {
+                let entry = entry?;
+                let file_name = entry.file_name();
+                let Some(id) = file_name.to_str().map(str::to_owned) else {
+                    continue;
+                };
+                if !is_valid_change_id(&id) {
+                    continue;
+                }
+
+                let file_type = entry.file_type()?;
+                if file_type.is_symlink() {
+                    return Err(anyhow!(
+                        "change edition must not be a symlink: {}",
+                        entry.path().display()
+                    ));
+                }
+                if !file_type.is_dir() {
+                    return Err(anyhow!(
+                        "change edition must be a directory: {}",
+                        entry.path().display()
+                    ));
+                }
+
+                let edition_root = entry.path().canonicalize().with_context(|| {
+                    format!(
+                        "canonicalize change edition directory '{}'",
+                        entry.path().display()
+                    )
+                })?;
+                if edition_root.parent() != Some(changes_root.as_path())
+                    || !edition_root.starts_with(&root)
+                {
+                    return Err(anyhow!(
+                        "change edition directory escapes its catalog root: {}",
+                        entry.path().display()
+                    ));
+                }
+                change_directories.push((id, edition_root));
+            }
+            change_directories.sort_by(|left, right| left.0.cmp(&right.0));
+
+            for (id, edition_root) in change_directories {
+                let (base, head) = id
+                    .split_once("..")
+                    .expect("validated change edition id has a range separator");
+                let label = format!("{}..{}", &base[..8], &head[..8]);
+                let edition =
+                    build_edition(&edition_root, &id, ReaderEditionKind::Change, Some(label))
+                        .with_context(|| format!("invalid change edition '{id}'"))?;
+                edition_roots.insert(id, edition_root);
+                editions.push(edition);
+            }
+        }
+
+        if editions.is_empty() {
+            return Err(anyhow!(
+                "no valid wiki editions found in {}",
+                root.display()
+            ));
+        }
+
+        let repository = editions
+            .iter()
+            .find(|edition| edition.kind == ReaderEditionKind::Repository);
+        let title = repository
+            .map(|edition| edition.title.clone())
+            .unwrap_or_else(|| editions[0].title.clone());
+        let default_edition = repository
+            .map(|edition| edition.id.clone())
+            .unwrap_or_else(|| editions[0].id.clone());
+        let catalog = ReaderCatalog {
+            title,
+            default_edition,
+            editions,
+        };
+
+        Ok(Self {
+            root,
+            catalog,
+            edition_roots,
+        })
     }
 
     pub fn root(&self) -> &Path {
         &self.root
     }
 
-    pub fn manifest(&self) -> Result<ReaderManifest> {
-        build_manifest(&self.root)
+    pub fn manifest(&self) -> Result<ReaderCatalog> {
+        Ok(self.catalog.clone())
     }
 
-    pub fn read_page(&self, filename: &str) -> Result<String> {
-        let path = self.safe_page_path(filename)?;
+    pub fn read_page(&self, edition_id: &str, filename: &str) -> Result<String> {
+        let edition_root = self
+            .edition_roots
+            .get(edition_id)
+            .ok_or_else(|| anyhow!("unknown wiki edition: {edition_id}"))?;
+        let path = safe_page_path(edition_root, filename)?;
         let size = fs::metadata(&path)?.len();
         if size > MAX_PAGE_BYTES {
             return Err(anyhow!(
@@ -147,38 +262,9 @@ impl WikiReader {
         }
         fs::read_to_string(&path).with_context(|| format!("read wiki page {filename}"))
     }
-
-    fn safe_page_path(&self, filename: &str) -> Result<PathBuf> {
-        let relative = Path::new(filename);
-        if filename.is_empty()
-            || filename.contains('/')
-            || filename.contains('\\')
-            || relative.is_absolute()
-            || relative.components().any(|component| {
-                matches!(
-                    component,
-                    Component::ParentDir | Component::RootDir | Component::Prefix(_)
-                )
-            })
-            || relative.extension().and_then(|value| value.to_str()) != Some("md")
-        {
-            return Err(anyhow!("unsafe wiki page path: {filename}"));
-        }
-
-        let candidate = self.root.join(relative);
-        let canonical = candidate
-            .canonicalize()
-            .with_context(|| format!("wiki page not found: {filename}"))?;
-        if canonical.parent() != Some(self.root.as_path()) {
-            return Err(anyhow!(
-                "wiki page escapes the selected directory: {filename}"
-            ));
-        }
-        Ok(canonical)
-    }
 }
 
-pub fn load_manifest(wiki_dir: &Path) -> Result<ReaderManifest> {
+pub fn load_manifest(wiki_dir: &Path) -> Result<ReaderCatalog> {
     WikiReader::open(wiki_dir)?.manifest()
 }
 
@@ -218,9 +304,56 @@ pub fn run(config: ReaderConfig) -> Result<()> {
     Ok(())
 }
 
-fn build_manifest(root: &Path) -> Result<ReaderManifest> {
+fn has_bundle_marker(root: &Path) -> Result<bool> {
+    for marker in ["metadata.json", "module_tree.json", "overview.md"] {
+        match fs::symlink_metadata(root.join(marker)) {
+            Ok(_) => return Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error).with_context(|| format!("inspect {marker}")),
+        }
+    }
+    Ok(false)
+}
+
+fn canonical_changes_directory(root: &Path) -> Result<Option<PathBuf>> {
+    let path = root.join("changes");
+    match fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).with_context(|| "inspect changes directory"),
+        Ok(_) => {}
+    }
+
+    let canonical = path
+        .canonicalize()
+        .with_context(|| format!("canonicalize changes directory: {}", path.display()))?;
+    if !canonical.is_dir() || canonical.as_path() == root || !canonical.starts_with(root) {
+        return Err(anyhow!(
+            "changes directory escapes its wiki root: {}",
+            path.display()
+        ));
+    }
+    Ok(Some(canonical))
+}
+
+fn is_valid_change_id(id: &str) -> bool {
+    let Some((base, head)) = id.split_once("..") else {
+        return false;
+    };
+    matches!(base.len(), 40 | 64)
+        && head.len() == base.len()
+        && base.bytes().all(|byte| byte.is_ascii_hexdigit())
+        && head.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn build_edition(
+    root: &Path,
+    id: &str,
+    kind: ReaderEditionKind,
+    label: Option<String>,
+) -> Result<ReaderEdition> {
     let (metadata, tree) = read_current_output(root)?;
     let title = repository_title(root, Some(&metadata));
+    let label = label.unwrap_or_else(|| title.clone());
     let info = reader_info(Some(&metadata));
 
     let mut pages = BTreeMap::new();
@@ -269,7 +402,10 @@ fn build_manifest(root: &Path) -> Result<ReaderManifest> {
         .filter_map(|filename| pages.remove(&filename))
         .collect();
 
-    Ok(ReaderManifest {
+    Ok(ReaderEdition {
+        id: id.to_string(),
+        kind,
+        label,
         title,
         navigation,
         pages,
@@ -571,12 +707,12 @@ fn route_request(request: &HttpRequest, reader: &WikiReader) -> HttpResponse {
             Ok(body) => HttpResponse::json(body),
             Err(error) => HttpResponse::error(500, "Internal Server Error", error.to_string()),
         },
-        _ if path.starts_with("/api/pages/") => {
-            let filename = path.trim_start_matches("/api/pages/");
-            if filename.is_empty() {
-                return HttpResponse::error(400, "Bad Request", "page filename is required");
-            }
-            match reader.read_page(filename) {
+        _ if path.starts_with("/api/editions/") => {
+            let route = path.trim_start_matches("/api/editions/");
+            let Some((edition_id, filename)) = route.split_once("/pages/") else {
+                return HttpResponse::error(404, "Not Found", "resource not found");
+            };
+            match reader.read_page(edition_id, filename) {
                 Ok(contents) => HttpResponse::text(contents),
                 Err(error) => HttpResponse::error(404, "Not Found", error.to_string()),
             }

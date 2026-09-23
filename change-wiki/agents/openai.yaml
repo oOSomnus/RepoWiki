@@ -1,0 +1,6 @@
+interface:
+  display_name: "Change Wiki Generator"
+  short_description: "Generate a wiki for an explicit local Git range"
+  default_prompt: "Use /change-wiki <base-ref>...<head-ref> to generate a change-scoped wiki."
+policy:
+  allow_implicit_invocation: false

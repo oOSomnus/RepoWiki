@@ -41,6 +41,34 @@ fn include_and_exclude_use_fnmatch_path_semantics() {
 }
 
 #[test]
+fn repowiki_bundles_are_not_analyzed_as_source() {
+    let repo = tempdir().expect("repo tempdir");
+    let output = tempdir().expect("output tempdir");
+    fs::create_dir_all(repo.path().join("src")).expect("src directory");
+    fs::write(repo.path().join("src/app.py"), "def app():\n    return 1\n").expect("app fixture");
+
+    let range = format!("{}..{}", "a".repeat(40), "b".repeat(40));
+    let change = repo.path().join(".repowiki/changes").join(range);
+    fs::create_dir_all(&change).expect("change bundle directory");
+    fs::write(
+        repo.path().join(".repowiki/generated.rs"),
+        "fn repository_page_source() {}\n",
+    )
+    .expect("repository bundle source fixture");
+    fs::write(change.join("module.rs"), "fn change_page_source() {}\n")
+        .expect("change bundle source fixture");
+
+    let (_, result, nodes) =
+        analyze(repo.path(), output.path(), &options(), None).expect("analyze repository");
+
+    assert_eq!(result.summary.supported_files, 1);
+    assert_eq!(
+        nodes.keys().cloned().collect::<Vec<_>>(),
+        vec!["src/app.py::app"]
+    );
+}
+
+#[test]
 fn class_methods_are_qualified_and_dependency_scan_ignores_literals_and_comments() {
     let repo = tempdir().expect("repo tempdir");
     let output = tempdir().expect("output tempdir");

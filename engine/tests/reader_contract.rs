@@ -1,4 +1,4 @@
-use codewiki::reader::{load_manifest, WikiReader};
+use codewiki::reader::{load_manifest, ReaderEditionKind, WikiReader};
 use serde_json::json;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -61,6 +61,191 @@ fn fixture() -> (TempDir, std::path::PathBuf) {
     (repository, wiki)
 }
 
+fn add_change_editions(wiki: &std::path::Path) -> (String, String) {
+    let changes = wiki.join("changes");
+    fs::create_dir_all(&changes).expect("create changes directory");
+    fs::create_dir(changes.join("not-a-change-range")).expect("create unrelated directory");
+
+    let first = format!("{}..{}", "a".repeat(40), "b".repeat(40));
+    let second = format!("{}..{}", "c".repeat(64), "d".repeat(64));
+    copy_bundle(
+        wiki,
+        &changes.join(&first),
+        "# First change overview\n\nFirst edition content.\n",
+    );
+    let second_bundle = changes.join(&second);
+    copy_bundle(
+        wiki,
+        &second_bundle,
+        "# Second change overview\n\nSecond edition content.\n",
+    );
+    fs::write(
+        second_bundle.join("metadata.json"),
+        serde_json::to_vec(&json!({
+            "generation_info": { "repo_path": "/tmp/second-change-repo" }
+        }))
+        .expect("serialize second change metadata"),
+    )
+    .expect("write second change metadata");
+    (first, second)
+}
+
+fn copy_bundle(source: &std::path::Path, destination: &std::path::Path, overview: &str) {
+    fs::create_dir_all(destination).expect("create bundle directory");
+    for entry in fs::read_dir(source).expect("read source bundle") {
+        let entry = entry.expect("read source bundle entry");
+        if entry
+            .file_type()
+            .expect("inspect source bundle entry")
+            .is_file()
+        {
+            fs::copy(entry.path(), destination.join(entry.file_name())).expect("copy bundle file");
+        }
+    }
+    fs::write(destination.join("overview.md"), overview).expect("write bundle overview");
+}
+
+#[test]
+fn catalog_contains_repository_and_sorted_change_editions() {
+    let (_repository, wiki) = fixture();
+    let (first, second) = add_change_editions(&wiki);
+    let reader = WikiReader::open(&wiki).expect("open catalog reader");
+    let catalog = reader.manifest().expect("load catalog");
+
+    assert_eq!(catalog.title, "repo-name");
+    assert_eq!(catalog.default_edition, "repository");
+    assert_eq!(catalog.editions.len(), 3);
+    assert_eq!(catalog.editions[0].id, "repository");
+    assert_eq!(catalog.editions[0].kind, ReaderEditionKind::Repository);
+    assert_eq!(catalog.editions[0].label, "repo-name");
+    assert_eq!(catalog.editions[1].id, first);
+    assert_eq!(catalog.editions[1].kind, ReaderEditionKind::Change);
+    assert_eq!(catalog.editions[1].label, "aaaaaaaa..bbbbbbbb");
+    assert_eq!(catalog.editions[2].id, second);
+    assert_eq!(catalog.editions[2].kind, ReaderEditionKind::Change);
+    assert_eq!(catalog.editions[2].label, "cccccccc..dddddddd");
+    assert_eq!(catalog.editions[2].title, "second-change-repo");
+
+    assert!(reader
+        .read_page("repository", "overview.md")
+        .unwrap()
+        .contains("Repo overview"));
+    assert!(reader
+        .read_page(&first, "overview.md")
+        .unwrap()
+        .contains("First edition content"));
+    assert!(reader
+        .read_page(&second, "overview.md")
+        .unwrap()
+        .contains("Second edition content"));
+    assert!(reader.read_page("unknown", "overview.md").is_err());
+}
+
+#[test]
+fn changes_only_catalog_defaults_to_first_sorted_change() {
+    let (_repository, wiki) = fixture();
+    let (first, second) = add_change_editions(&wiki);
+    for entry in fs::read_dir(&wiki).expect("read wiki root") {
+        let entry = entry.expect("read wiki root entry");
+        if entry
+            .file_type()
+            .expect("inspect wiki root entry")
+            .is_file()
+        {
+            fs::remove_file(entry.path()).expect("remove root bundle file");
+        }
+    }
+
+    let catalog = load_manifest(&wiki).expect("load changes-only catalog");
+    assert_eq!(catalog.title, "repo-name");
+    assert_eq!(catalog.default_edition, first);
+    assert_eq!(catalog.editions.len(), 2);
+    assert_eq!(catalog.editions[0].id, first);
+    assert_eq!(catalog.editions[1].id, second);
+    assert_eq!(catalog.editions[1].title, "second-change-repo");
+}
+
+#[test]
+fn reader_requires_at_least_one_valid_edition() {
+    let root = tempfile::tempdir().expect("empty wiki directory");
+    fs::create_dir_all(root.path().join("changes").join("not-a-change-range"))
+        .expect("create unrelated changes directory");
+
+    let error = WikiReader::open(root.path()).expect_err("empty catalog must fail");
+    assert!(
+        format!("{error:#}").contains("no valid wiki editions"),
+        "unexpected error: {error:#}"
+    );
+}
+
+#[test]
+fn sha_named_incomplete_change_bundle_is_rejected() {
+    let (_repository, wiki) = fixture();
+    let broken = format!("{}..{}", "e".repeat(40), "f".repeat(40));
+    fs::create_dir_all(wiki.join("changes").join(&broken))
+        .expect("create incomplete change bundle");
+    fs::write(
+        wiki.join("changes").join(&broken).join("overview.md"),
+        "# Incomplete change\n",
+    )
+    .expect("write incomplete bundle marker");
+
+    let error = WikiReader::open(&wiki).expect_err("incomplete change bundle must fail");
+    let message = format!("{error:#}");
+    assert!(
+        message.contains(&format!("invalid change edition '{broken}'")),
+        "unexpected error: {message}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn reader_rejects_change_paths_that_escape_the_catalog_root() {
+    use std::os::unix::fs::symlink;
+
+    let (_repository, wiki) = fixture();
+    let outside = tempfile::tempdir().expect("external changes directory");
+    symlink(outside.path(), wiki.join("changes")).expect("symlink changes outside root");
+    assert!(
+        WikiReader::open(&wiki).is_err(),
+        "changes directory outside catalog root must be rejected"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn reader_rejects_sha_named_change_directory_symlinks() {
+    use std::os::unix::fs::symlink;
+
+    let (_repository, wiki) = fixture();
+    let changes = wiki.join("changes");
+    fs::create_dir_all(&changes).expect("create changes directory");
+    let outside = wiki.join("outside-change");
+    copy_bundle(&wiki, &outside, "# External change\n");
+    let range = format!("{}..{}", "1".repeat(40), "2".repeat(40));
+    symlink(&outside, changes.join(range)).expect("symlink change edition");
+
+    assert!(
+        WikiReader::open(&wiki).is_err(),
+        "symlinked change directory must be rejected"
+    );
+}
+
+#[test]
+fn reader_rejects_sha_named_change_files() {
+    let (_repository, wiki) = fixture();
+    let changes = wiki.join("changes");
+    fs::create_dir_all(&changes).expect("create changes directory");
+    let file = format!("{}..{}", "3".repeat(40), "4".repeat(40));
+    fs::write(changes.join(file), "not a bundle").expect("write invalid change file");
+
+    let error = WikiReader::open(&wiki).expect_err("SHA-named file must fail");
+    assert!(
+        format!("{error:#}").contains("change edition must be a directory"),
+        "unexpected error: {error:#}"
+    );
+}
+
 fn http_request(address: SocketAddr, method: &str, target: &str) -> String {
     let mut stream = TcpStream::connect(address).expect("connect reader");
     write!(
@@ -85,21 +270,27 @@ fn response_body(response: &str) -> &str {
 #[test]
 fn manifest_follows_tree_and_keeps_extra_pages() {
     let (_repository, wiki) = fixture();
-    let manifest = load_manifest(&wiki).expect("load reader manifest");
+    let catalog = load_manifest(&wiki).expect("load reader catalog");
+    let repository = &catalog.editions[0];
 
-    assert_eq!(manifest.title, "repo-name");
-    assert_eq!(manifest.info.model.as_deref(), Some("fixture-model"));
-    assert_eq!(manifest.info.commit.as_deref(), Some("12345678"));
-    assert_eq!(manifest.info.total_components, Some(2));
-    assert_eq!(manifest.navigation[0].name, "Platform");
-    assert_eq!(manifest.navigation[0].children[0].name, "API");
-    assert_eq!(manifest.navigation[0].children[0].filename, "API.md");
-    assert_eq!(manifest.pages[0].filename, "overview.md");
-    assert!(manifest
+    assert_eq!(catalog.title, "repo-name");
+    assert_eq!(catalog.default_edition, "repository");
+    assert_eq!(catalog.editions.len(), 1);
+    assert_eq!(repository.id, "repository");
+    assert_eq!(repository.kind, ReaderEditionKind::Repository);
+    assert_eq!(repository.label, "repo-name");
+    assert_eq!(repository.info.model.as_deref(), Some("fixture-model"));
+    assert_eq!(repository.info.commit.as_deref(), Some("12345678"));
+    assert_eq!(repository.info.total_components, Some(2));
+    assert_eq!(repository.navigation[0].name, "Platform");
+    assert_eq!(repository.navigation[0].children[0].name, "API");
+    assert_eq!(repository.navigation[0].children[0].filename, "API.md");
+    assert_eq!(repository.pages[0].filename, "overview.md");
+    assert!(repository
         .pages
         .iter()
         .any(|page| page.filename == "notes.md"));
-    assert!(manifest
+    assert!(repository
         .pages
         .iter()
         .all(|page| page.filename.ends_with(".md")));
@@ -180,27 +371,54 @@ fn manifest_rejects_colliding_module_page_names() {
 #[test]
 fn page_reads_are_limited_to_direct_markdown_files() {
     let (repository, wiki) = fixture();
+    let (change_one, change_two) = add_change_editions(&wiki);
     fs::write(repository.path().join("secret.md"), "not part of the wiki").expect("write secret");
     let reader = WikiReader::open(&wiki).expect("open reader");
 
     assert!(reader
-        .read_page("overview.md")
+        .read_page("repository", "overview.md")
         .unwrap()
         .contains("Repo overview"));
-    assert!(reader.read_page("../secret.md").is_err());
-    assert!(reader.read_page("metadata.json").is_err());
+    assert!(reader.read_page("repository", "../secret.md").is_err());
+    assert!(reader.read_page("repository", "metadata.json").is_err());
 
     #[cfg(unix)]
     {
-        std::os::unix::fs::symlink(repository.path().join("secret.md"), wiki.join("link.md"))
+        use std::os::unix::fs::symlink;
+
+        symlink(repository.path().join("secret.md"), wiki.join("link.md"))
             .expect("create outside symlink");
-        assert!(reader.read_page("link.md").is_err());
+        symlink(
+            wiki.join("changes").join(&change_one).join("overview.md"),
+            wiki.join("other-edition.md"),
+        )
+        .expect("create cross-edition symlink");
+        symlink(
+            wiki.join("overview.md"),
+            wiki.join("changes")
+                .join(&change_two)
+                .join("other-edition.md"),
+        )
+        .expect("create reverse cross-edition symlink");
+        assert!(reader.read_page("repository", "link.md").is_err());
+        assert!(reader.read_page("repository", "other-edition.md").is_err());
+        assert!(reader.read_page(&change_two, "other-edition.md").is_err());
     }
 }
 
 #[test]
 fn binary_serves_offline_assets_manifest_pages_and_safe_errors() {
     let (_repository, wiki) = fixture();
+    let (change_one, change_two) = add_change_editions(&wiki);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        symlink(
+            wiki.join("changes").join(&change_one).join("overview.md"),
+            wiki.join("cross-edition.md"),
+        )
+        .expect("create cross-edition page symlink");
+    }
     let mut child = Command::new(env!("CARGO_BIN_EXE_repowiki-reader"))
         .arg(&wiki)
         .args(["--port", "0", "--no-open"])
@@ -272,19 +490,61 @@ fn binary_serves_offline_assets_manifest_pages_and_safe_errors() {
     assert!(manifest.starts_with("HTTP/1.1 200 OK"));
     assert!(response_body(&manifest).contains("\"navigation\""));
     assert!(response_body(&manifest).contains("Platform"));
+    assert!(response_body(&manifest).contains("\"default_edition\":\"repository\""));
+    assert!(response_body(&manifest).contains("\"kind\":\"change\""));
 
-    let page = http_request(address, "GET", "/api/pages/overview.md");
+    let page = http_request(address, "GET", "/api/editions/repository/pages/overview.md");
     assert!(page.starts_with("HTTP/1.1 200 OK"));
     assert!(response_body(&page).contains("Repo overview"));
 
-    let traversal = http_request(address, "GET", "/api/pages/%2e%2e%2fsecret.md");
+    #[cfg(unix)]
+    {
+        let cross_edition = http_request(
+            address,
+            "GET",
+            "/api/editions/repository/pages/cross-edition.md",
+        );
+        assert!(cross_edition.starts_with("HTTP/1.1 404 Not Found"));
+    }
+
+    let first_change = http_request(
+        address,
+        "GET",
+        &format!("/api/editions/{change_one}/pages/overview.md"),
+    );
+    assert!(first_change.starts_with("HTTP/1.1 200 OK"));
+    assert!(response_body(&first_change).contains("First edition content"));
+
+    let second_change = http_request(
+        address,
+        "GET",
+        &format!("/api/editions/{change_two}/pages/overview.md"),
+    );
+    assert!(second_change.starts_with("HTTP/1.1 200 OK"));
+    assert!(response_body(&second_change).contains("Second edition content"));
+
+    let unknown_edition = http_request(address, "GET", "/api/editions/unknown/pages/overview.md");
+    assert!(unknown_edition.starts_with("HTTP/1.1 404 Not Found"));
+
+    let removed_route = http_request(address, "GET", "/api/pages/overview.md");
+    assert!(removed_route.starts_with("HTTP/1.1 404 Not Found"));
+
+    let traversal = http_request(
+        address,
+        "GET",
+        "/api/editions/repository/pages/%2e%2e%2fsecret.md",
+    );
     assert!(traversal.starts_with("HTTP/1.1 404 Not Found"));
 
     let method = http_request(address, "POST", "/");
     assert!(method.starts_with("HTTP/1.1 405 Method Not Allowed"));
     assert!(method.contains("Allow: GET, HEAD"));
 
-    let head = http_request(address, "HEAD", "/api/pages/overview.md");
+    let head = http_request(
+        address,
+        "HEAD",
+        "/api/editions/repository/pages/overview.md",
+    );
     assert!(head.starts_with("HTTP/1.1 200 OK"));
     assert!(response_body(&head).is_empty());
 
