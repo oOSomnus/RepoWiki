@@ -1,6 +1,7 @@
 use crate::model::{
-    Metadata, Module, ModuleTree, Node, Statistics, Summary, DEFAULT_CLUSTER_BATCH_SIZE,
-    DEFAULT_MAX_TOKEN_PER_LEAF_MODULE, DEFAULT_MAX_TOKEN_PER_MODULE,
+    DecompositionDecision, DecompositionReview, Metadata, Module, ModuleTree, Node, Statistics,
+    Summary, DEFAULT_CLUSTER_BATCH_SIZE, DEFAULT_MAX_TOKEN_PER_LEAF_MODULE,
+    DEFAULT_MAX_TOKEN_PER_MODULE,
 };
 use crate::session::{self, SessionState};
 use anyhow::{anyhow, Context, Result};
@@ -66,6 +67,9 @@ pub struct TreeSaveResult {
     pub max_depth: usize,
     pub quality_valid: bool,
     pub quality_errors: Vec<String>,
+    pub decomposition_review_valid: bool,
+    pub decomposition_review_errors: Vec<String>,
+    pub decomposition_review_warnings: Vec<Value>,
     pub unmatched_architecture_ids: Vec<String>,
 }
 
@@ -261,7 +265,37 @@ pub fn save_module_tree(
     tree: &ModuleTree,
     first: bool,
 ) -> Result<TreeSaveResult> {
+    save_module_tree_with_review(state, tree, first, false)
+}
+
+pub fn save_module_tree_with_review(
+    state: &SessionState,
+    tree: &ModuleTree,
+    first: bool,
+    require_decomposition_review: bool,
+) -> Result<TreeSaveResult> {
     validate_module_page_paths(tree)?;
+    let decomposition_review = assess_decomposition_reviews(tree, require_decomposition_review);
+    let decomposition_review_errors = decomposition_review["errors"]
+        .as_array()
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if require_decomposition_review && !decomposition_review_errors.is_empty() {
+        return Err(anyhow!(
+            "module decomposition review is incomplete: {}",
+            decomposition_review_errors.join("; ")
+        ));
+    }
+    let decomposition_review_warnings = decomposition_review["warnings"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     let output = session::output_dir(state);
     fs::create_dir_all(&output)?;
     let tree_path = output.join("module_tree.json");
@@ -326,6 +360,7 @@ pub fn save_module_tree(
         "max_depth": quality["max_depth"],
         "quality_valid": quality_valid,
         "quality_errors": quality_errors,
+        "decomposition_review": decomposition_review,
         "oversized_leaf_modules": quality["oversized_leaf_modules"],
         "oversized_leaf_warnings": quality["oversized_leaf_warnings"],
         "orphaned_candidate_ids": quality["orphaned_candidate_ids"],
@@ -348,6 +383,9 @@ pub fn save_module_tree(
         max_depth: quality["max_depth"].as_u64().unwrap_or_default() as usize,
         quality_valid,
         quality_errors,
+        decomposition_review_valid: decomposition_review["valid"].as_bool().unwrap_or(false),
+        decomposition_review_errors,
+        decomposition_review_warnings,
         unmatched_architecture_ids: validation["unmatched_architecture_ids"]
             .as_array()
             .map(|values| {
@@ -407,6 +445,11 @@ pub fn apply_cluster_response(
     }
 
     let mut diagnostics = Vec::new();
+    let module_review = if scope == "module" {
+        parse_decomposition_review(response)?
+    } else {
+        None
+    };
     let parsed = parse_grouped_components(response, &mut diagnostics);
     let mut groups = Vec::<(String, Module)>::new();
     let mut claimed = BTreeSet::new();
@@ -438,11 +481,54 @@ pub fn apply_cluster_response(
         }
     }
 
+    if scope == "module" && groups.is_empty() {
+        let Some(review) = module_review.as_ref() else {
+            return Err(anyhow!(
+                "module clustering returned no child modules or decomposition review: {}",
+                diagnostics.join("; ")
+            ));
+        };
+        if review.decision != DecompositionDecision::RetainLeaf {
+            return Err(anyhow!(
+                "module clustering returned no child modules but decision was not retain_leaf"
+            ));
+        }
+        let parent = module_at_path_mut(tree, parent_path)
+            .ok_or_else(|| anyhow!("module path not found: {}", parent_path.join("/")))?;
+        parent.decomposition_review = Some(review.clone());
+        return Ok(json!({
+            "scope": scope,
+            "parent_path": parent_path,
+            "decision": "retain_leaf",
+            "input_count": input_ids.len(),
+            "selected_count": 0,
+            "omitted_count": 0,
+            "group_count": 0,
+            "diagnostics": diagnostics,
+        }));
+    }
+
     if groups.is_empty() {
         return Err(anyhow!(
             "architecture clustering returned no module anchors: {}",
             diagnostics.join("; ")
         ));
+    }
+
+    if scope == "module" {
+        if module_review
+            .as_ref()
+            .is_some_and(|review| review.decision != DecompositionDecision::Split)
+        {
+            return Err(anyhow!(
+                "module clustering returned child modules but decision was not split"
+            ));
+        }
+        if let Some(review) = module_review.as_ref() {
+            module_at_path_mut(tree, parent_path)
+                .ok_or_else(|| anyhow!("module path not found: {}", parent_path.join("/")))?
+                .decomposition_review = Some(review.clone());
+        }
     }
 
     let omitted_count = requested.len().saturating_sub(claimed.len());
@@ -541,6 +627,7 @@ pub fn apply_super_group_response(tree: &mut ModuleTree, response: &str) -> Resu
                 path: None,
                 components,
                 children,
+                decomposition_review: info.decomposition_review,
             },
         );
         consolidated += 1;
@@ -906,6 +993,27 @@ fn parse_grouped_modules(
     parse_grouped_object(response, "GROUPED_MODULES", diagnostics)
 }
 
+fn parse_decomposition_review(response: &str) -> Result<Option<DecompositionReview>> {
+    const START: &str = "<DECOMPOSITION_REVIEW>";
+    const END: &str = "</DECOMPOSITION_REVIEW>";
+    let Some(start) = response.find(START) else {
+        return Ok(None);
+    };
+    let body_start = start + START.len();
+    let body_end = response[body_start..]
+        .find(END)
+        .map(|offset| body_start + offset)
+        .ok_or_else(|| anyhow!("missing </DECOMPOSITION_REVIEW> marker"))?;
+    let body = response[body_start..body_end]
+        .trim()
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+    serde_json::from_str(body)
+        .context("invalid DECOMPOSITION_REVIEW JSON")
+        .map(Some)
+}
+
 fn parse_grouped_object(
     response: &str,
     marker: &str,
@@ -983,10 +1091,20 @@ fn parse_module_value(
             children.insert(module.to_string(), Module::default());
         }
     }
+    let decomposition_review = info
+        .get("decomposition_review")
+        .cloned()
+        .map(serde_json::from_value::<DecompositionReview>)
+        .transpose()
+        .unwrap_or_else(|error| {
+            diagnostics.push(format!("invalid decomposition_review: {error}"));
+            None
+        });
     Module {
         path,
         components,
         children,
+        decomposition_review,
     }
 }
 
@@ -1000,6 +1118,9 @@ fn merge_modules(target: &mut ModuleTree, groups: Vec<(String, Module)>) {
             }
             if existing.path.is_none() {
                 existing.path = incoming.path.take();
+            }
+            if incoming.decomposition_review.is_some() {
+                existing.decomposition_review = incoming.decomposition_review.take();
             }
             let children = incoming.children.into_iter().collect::<Vec<_>>();
             merge_modules(&mut existing.children, children);
@@ -1037,6 +1158,91 @@ fn collect_tree_ids(tree: &ModuleTree) -> BTreeSet<String> {
     let mut ids = BTreeSet::new();
     visit(tree, &mut ids);
     ids
+}
+
+fn assess_decomposition_reviews(tree: &ModuleTree, required: bool) -> Value {
+    fn visit(
+        modules: &ModuleTree,
+        parent_path: &[String],
+        required: bool,
+        reviewed: &mut usize,
+        missing: &mut Vec<Value>,
+        errors: &mut Vec<String>,
+        warnings: &mut Vec<Value>,
+    ) {
+        use crate::model::{BreadthRisk, DecompositionDecision};
+
+        for (name, module) in modules {
+            let mut path = parent_path.to_vec();
+            path.push(name.clone());
+            let path_label = path.join("/");
+            match &module.decomposition_review {
+                Some(review) => {
+                    *reviewed += 1;
+                    if review.reason.trim().is_empty() && required {
+                        errors.push(format!(
+                            "module '{path_label}' has an empty decomposition reason"
+                        ));
+                    }
+                    let expected = if module.children.is_empty() {
+                        DecompositionDecision::RetainLeaf
+                    } else {
+                        DecompositionDecision::Split
+                    };
+                    if review.decision != expected && required {
+                        errors.push(format!(
+                            "module '{path_label}' decomposition decision does not match its children"
+                        ));
+                    }
+                    if module.children.is_empty() && review.breadth_risk == BreadthRisk::High {
+                        warnings.push(json!({
+                            "module": name,
+                            "path": path,
+                            "reason": review.reason,
+                            "warning": "high breadth risk was retained as a leaf",
+                        }));
+                    }
+                }
+                None => {
+                    if required {
+                        errors.push(format!("module '{path_label}' has no decomposition review"));
+                    }
+                    missing.push(json!({"module": name, "path": path}));
+                }
+            }
+            visit(
+                &module.children,
+                &path,
+                required,
+                reviewed,
+                missing,
+                errors,
+                warnings,
+            );
+        }
+    }
+
+    let mut reviewed = 0;
+    let mut missing = Vec::new();
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+    visit(
+        tree,
+        &[],
+        required,
+        &mut reviewed,
+        &mut missing,
+        &mut errors,
+        &mut warnings,
+    );
+    json!({
+        "required": required,
+        "valid": errors.is_empty(),
+        "reviewed_module_count": reviewed,
+        "missing": missing,
+        "errors": errors,
+        "warnings": warnings,
+    })
 }
 
 pub fn read_processing_order(state: &SessionState) -> Result<Vec<ProcessingItem>> {
@@ -1176,6 +1382,23 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
             "incomplete documentation: module tree quality gate failed: {errors}"
         ));
     }
+    if validation["decomposition_review"]["required"] == Value::Bool(true)
+        && validation["decomposition_review"]["valid"] == Value::Bool(false)
+    {
+        let errors = validation["decomposition_review"]["errors"]
+            .as_array()
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })
+            .unwrap_or_default();
+        return Err(anyhow!(
+            "incomplete documentation: module decomposition review failed: {errors}"
+        ));
+    }
 
     let tree: ModuleTree = session::read_json(&output.join("module_tree.json"))?;
     validate_module_page_paths(&tree)?;
@@ -1227,6 +1450,10 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
         ..
     } = builder;
     let mut errors = builder_errors;
+    let decomposition_review_warnings = validation["decomposition_review"]["warnings"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     errors.extend(
         extra_pages
             .iter()
@@ -1245,7 +1472,8 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
         "errors": errors,
         "extra_pages": extra_pages,
         "broken_links": broken_links,
-        "prose_count_mode": "unicode-aware-v1",
+        "warnings": decomposition_review_warnings,
+        "prose_count_mode": "language-aware-v2",
         "page_count": page_count,
         "valid_page_count": valid_page_count,
         "explanatory_page_count": explanatory_page_count,
@@ -1259,6 +1487,8 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
             "architecture_diagrams": true,
             "template_only_rejection": true,
             "canonical_page_paths": true,
+            "module_decomposition_review": validation["decomposition_review"]["required"]
+                == Value::Bool(true),
             "no_extra_markdown_pages": true,
             "no_broken_markdown_links": true,
         },
@@ -1671,6 +1901,8 @@ impl<'a> DocumentationReportBuilder<'a> {
                 .cloned()
                 .chain(std::iter::once(name.clone()))
                 .collect::<Vec<_>>();
+            let mut diagram_labels = labels.clone();
+            collect_module_diagram_labels(name, module, self.nodes, &mut diagram_labels);
             let result = assess_page(
                 name,
                 module,
@@ -1681,6 +1913,7 @@ impl<'a> DocumentationReportBuilder<'a> {
                     is_overview: false,
                     required_links: &required_links,
                     grounded_labels: &labels,
+                    diagram_labels: &diagram_labels,
                 },
             );
             self.record_page(&page, result);
@@ -1696,6 +1929,8 @@ impl<'a> DocumentationReportBuilder<'a> {
             .collect::<Result<Vec<_>>>()?;
         let mut labels = Vec::new();
         collect_module_labels(tree, &mut labels);
+        let mut diagram_labels = labels.clone();
+        collect_tree_diagram_labels(tree, self.nodes, &mut diagram_labels);
         let result = assess_page(
             "Repository overview",
             &Module::default(),
@@ -1706,6 +1941,7 @@ impl<'a> DocumentationReportBuilder<'a> {
                 is_overview: true,
                 required_links: &overview_links,
                 grounded_labels: &labels,
+                diagram_labels: &diagram_labels,
             },
         );
         self.record_page("overview.md", result);
@@ -1722,7 +1958,9 @@ impl<'a> DocumentationReportBuilder<'a> {
         if result["mermaid_blocks"].as_u64().unwrap_or_default() > 0 {
             self.mermaid_page_count += 1;
         }
-        if result["grounded_components"].as_u64().unwrap_or_default() > 0 {
+        if result["grounded_components"].as_u64().unwrap_or_default() > 0
+            || result["grounded_modules"].as_u64().unwrap_or_default() > 0
+        {
             self.grounded_page_count += 1;
         }
         if let Some(page_errors) = result["errors"].as_array() {
@@ -1745,6 +1983,7 @@ struct PageAssessmentContext<'a> {
     is_overview: bool,
     required_links: &'a [String],
     grounded_labels: &'a [String],
+    diagram_labels: &'a [String],
 }
 
 fn assess_page(
@@ -1759,12 +1998,24 @@ fn assess_page(
         is_overview,
         required_links,
         grounded_labels,
+        diagram_labels,
     } = context;
     let headings = markdown_headings(content);
     let lower = content.to_ascii_lowercase();
     let mermaid = validate_mermaid(content);
-    let prose_words = markdown_prose_word_count(content);
-    let purpose = has_heading_term(&headings, &["purpose", "scope", "role"]);
+    let prose_counts = markdown_prose_counts(content);
+    let cjk_mode = prose_counts.cjk_characters > prose_counts.words;
+    let prose_words = if cjk_mode {
+        prose_counts.cjk_characters
+    } else {
+        prose_counts.words
+    };
+    let purpose = has_heading_term(
+        &headings,
+        &[
+            "purpose", "scope", "role", "目的", "职责", "作用", "范围", "简介",
+        ],
+    );
     let architecture = has_heading_term(
         &headings,
         &[
@@ -1778,42 +2029,80 @@ fn assess_page(
             "component interaction",
             "behavior",
             "behaviour",
+            "架构",
+            "设计",
+            "数据流",
+            "流程",
+            "执行",
+            "生命周期",
+            "依赖",
+            "组件交互",
+            "行为",
+            "运行",
         ],
     );
     let responsibilities = has_heading_term(
         &headings,
-        &["responsibilities", "interfaces", "usage", "error"],
+        &[
+            "responsibilities",
+            "interfaces",
+            "usage",
+            "error",
+            "responsibility",
+            "职责",
+            "接口",
+            "使用",
+            "错误",
+            "异常",
+            "状态",
+            "能力",
+            "实现",
+        ],
     );
     let semantic_sections =
         usize::from(purpose) + usize::from(architecture) + usize::from(responsibilities);
-    let prose_limit = if is_overview {
-        50
+    let prose_limit = if cjk_mode {
+        if is_leaf {
+            500
+        } else {
+            700
+        }
     } else if is_leaf {
-        60
+        150
     } else {
-        50
+        200
     };
-    let explanatory = prose_words >= prose_limit && (semantic_sections >= 1 || mermaid.blocks > 0);
+    let explanatory = prose_words >= prose_limit && semantic_sections >= 2;
 
     let mut grounded_components = 0usize;
     for component_id in &module.components {
         let Some(node) = nodes.get(component_id) else {
             continue;
         };
-        let markers = [
-            component_id.as_str(),
-            node.relative_path.as_str(),
-            node.file_path.as_str(),
-            node.name.as_str(),
-        ];
-        if markers
-            .iter()
-            .filter(|marker| !marker.is_empty())
-            .any(|marker| content.contains(marker))
-        {
+        let source_path = if node.relative_path.is_empty() {
+            node.file_path.as_str()
+        } else {
+            node.relative_path.as_str()
+        };
+        let symbol = if node.name.is_empty() {
+            node.display_name.as_deref().unwrap_or_default()
+        } else {
+            &node.name
+        };
+        let exact_id = content.contains(component_id);
+        let symbol_and_path = !symbol.is_empty()
+            && !source_path.is_empty()
+            && content
+                .split("\n\n")
+                .any(|paragraph| paragraph.contains(symbol) && paragraph.contains(source_path));
+        if exact_id || symbol_and_path {
             grounded_components += 1;
         }
     }
+    let grounded_modules = grounded_labels
+        .iter()
+        .filter(|label| !label.is_empty() && content.contains(label.as_str()))
+        .count();
 
     let template_sections = [
         "module location",
@@ -1834,13 +2123,27 @@ fn assess_page(
     }
     if prose_words < prose_limit {
         page_errors.push(format!(
-            "contains only {prose_words} explanatory words; add source-grounded prose"
+            "contains only {prose_words} explanatory {}; expected at least {prose_limit}",
+            if cjk_mode {
+                "CJK characters"
+            } else {
+                "English words"
+            }
         ));
     }
-    if is_leaf && grounded_components == 0 && !module.components.is_empty() {
-        page_errors.push("does not mention any analyzed component or source path".to_string());
+    let minimum_grounded_components = module.components.len().min(2);
+    if minimum_grounded_components > 0 && grounded_components < minimum_grounded_components {
+        page_errors.push(format!(
+            "mentions {grounded_components} analyzed component(s); expected at least {minimum_grounded_components} source anchors"
+        ));
     }
-    let diagram = validate_mermaid_with_context(content, grounded_labels, !is_leaf, is_overview);
+    if semantic_sections < 2 {
+        page_errors.push(
+            "covers fewer than two semantic areas such as purpose, architecture, interfaces, behavior, or lifecycle"
+                .to_string(),
+        );
+    }
+    let diagram = validate_mermaid_with_context(content, diagram_labels, !is_leaf, is_overview);
     if diagram.architecture_quality == "fail" {
         page_errors.extend(diagram.quality_issues.iter().cloned());
     }
@@ -1870,9 +2173,11 @@ fn assess_page(
         "errors": page_errors,
         "explanatory": explanatory,
         "prose_words": prose_words,
-        "prose_count_mode": "unicode-aware-v1",
+        "prose_count_mode": if cjk_mode { "cjk_characters" } else { "english_words" },
+        "prose_floor": prose_limit,
         "semantic_sections": semantic_sections,
         "grounded_components": grounded_components,
+        "grounded_modules": grounded_modules,
         "component_count": module.components.len(),
         "mermaid_blocks": mermaid.blocks,
         "mermaid_balanced": mermaid.balanced,
@@ -1886,6 +2191,45 @@ fn collect_module_labels(tree: &ModuleTree, labels: &mut Vec<String>) {
     for (name, module) in tree {
         labels.push(name.clone());
         collect_module_labels(&module.children, labels);
+    }
+}
+
+fn collect_tree_diagram_labels(
+    tree: &ModuleTree,
+    nodes: &BTreeMap<String, Node>,
+    labels: &mut Vec<String>,
+) {
+    for (name, module) in tree {
+        collect_module_diagram_labels(name, module, nodes, labels);
+    }
+}
+
+fn collect_module_diagram_labels(
+    name: &str,
+    module: &Module,
+    nodes: &BTreeMap<String, Node>,
+    labels: &mut Vec<String>,
+) {
+    labels.push(name.to_string());
+    for component_id in &module.components {
+        let Some(node) = nodes.get(component_id) else {
+            continue;
+        };
+        for label in [
+            Some(component_id.as_str()),
+            Some(node.name.as_str()),
+            Some(node.relative_path.as_str()),
+            node.display_name.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|label| !label.is_empty())
+        {
+            labels.push(label.to_string());
+        }
+    }
+    for (child_name, child) in &module.children {
+        collect_module_diagram_labels(child_name, child, nodes, labels);
     }
 }
 
@@ -1910,9 +2254,21 @@ fn has_heading_term(headings: &[String], terms: &[&str]) -> bool {
         .any(|heading| terms.iter().any(|term| heading.contains(term)))
 }
 
+#[cfg(test)]
 fn markdown_prose_word_count(content: &str) -> usize {
+    let counts = markdown_prose_counts(content);
+    counts.words + counts.cjk_characters
+}
+
+#[derive(Default)]
+struct ProseCounts {
+    words: usize,
+    cjk_characters: usize,
+}
+
+fn markdown_prose_counts(content: &str) -> ProseCounts {
     let mut in_fence = false;
-    let mut words = 0usize;
+    let mut counts = ProseCounts::default();
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("\x60\x60\x60") {
@@ -1929,9 +2285,11 @@ fn markdown_prose_word_count(content: &str) -> usize {
         {
             continue;
         }
-        words += prose_units_in_line(trimmed);
+        let line_counts = prose_counts_in_line(trimmed);
+        counts.words += line_counts.words;
+        counts.cjk_characters += line_counts.cjk_characters;
     }
-    words
+    counts
 }
 
 fn top_level_markdown_pages(output: &Path) -> Result<Vec<String>> {
@@ -2043,7 +2401,7 @@ fn percent_decode(value: &str) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
-fn prose_units_in_line(line: &str) -> usize {
+fn prose_counts_in_line(line: &str) -> ProseCounts {
     let mut cleaned = String::new();
     let mut chars = line.chars().peekable();
     let mut in_inline_code = false;
@@ -2068,26 +2426,26 @@ fn prose_units_in_line(line: &str) -> usize {
         cleaned.push(ch);
     }
 
-    let mut units = 0usize;
+    let mut counts = ProseCounts::default();
     let mut in_word = false;
     for ch in cleaned.chars() {
         if is_cjk_character(ch) {
             if in_word {
-                units += 1;
+                counts.words += 1;
                 in_word = false;
             }
-            units += 1;
+            counts.cjk_characters += 1;
         } else if ch.is_alphanumeric() || ch == '_' {
             in_word = true;
         } else if in_word {
-            units += 1;
+            counts.words += 1;
             in_word = false;
         }
     }
     if in_word {
-        units += 1;
+        counts.words += 1;
     }
-    units
+    counts
 }
 
 fn is_cjk_character(ch: char) -> bool {
@@ -2650,5 +3008,114 @@ flowchart LR
             count < 40,
             "links and code should not inflate prose: {count}"
         );
+    }
+
+    #[test]
+    fn page_assessment_uses_language_aware_content_floors() {
+        let repeated_cjk = "该模块负责说明职责边界、接口关系和请求执行流程。".repeat(45);
+        let cjk_content = format!(
+            "# 运行时\n\n## 目的与职责\n\n{repeated_cjk}\n\n## 架构流程\n\n{repeated_cjk}\n"
+        );
+        let cjk = assess_page(
+            "Runtime",
+            &Module::default(),
+            &cjk_content,
+            &BTreeMap::new(),
+            PageAssessmentContext {
+                is_leaf: true,
+                is_overview: false,
+                required_links: &[],
+                grounded_labels: &[],
+                diagram_labels: &[],
+            },
+        );
+        assert_eq!(cjk["prose_count_mode"], json!("cjk_characters"));
+        assert_eq!(cjk["prose_floor"], json!(500));
+        assert_eq!(cjk["valid"], json!(true), "{cjk}");
+
+        let repeated_english =
+            "The runtime owns request parsing, dispatch, state transitions, and result delivery. "
+                .repeat(24);
+        let english_content = format!(
+            "# Runtime\n\n## Purpose\n\n{repeated_english}\n\n## Architecture\n\n{repeated_english}\n"
+        );
+        let english = assess_page(
+            "Runtime",
+            &Module::default(),
+            &english_content,
+            &BTreeMap::new(),
+            PageAssessmentContext {
+                is_leaf: true,
+                is_overview: false,
+                required_links: &[],
+                grounded_labels: &[],
+                diagram_labels: &[],
+            },
+        );
+        assert_eq!(english["prose_count_mode"], json!("english_words"));
+        assert_eq!(english["prose_floor"], json!(150));
+        assert_eq!(english["valid"], json!(true), "{english}");
+    }
+
+    #[test]
+    fn page_assessment_requires_two_grounded_anchors_when_available() {
+        let ids = vec![
+            "src/runtime.rs::Runtime".to_string(),
+            "src/runtime.rs::dispatch".to_string(),
+        ];
+        let module = Module {
+            components: ids.clone(),
+            ..Module::default()
+        };
+        let nodes = BTreeMap::from([
+            (
+                ids[0].clone(),
+                Node {
+                    id: ids[0].clone(),
+                    name: "Runtime".to_string(),
+                    relative_path: "src/runtime.rs".to_string(),
+                    display_name: Some("struct Runtime".to_string()),
+                    ..Node::default()
+                },
+            ),
+            (
+                ids[1].clone(),
+                Node {
+                    id: ids[1].clone(),
+                    name: "dispatch".to_string(),
+                    relative_path: "src/runtime.rs".to_string(),
+                    ..Node::default()
+                },
+            ),
+        ]);
+        let prose =
+            "The runtime owns request parsing, dispatch, state transitions, and result delivery. "
+                .repeat(24);
+        let content = format!(
+            "# Runtime\n\n## Purpose\n\n{prose}\n\n## Architecture\n\n{prose}\n\nRuntime in `src/runtime.rs`.\n"
+        );
+        let report = assess_page(
+            "Runtime",
+            &module,
+            &content,
+            &nodes,
+            PageAssessmentContext {
+                is_leaf: true,
+                is_overview: false,
+                required_links: &[],
+                grounded_labels: &["Runtime".to_string()],
+                diagram_labels: &["Runtime".to_string()],
+            },
+        );
+        assert_eq!(report["grounded_components"], json!(1));
+        assert_eq!(report["valid"], json!(false));
+        assert!(report["errors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|error| error
+                .as_str()
+                .unwrap_or_default()
+                .contains("expected at least 2")));
     }
 }

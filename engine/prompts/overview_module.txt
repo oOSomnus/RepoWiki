@@ -17,6 +17,12 @@ responsibility, its interface to the surrounding system, how its children
 compose into one architectural role, and the most important control or data
 flow through it.
 
+Write a substantive parent article that explains the relationships between
+children, not just their names. Trace how requests/data cross the child
+boundaries, identify important interfaces or shared state from the evidence,
+and state what remains outside this module. Mention lifecycle or failure
+behavior when the source makes it relevant.
+
 Choose headings and ordering based on the module. Do not emit a fixed child
 list, directory summary, repeated boilerplate, or a page that only restates
 child names.

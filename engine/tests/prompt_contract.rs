@@ -156,6 +156,9 @@ fn cluster_scope_selects_repository_or_module_architecture_contract() {
     assert!(repo_prompt.contains("architecture map"));
     assert!(repo_prompt.contains("representative component IDs"));
     assert!(repo_prompt.contains("directory classification"));
+    assert!(repo_prompt.contains("decomposition_review"));
+    assert!(repo_prompt.contains("breadth_risk"));
+    assert!(!repo_prompt.contains("Prefer a shallow architecture"));
 
     repo.insert("scope".to_string(), Value::String("module".to_string()));
     repo.insert(
@@ -172,10 +175,13 @@ fn cluster_scope_selects_repository_or_module_architecture_contract() {
         }),
     );
     let module_prompt = prompts::render(PromptType::Cluster, &repo).expect("module prompt");
-    assert!(module_prompt.contains("existing module"));
+    assert!(module_prompt.contains("existing architecture module"));
     assert!(module_prompt.contains("representative component IDs"));
-    assert!(module_prompt.contains("Keep the tree\nshallow"));
-    assert!(module_prompt.contains("Do not create a directory-shaped child"));
+    assert!(module_prompt.contains("<DECOMPOSITION_REVIEW>"));
+    assert!(module_prompt.contains("retain_leaf"));
+    assert!(module_prompt.contains("high-risk leaf"));
+    assert!(!module_prompt.contains("Keep the tree shallow"));
+    assert!(module_prompt.contains("directory-shaped children"));
 }
 
 #[test]

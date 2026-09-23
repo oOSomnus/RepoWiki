@@ -21,14 +21,20 @@ Do not substitute a localized module label or invent another filename.
 Explain why the selected components form one module instead of presenting an
 inventory. Use concrete source paths, types, functions, and relationships.
 
-Write several source-grounded prose paragraphs and include at least one
-descriptive section about responsibilities, interfaces, behavior, lifecycle,
-or data flow. Section names remain free-form; do not turn this requirement
-into a fixed template.
+Write a substantive article, not a summary blurb. Explain the module boundary,
+its main types and interfaces, how a real control/data flow crosses them, and
+the lifecycle or failure behavior visible in the source. Connect the selected
+components in prose rather than listing them. Anchor claims to specific source
+paths and symbols; use at least two distinct anchors when the evidence contains
+at least two components. Use several explanatory paragraphs across meaningful
+sections, without padding or fixed headings.
 
 Use one or more Mermaid diagrams only when they explain distinct architecture
 questions such as composition, execution sequence, or data movement. Every
 node and edge must be grounded. Do not use a generic placeholder graph.
+
+The complete reference article below models depth and source specificity; do
+not reuse its repository-specific facts or sentences.
 
 The host writes the page through codewiki doc write. Do not create files or
 spawn untracked sub-modules.

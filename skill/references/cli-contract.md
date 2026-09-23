@@ -77,10 +77,20 @@ The tree input is an object keyed by module name:
   "Module_Name": {
     "path": "src/example",
     "components": ["src/example.py::Service"],
-    "children": {}
+    "children": {},
+    "decomposition_review": {
+      "decision": "retain_leaf",
+      "breadth_risk": "low",
+      "reason": "The selected components form one cohesive responsibility."
+    }
   }
 }
 ```
+
+`decomposition_review.decision` is `split` or `retain_leaf`,
+`breadth_risk` is `low`, `medium`, or `high`, and `reason` explains the
+source-backed decision. A split module must have children; a retained leaf must
+not. Older trees may omit the field for reading and update compatibility.
 
 `tree apply-cluster` consumes a host response file, an input-ID list, and
 a working tree. It accepts `<GROUPED_COMPONENTS>` or a JSON object, validates
@@ -90,7 +100,10 @@ intentional implementation detail and remain only in the dependency graph;
 the CLI never creates a fallback page for them. `tree apply-super-group` consumes
 `<GROUPED_MODULES>` and nests existing module entries as children without
 discarding their pages or IDs. Both commands write the transformed tree to
-`--output-tree-file` (or replace `--tree-file`) and return diagnostics.
+`--output-tree-file` (or replace `--tree-file`) and return diagnostics. A
+module-scope response includes `<DECOMPOSITION_REVIEW>` for the current
+parent; it may return an empty `<GROUPED_COMPONENTS>{}</GROUPED_COMPONENTS>`
+only when that review says `retain_leaf`.
 
 `tree overview-context` renders a target's structure with components removed,
 immediate child `docs_path` values, and a reduced `architecture_context` with
@@ -99,7 +112,7 @@ existing page has `docs_path: null`; an existing page has its resolved path.
 Its default target is the repository root and its result is written to the
 session workspace.
 
-`tree save --first` writes `first_module_tree.json` and `module_tree.json`, computes leaf-first `processing_order.json` (each item includes its exact canonical `doc_path`), and validates that every selected architecture anchor belongs to the analysis. Module keys must be non-empty ASCII page-safe names. The final tree is intentionally not an exhaustive partition of `leaf_nodes.json`; omitted candidates are recorded as analysis detail rather than treated as missing documentation.
+`tree save --first` writes `first_module_tree.json` and `module_tree.json`, computes leaf-first `processing_order.json` (each item includes its exact canonical `doc_path`), and validates that every selected architecture anchor belongs to the analysis. Module keys must be non-empty ASCII page-safe names. The final tree is intentionally not an exhaustive partition of `leaf_nodes.json`; omitted candidates are recorded as analysis detail rather than treated as missing documentation. On a new generation's final save, pass `--require-decomposition-review` to require a valid review on every module. This flag is optional so older trees and update workflows remain readable.
 
 The final tree may repeat representative component IDs in a parent and its
 descendants. `tree save` additionally records these architecture quality fields in
@@ -114,6 +127,9 @@ descendants. `tree save` additionally records these architecture quality fields 
   only and does not make a saved leaf invalid;
 - `tree_relationship_errors` reports the same selected anchor being owned by
   multiple leaf modules;
+- `decomposition_review` records missing/invalid reviews and warnings for
+  high-risk leaves that were retained; warnings remain visible in the
+  documentation validation report and do not silently disappear;
 - `quality_valid` is false for invalid selected IDs, invalid relationships,
   excessive depth, or oversized architecture pages; `complete` means the
   selected architecture tree is valid.
@@ -174,9 +190,13 @@ codewiki doc validate --repo-root <repo> --session <session_id>
 ~~~
 
 The command writes the session-side documentation validation report and
-returns per-page roles, explanatory prose counts, source grounding, Mermaid
-architecture quality, and required child links. A valid report has `valid:
-true`. It rejects list-only or fixed-template pages, parent pages with no
+returns per-page roles, language-aware prose counts, source grounding, Mermaid
+architecture quality, and required child links. Leaf pages require at least
+150 English prose words or 500 CJK prose characters; parent and overview
+pages require 200 English prose words or 700 CJK prose characters. Pages also
+need two semantic areas and up to two distinct component anchors when
+available. A valid report has `valid: true`. It rejects list-only or
+fixed-template pages, parent pages with no
 useful architecture diagram or child links, and a repository overview without
 a grounded end-to-end diagram and top-level links. It also rejects extra
 top-level Markdown pages, broken local Markdown links, and non-canonical local

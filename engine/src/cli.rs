@@ -218,6 +218,8 @@ struct SaveTreeArgs {
     tree_file: PathBuf,
     #[arg(long, default_value_t = false)]
     first: bool,
+    #[arg(long, default_value_t = false)]
+    require_decomposition_review: bool,
 }
 
 #[derive(Debug, Args)]
@@ -733,7 +735,12 @@ fn save_tree(args: SaveTreeArgs) -> Result<Value> {
     let session = args.session.clone();
     with_locked_session(&session, move |state| {
         let tree: ModuleTree = docs::read_tree_file(&args.tree_file)?;
-        let result = docs::save_module_tree(state, &tree, args.first)?;
+        let result = docs::save_module_tree_with_review(
+            state,
+            &tree,
+            args.first,
+            args.require_decomposition_review,
+        )?;
         Ok(json!({
             "ok": true,
             "result": result,
@@ -1076,5 +1083,27 @@ mod tests {
         };
         assert_eq!(UpdateOptions::from(args.update_options).k_hop, 2);
         assert!(Cli::try_parse_from(["codewiki", "generate", "--update", "--rung", "4"]).is_err());
+    }
+
+    #[test]
+    fn tree_save_can_require_complete_decomposition_reviews() {
+        let cli = Cli::try_parse_from([
+            "codewiki",
+            "tree",
+            "save",
+            "--session",
+            "session-id",
+            "--tree-file",
+            "tree.json",
+            "--require-decomposition-review",
+        ])
+        .expect("strict decomposition review flag should parse");
+        let Some(Command::Tree {
+            command: TreeCommand::Save(args),
+        }) = cli.command
+        else {
+            panic!("expected tree save command");
+        };
+        assert!(args.require_decomposition_review);
     }
 }

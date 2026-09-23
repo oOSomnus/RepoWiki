@@ -106,15 +106,21 @@ Print only paths, hashes, sizes, and small summaries in the host trace.
    - `clickhouse-query-pipeline.md` for execution/resource flow;
    - `clickhouse-ast-create-query.md` for complex implementation modules.
 
-   Pass one or two selected examples to documentation prompts through the
-   `few_shot_examples` variable. They demonstrate information density and
-   diagram discipline only. Never copy their facts, headings, or sentences.
+   Pass complete, role-matched example articles through `few_shot_examples`;
+   do not excerpt their bodies. Use the overview for `overview_repo`, the full
+   Storage Engine and Query Pipeline articles for module overviews, and the
+   full AST Create Query article for leaf or complex implementation pages.
+   They demonstrate information density and diagram discipline only. Derive
+   every fact and source anchor from the target repository.
 
-4. Request the repository clustering prompt with `scope=repo`. Return only
-   semantic architecture modules and a few exact representative component IDs
-   per module. Do not force all candidate IDs into groups. Do not create
-   pages for tests, generated protocol types, isolated helpers, or directory
-   buckets unless they form a genuine system boundary.
+4. Request the repository clustering prompt with `scope=repo`. Return
+   reader-facing semantic architecture modules and a few exact representative
+   component IDs per module. Cover major distinct responsibilities rather than
+   merging them to minimize page count. Do not force all candidate IDs into
+   groups. Do not create pages for tests, generated protocol types, isolated
+   helpers, or directory buckets unless they form a genuine system boundary.
+   Every module entry must contain a `decomposition_review` with decision,
+   breadth risk, and a source-backed reason.
 
    The response must be model-generated. If it is empty, malformed, or
    contains no valid architecture anchors, retry the same request and report
@@ -127,27 +133,33 @@ Print only paths, hashes, sizes, and small summaries in the host trace.
    the host should fail earlier with `components read` so malformed IDs are
    diagnosed before tree mutation.
 
-5. Refine only modules that are too broad or contain multiple architectural
-   responsibilities. Use `scope=module`, but keep the tree shallow. A child
-   must represent a distinct interface, execution stage, state/storage area,
-   or integration. Do not split a cohesive subsystem merely because it has
-   many functions or files.
+5. Audit every first-level module with `scope=module`, using its candidate
+   components and dependency context. Refine modules with distinct
+   responsibilities, interfaces, execution stages, state/storage areas, or
+   integrations. Use the configured maximum depth of 2 as a ceiling, not a
+   reason to leave broad modules flat. A cohesive module may remain a leaf, but
+   the review must explain why a useful split is unsupported. Do not split a
+   cohesive subsystem merely because it has many functions or files. A module
+   review may return no child groups only with a `retain_leaf` decision.
 
 6. Save the architecture tree in two phases:
 
    ```text
    codewiki tree save --repo-root <repo> --session <session_id> --tree-file <root-tree.json> --first
-   codewiki tree save --repo-root <repo> --session <session_id> --tree-file <final-tree.json>
+   codewiki tree save --repo-root <repo> --session <session_id> --tree-file <final-tree.json> --require-decomposition-review
    codewiki tree order --repo-root <repo> --session <session_id>
    ```
 
    The final tree is intentionally lossy with respect to low-level analysis
-   components. Its quality gate checks valid evidence IDs, meaningful module
-   structure, depth, and page relationships; it does not require exhaustive
-   candidate coverage. Use only non-empty ASCII module keys containing letters,
-   digits, `_`, or `-`; the processing order exposes the canonical `doc_path`
-   that every page writer must use. `first_module_tree.json` is an initial
-   snapshot only and must not drive final page generation.
+   components. Its quality gate checks valid evidence IDs, decomposition
+   reviews, meaningful module structure, depth, and page relationships; it
+   does not require exhaustive candidate coverage. Every module must have a
+   review whose decision matches its children. A high-risk retained leaf is
+   allowed only with a concrete reason and remains a visible warning. Use
+   non-empty ASCII module keys containing letters, digits, `_`, or `-`; the
+   processing order exposes the canonical `doc_path` that every page writer
+   must use. `first_module_tree.json` is an initial snapshot only and must not
+   drive final page generation.
 
    Treat the returned `tree order` JSON as the only source of page paths and
    write order. Do not reconstruct paths from module names or read the raw
@@ -166,24 +178,35 @@ Print only paths, hashes, sizes, and small summaries in the host trace.
    `architecture_context` variable; do not pass the wrapper as one opaque
    structure.
 
-8. Generate pages through the model and CLI only:
+8. Generate pages through fresh page-scoped workers and the CLI only:
 
    - use `system_leaf` and `user` for selected leaf modules;
    - use `system_complex` for selected complex modules;
    - use `overview_module` for parents after child pages exist;
    - use `overview_repo` for `overview.md`.
 
-   The prompts deliberately do not prescribe a heading sequence. The model
-   must choose a structure that fits the source. A page must explain purpose,
-   interfaces, behavior, and relationships in prose; a component list is not
-   documentation. Pass each module's exact `doc_path` to the system prompt and
-   write only that path. Keep Chinese prose natural; never add spaces solely
-   to inflate the prose count.
+   Use one new worker with isolated context per Markdown page. Batch pages in
+   dependency order, with at most four workers at once: generate independent
+   leaves together, write each completed batch through serialized CLI calls,
+   then generate parent pages after their child pages exist; generate the
+   repository overview last. Give each worker only its page's source evidence,
+   canonical path, parent/child context, and complete role-matched references.
+   Workers return Markdown to unique `.content.md` staging files and never call
+   stateful CLI commands.
 
-   Generate model content in parallel only when useful, then write pages one
-   at a time in the `tree order` sequence. Use the canonical `doc_path` from
-   each processing item. A retry of an ambiguous page write must use
-   `--if-existing same` and must not overwrite a different existing page.
+   The prompts do not prescribe a heading sequence. Each page must explain its
+   responsibility boundary, a real flow, key interfaces/types, and its
+   relationships; cover lifecycle, state, resources, and failure behavior
+   when supported by source. Use multiple substantive paragraphs and source
+   anchors; a component list is not documentation. Keep Chinese prose natural
+   and never add spaces to inflate the count.
+
+   After all pages are written, run `doc validate`. For pages that fail its
+   content checks, launch a fresh reviewer/repair worker with that page's
+   evidence and diagnostics, retry once, and validate again. Stop with the
+   remaining page paths if they still fail. High-risk retained module leaves
+   must be surfaced in the run summary. A retry of an identical page write may
+   use `--if-existing same`; do not overwrite a different page implicitly.
 
 ## Mermaid requirements
 
@@ -228,9 +251,11 @@ total pages, surface that as a quality warning. It does not replace the hard
 validity gate, but it should trigger a review of short or list-like pages.
 
 The report must be valid. It checks that every architecture module has a page,
-pages contain source-grounded explanation, parent links are complete, and
-overview/parent Mermaid diagrams pass the architecture-quality checks. It does
-not require a page for every parsed component.
+pages meet language-aware prose and source-anchor floors, parent links are
+complete, and overview/parent Mermaid diagrams pass architecture-quality
+checks. It also returns decomposition warnings for high-risk retained leaves;
+surface them instead of treating them as resolved silently. It does not
+require a page for every parsed component.
 
 `codewiki html --repo-root <repo> --session <session_id>` may be run after
 validation to publish the static reader view.
@@ -252,6 +277,7 @@ The task is complete only when:
 - `overview.md` and parent pages link to their documented children;
 - overview and parent diagrams pass architecture-quality validation;
 - pages are explanatory rather than fixed templates or component inventories;
+- each module has a complete decomposition review and retained high-risk leaves are reported;
 - `documentation_validation.json` reports `valid: true`;
 - metadata records architecture module/anchor counts and documentation quality;
 - the host has made the model calls and all writes went through the CLI.

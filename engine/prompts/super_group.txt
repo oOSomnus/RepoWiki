@@ -10,6 +10,10 @@ This pass creates parent overview modules. Preserve the existing module pages
 as children; do not discard or merge their component lists. The result must be
 followed by a tree save and validation, then leaf-first page generation.
 
+Each new parent must include a `decomposition_review` object with
+`decision: "split"`, `breadth_risk` (`low`, `medium`, or `high`), and a
+source/context-backed `reason`. Preserve each existing child's review object.
+
 Guidelines:
 - Each subsystem is a set of modules that together fulfil one architectural responsibility (e.g. a processing pipeline, a user-facing interface layer, a shared platform/foundation).
 - Name each subsystem by its architectural role, not by a directory name.
@@ -27,7 +31,12 @@ Firstly reason about the modules' responsibilities and relationships and identif
             <module_name_1>,
             <module_name_2>,
             ...
-        ]
+        ],
+        "decomposition_review": {{
+            "decision": "split",
+            "breadth_risk": "medium",
+            "reason": "These modules form one shared architectural responsibility."
+        }}
     }},
     "subsystem_name_2": {{
         "modules": [
