@@ -31,7 +31,7 @@ pub struct SessionLock {
 impl SessionLock {
     pub fn acquire(repo_path: &Path, session_id: &str) -> Result<Self> {
         validate_session_id(session_id)?;
-        let lock_root = repo_path.join(".codewiki").join("session-locks");
+        let lock_root = session_storage_root(repo_path).join("session-locks");
         fs::create_dir_all(&lock_root)?;
         let path = lock_root.join(format!("{session_id}.lock"));
         let file = OpenOptions::new()
@@ -96,8 +96,16 @@ impl SessionState {
     }
 }
 
+fn session_storage_root(repo_path: &Path) -> PathBuf {
+    std::env::var_os("CODEWIKI_SESSION_REPO")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| repo_path.to_path_buf())
+        .join(".repowiki")
+        .join(".codewiki")
+}
+
 pub fn sessions_root(repo_path: &Path) -> PathBuf {
-    repo_path.join(".codewiki").join("sessions")
+    session_storage_root(repo_path).join("sessions")
 }
 
 pub fn session_root(repo_path: &Path, session_id: &str) -> PathBuf {

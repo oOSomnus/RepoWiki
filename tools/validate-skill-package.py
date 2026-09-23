@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import stat
 import sys
 import zipfile
@@ -23,6 +24,13 @@ FEW_SHOT_FILES = {
     "references/few-shots/clickhouse-storage-engine.md",
     "references/few-shots/clickhouse-query-pipeline.md",
     "references/few-shots/clickhouse-ast-create-query.md",
+}
+
+REPO_WIKI_FILES = COMMON_FILES | FEW_SHOT_FILES
+CHANGE_WIKI_FILES = REPO_WIKI_FILES | {"references/change-workflow.md"}
+FILES_BY_PROFILE = {
+    "repo-wiki": REPO_WIKI_FILES,
+    "change-wiki": CHANGE_WIKI_FILES,
 }
 EXECUTABLE_FILES = {"scripts/codewiki", "scripts/codewiki.exe"}
 ALLOWED_TOP_LEVEL = {"SKILL.md", "agents", "references", "scripts"}
@@ -122,9 +130,9 @@ def load_package(location: str) -> LoadedPackage:
     return load_zip(path)
 
 
-def validate_package(package: LoadedPackage, label: str) -> None:
+def validate_package(package: LoadedPackage, label: str, profile: str) -> None:
     files = set(package.files)
-    required = COMMON_FILES | FEW_SHOT_FILES
+    required = FILES_BY_PROFILE[profile]
     missing = sorted(required - files)
     if missing:
         fail(f"{label} is missing required files: {', '.join(missing)}")
@@ -145,10 +153,23 @@ def validate_package(package: LoadedPackage, label: str) -> None:
         fail(f"{label} POSIX binary is not executable")
 
     skill = package.files["SKILL.md"].decode("utf-8")
-    if not skill.startswith("---\n") or "name: repo-wiki" not in skill:
-        fail(f"{label} has invalid or missing SKILL.md frontmatter")
+    frontmatter = skill.split("---", 2)
+    expected_name = f"name: {profile}"
+    if (
+        not skill.startswith("---\n")
+        or len(frontmatter) != 3
+        or expected_name not in frontmatter[1].splitlines()
+    ):
+        fail(f"{label} has invalid or missing {profile} SKILL.md frontmatter")
     if "scripts/codewiki" not in skill:
         fail(f"{label} SKILL.md does not describe the bundled executable")
+    if profile == "change-wiki":
+        agent = package.files["agents/openai.yaml"].decode("utf-8")
+        if not any(
+            line.strip() == "allow_implicit_invocation: false"
+            for line in agent.splitlines()
+        ):
+            fail(f"{label} change-wiki platform metadata must disable implicit invocation")
 
 
 def compare_packages(left: LoadedPackage, right: LoadedPackage) -> None:
@@ -162,19 +183,30 @@ def compare_packages(left: LoadedPackage, right: LoadedPackage) -> None:
 
 
 def main() -> int:
-    if len(sys.argv) not in {2, 3}:
-        print(f"usage: {sys.argv[0]} PACKAGE_DIR_OR_ZIP [OTHER_PACKAGE]", file=sys.stderr)
-        return 2
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--profile",
+        choices=tuple(FILES_BY_PROFILE),
+        default="repo-wiki",
+        help="runtime Skill package profile (default: repo-wiki)",
+    )
+    parser.add_argument("packages", nargs="+", metavar="PACKAGE_DIR_OR_ZIP")
+    args = parser.parse_args()
+    if len(args.packages) not in {1, 2}:
+        parser.error("provide one package or a preview and ZIP pair")
 
-    first = load_package(sys.argv[1])
-    validate_package(first, sys.argv[1])
-    if len(sys.argv) == 3:
-        second = load_package(sys.argv[2])
-        validate_package(second, sys.argv[2])
+    first = load_package(args.packages[0])
+    validate_package(first, args.packages[0], args.profile)
+    if len(args.packages) == 2:
+        second = load_package(args.packages[1])
+        validate_package(second, args.packages[1], args.profile)
         compare_packages(first, second)
-        print(f"valid matching runtime Skill packages: {sys.argv[1]} and {sys.argv[2]}")
+        print(
+            f"valid matching {args.profile} Skill packages: "
+            f"{args.packages[0]} and {args.packages[1]}"
+        )
     else:
-        print(f"valid runtime Skill package: {sys.argv[1]}")
+        print(f"valid {args.profile} Skill package: {args.packages[0]}")
     return 0
 
 

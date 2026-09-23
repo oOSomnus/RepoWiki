@@ -95,6 +95,7 @@ const CLUSTER_OPTIONAL: &[&str] = &[
     "scope",
     "module_name",
     "module_tree",
+    "custom_instructions",
 ];
 const SUPER_GROUP_REQUIRED: &[&str] = &["formatted_modules"];
 const FILTER_FOLDERS_REQUIRED: &[&str] = &["project_name", "files"];
@@ -109,12 +110,17 @@ const USER_OPTIONAL: &[&str] = &[
     "architecture_context",
 ];
 const OVERVIEW_MODULE_REQUIRED: &[&str] = &["module_name", "repo_structure"];
-const OVERVIEW_MODULE_OPTIONAL: &[&str] = &["few_shot_examples", "architecture_context"];
+const OVERVIEW_MODULE_OPTIONAL: &[&str] = &[
+    "few_shot_examples",
+    "architecture_context",
+    "custom_instructions",
+];
 const OVERVIEW_REPO_REQUIRED: &[&str] = &["repo_name", "repo_structure"];
 const OVERVIEW_REPO_OPTIONAL: &[&str] = &[
     "artifact_index",
     "few_shot_examples",
     "architecture_context",
+    "custom_instructions",
 ];
 const UPDATE_SYSTEM_REQUIRED: &[&str] = &["leaf_name"];
 const UPDATE_USER_REQUIRED: &[&str] = &[

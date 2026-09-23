@@ -116,6 +116,113 @@ fn default_output_dir_is_repowiki_and_document_paths_are_strict() {
 }
 
 #[test]
+fn worktree_sessions_are_stored_under_repo_root() {
+    fn git(repo: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .current_dir(repo)
+            .args(args)
+            .output()
+            .expect("run git");
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let root = tempdir().expect("fixture tempdir");
+    let original = root.path().join("original");
+    fs::create_dir(&original).expect("create original repository");
+    fs::write(original.join("app.py"), "def run():\n    return 1\n").expect("write fixture");
+    git(&original, &["init", "--quiet"]);
+    git(&original, &["config", "user.name", "CLI Smoke"]);
+    git(
+        &original,
+        &["config", "user.email", "cli-smoke@example.test"],
+    );
+    git(&original, &["add", "app.py"]);
+    git(&original, &["commit", "--quiet", "-m", "initial"]);
+
+    let worktree = root.path().join("worktree");
+    let worktree_arg = worktree.to_string_lossy().to_string();
+    git(
+        &original,
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            "--detach",
+            worktree_arg.as_str(),
+            "HEAD",
+        ],
+    );
+
+    let original_arg = original.to_string_lossy().to_string();
+    let analysis = run([
+        "generate",
+        "--repo-root",
+        original_arg.as_str(),
+        "--repo",
+        worktree_arg.as_str(),
+    ]);
+    let session = analysis["session_id"].as_str().expect("session id");
+    let session_root = original
+        .join(".repowiki")
+        .join(".codewiki")
+        .join("sessions")
+        .join(session);
+    let expected_session_root = session_root.to_string_lossy().into_owned();
+    assert_eq!(
+        analysis["session_path"].as_str(),
+        Some(expected_session_root.as_str())
+    );
+    let expected_component_index = session_root
+        .join("component_index.json")
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(
+        analysis["component_index_path"].as_str(),
+        Some(expected_component_index.as_str())
+    );
+    assert!(session_root.join("state.json").is_file());
+    let state: Value = serde_json::from_slice(
+        &fs::read(session_root.join("state.json")).expect("read session state"),
+    )
+    .expect("session state JSON");
+    let analyzed_repo = worktree
+        .canonicalize()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(state["repo_path"], json!(analyzed_repo.as_str()));
+
+    let info = run([
+        "session",
+        "info",
+        "--repo-root",
+        original_arg.as_str(),
+        "--session",
+        session,
+    ]);
+    assert_eq!(info["session_id"], json!(session));
+    assert_eq!(info["repo_path"], state["repo_path"]);
+    assert!(original
+        .join(".repowiki")
+        .join(".codewiki")
+        .join("session-locks")
+        .join(format!("{session}.lock"))
+        .is_file());
+    assert!(!original.join(".codewiki").exists());
+    assert!(!worktree.join(".codewiki").exists());
+    assert!(!worktree
+        .join(".repowiki")
+        .join(".codewiki")
+        .join("sessions")
+        .join(session)
+        .exists());
+}
+
+#[test]
 fn file_side_workflow_creates_reference_artifacts() {
     let repo = tempdir().expect("repo tempdir");
     let output = tempdir().expect("output tempdir");

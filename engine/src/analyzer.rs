@@ -107,7 +107,7 @@ pub fn analyze(
             }
         };
         let path = entry.path();
-        if !path.is_file() || path.starts_with(repo_path.join(".codewiki")) {
+        if !path.is_file() || path.starts_with(repo_path.join(".repowiki")) {
             continue;
         }
         let relative = match path.strip_prefix(&repo_path) {
@@ -351,6 +351,7 @@ fn default_excluded_dirs() -> Vec<&'static str> {
     vec![
         ".git",
         ".codewiki",
+        ".repowiki",
         "target",
         "node_modules",
         ".venv",
