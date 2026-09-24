@@ -270,12 +270,17 @@ fn response_body(response: &str) -> &str {
 #[test]
 fn manifest_follows_tree_and_keeps_extra_pages() {
     let (_repository, wiki) = fixture();
+    add_change_editions(&wiki);
     let catalog = load_manifest(&wiki).expect("load reader catalog");
-    let repository = &catalog.editions[0];
+    let repository = catalog
+        .editions
+        .iter()
+        .find(|edition| edition.kind == ReaderEditionKind::Repository)
+        .expect("repository edition");
 
     assert_eq!(catalog.title, "repo-name");
     assert_eq!(catalog.default_edition, "repository");
-    assert_eq!(catalog.editions.len(), 1);
+    assert_eq!(catalog.editions.len(), 3);
     assert_eq!(repository.id, "repository");
     assert_eq!(repository.kind, ReaderEditionKind::Repository);
     assert_eq!(repository.label, "repo-name");
@@ -285,11 +290,39 @@ fn manifest_follows_tree_and_keeps_extra_pages() {
     assert_eq!(repository.navigation[0].name, "Platform");
     assert_eq!(repository.navigation[0].children[0].name, "API");
     assert_eq!(repository.navigation[0].children[0].filename, "API.md");
-    assert_eq!(repository.pages[0].filename, "overview.md");
-    assert!(repository
-        .pages
-        .iter()
-        .any(|page| page.filename == "notes.md"));
+
+    for edition in &catalog.editions {
+        assert_eq!(edition.pages[0].filename, "overview.md", "{}", edition.id);
+        let platform = edition
+            .pages
+            .iter()
+            .find(|page| page.filename == "Platform.md")
+            .expect("platform page");
+        assert_eq!(
+            platform.path,
+            vec!["Platform".to_string()],
+            "{}",
+            edition.id
+        );
+        let api = edition
+            .pages
+            .iter()
+            .find(|page| page.filename == "API.md")
+            .expect("API page");
+        assert_eq!(
+            api.path,
+            vec!["Platform".to_string(), "API".to_string()],
+            "{}",
+            edition.id
+        );
+        let extra = edition
+            .pages
+            .iter()
+            .find(|page| page.filename == "notes.md")
+            .expect("extra page");
+        assert!(extra.path.is_empty(), "{}", edition.id);
+    }
+
     assert!(repository
         .pages
         .iter()

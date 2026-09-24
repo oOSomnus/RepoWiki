@@ -655,22 +655,6 @@ fn get_prompt(args: GetPromptArgs) -> Result<Value> {
         };
         let nodes: BTreeMap<String, Node> =
             session::read_json(&session::session_value_path(state, "components.json"))?;
-        if let Some(ids) = prompt_component_ids(&vars)? {
-            if kind == PromptType::Cluster && !vars.contains_key("potential_core_components") {
-                let listing = prompts::format_component_listing(&ids, &nodes);
-                let codes = prompts::format_component_codes(&ids, &nodes);
-                vars.insert(
-                    "potential_core_components".to_string(),
-                    Value::String(format!("{listing}\n{codes}")),
-                );
-            }
-            if kind == PromptType::User && !vars.contains_key("formatted_core_component_codes") {
-                vars.insert(
-                    "formatted_core_component_codes".to_string(),
-                    Value::String(prompts::format_component_codes(&ids, &nodes)),
-                );
-            }
-        }
         if matches!(kind, PromptType::User | PromptType::OverviewRepo)
             && !vars.contains_key("artifact_index")
         {
@@ -678,11 +662,7 @@ fn get_prompt(args: GetPromptArgs) -> Result<Value> {
                 vars.insert("artifact_index".to_string(), artifact_index);
             }
         }
-        let rendered = if matches!(kind, PromptType::User | PromptType::Cluster) {
-            prompts::user_prompt_with_limits(kind, &vars)?
-        } else {
-            prompts::render(kind, &vars)?
-        };
+        let rendered = prompts::render_with_components(kind, &vars, &nodes)?;
         let filename = format!("{}-{}.txt", kind.as_str(), Uuid::new_v4().simple());
         let path = session::session_value_path(state, &format!("prompts/{filename}"));
         session::write_text(&path, &rendered)?;
@@ -698,24 +678,6 @@ fn get_prompt(args: GetPromptArgs) -> Result<Value> {
             "response_is_not_generated_by_cli": true,
         }))
     })
-}
-
-fn prompt_component_ids(vars: &BTreeMap<String, Value>) -> Result<Option<Vec<String>>> {
-    let Some(value) = vars.get("component_ids") else {
-        return Ok(None);
-    };
-    let ids = value
-        .as_array()
-        .ok_or_else(|| anyhow!("prompt variable 'component_ids' must be an array"))?
-        .iter()
-        .map(|value| {
-            value
-                .as_str()
-                .map(str::to_string)
-                .ok_or_else(|| anyhow!("prompt variable 'component_ids' must contain strings"))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    Ok(Some(ids))
 }
 
 fn artifact_prompt_value(state: &SessionState) -> Result<Option<Value>> {
