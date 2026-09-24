@@ -930,3 +930,188 @@ fn cli_failures_are_json_and_nonzero() {
     assert!(error["error"].as_str().is_some());
     assert!(error["chain"].as_array().is_some());
 }
+
+#[test]
+fn invalid_documentation_close_keeps_session_and_report() {
+    let repo = tempdir().expect("repo tempdir");
+    let repo_arg = repo.path().to_string_lossy().to_string();
+    fs::write(
+        repo.path().join("app.py"),
+        "class Service:\n    def run(self):\n        return helper()\n\ndef helper():\n    return 1\n",
+    )
+    .expect("write fixture");
+
+    let analysis = run(["generate", "--repo", repo_arg.as_str()]);
+    let session = analysis["session_id"].as_str().expect("session id");
+    let tree = repo.path().join("tree.json");
+    fs::write(
+        &tree,
+        r#"{"Service":{"path":".","components":["app.py::Service","app.py::Service.run","app.py::helper"],"children":{}}}"#,
+    )
+    .expect("write tree");
+    let tree_arg = tree.to_string_lossy().to_string();
+    run([
+        "tree",
+        "save",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        session,
+        "--tree-file",
+        tree_arg.as_str(),
+        "--first",
+    ]);
+
+    for (path, content) in [
+        ("Service.md", "# Service\n"),
+        ("overview.md", "# Repository Overview\n"),
+    ] {
+        run([
+            "doc",
+            "write",
+            "--repo-root",
+            repo_arg.as_str(),
+            "--session",
+            session,
+            "--path",
+            path,
+            "--content",
+            content,
+        ]);
+    }
+    let report = run([
+        "doc",
+        "validate",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        session,
+    ]);
+    assert_eq!(report["result"]["valid"], false, "{report}");
+
+    let (success, error) = run_failure([
+        "session",
+        "close",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        session,
+    ]);
+    assert!(!success);
+    assert!(error["error"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("incomplete documentation"));
+
+    let session_root = repo
+        .path()
+        .join(".repowiki/.codewiki/sessions")
+        .join(session);
+    assert!(session_root.is_dir());
+    let state: Value = serde_json::from_slice(
+        &fs::read(session_root.join("state.json")).expect("read session state"),
+    )
+    .expect("session state JSON");
+    assert_eq!(state["closed"], false);
+    let persisted_report: Value = serde_json::from_slice(
+        &fs::read(session_root.join("documentation_validation.json"))
+            .expect("read persisted validation report"),
+    )
+    .expect("documentation report JSON");
+    assert_eq!(persisted_report["valid"], false);
+    assert!(!repo.path().join(".repowiki/metadata.json").exists());
+}
+
+#[test]
+fn prompt_get_hydrates_null_component_inputs_and_preserves_explicit_values() {
+    let repo = tempdir().expect("repo tempdir");
+    let repo_arg = repo.path().to_string_lossy().to_string();
+    fs::write(
+        repo.path().join("app.py"),
+        "class Service:\n    def run(self):\n        return 7\n",
+    )
+    .expect("write fixture");
+    let analysis = run(["generate", "--repo", repo_arg.as_str()]);
+    let session = analysis["session_id"].as_str().expect("session id");
+
+    let run_prompt = |name: &str, prompt_type: &str, vars: Value| {
+        let vars_path = repo.path().join(format!("{name}.json"));
+        fs::write(
+            &vars_path,
+            serde_json::to_vec(&vars).expect("serialize prompt variables"),
+        )
+        .expect("write prompt variables");
+        let vars_arg = vars_path.to_string_lossy().to_string();
+        let prompt = run([
+            "prompt",
+            "get",
+            "--repo-root",
+            repo_arg.as_str(),
+            "--session",
+            session,
+            "--type",
+            prompt_type,
+            "--vars-file",
+            vars_arg.as_str(),
+        ]);
+        fs::read_to_string(prompt["path"].as_str().expect("prompt path"))
+            .expect("read rendered prompt")
+    };
+
+    let cluster = run_prompt(
+        "cluster-null",
+        "cluster",
+        json!({
+            "potential_core_components": null,
+            "component_ids": ["app.py::Service"]
+        }),
+    );
+    assert!(cluster.contains("app.py::Service"), "{cluster}");
+    assert!(cluster.contains("class Service:"), "{cluster}");
+
+    let user = run_prompt(
+        "user-null",
+        "user",
+        json!({
+            "module_name": "Service",
+            "module_tree": {},
+            "formatted_core_component_codes": null,
+            "component_ids": ["app.py::Service"]
+        }),
+    );
+    assert!(user.contains("app.py::Service"), "{user}");
+    assert!(user.contains("class Service:"), "{user}");
+
+    let cluster_explicit = run_prompt(
+        "cluster-explicit",
+        "cluster",
+        json!({
+            "potential_core_components": "",
+            "component_ids": ["app.py::Service"]
+        }),
+    );
+    assert!(
+        !cluster_explicit.contains("app.py::Service"),
+        "{cluster_explicit}"
+    );
+    assert!(
+        !cluster_explicit.contains("class Service:"),
+        "{cluster_explicit}"
+    );
+
+    let user_explicit = run_prompt(
+        "user-explicit",
+        "user",
+        json!({
+            "module_name": "Service",
+            "module_tree": {},
+            "formatted_core_component_codes": "KEEP_USER_FORMATTED_INPUT",
+            "component_ids": ["app.py::Service"]
+        }),
+    );
+    assert!(
+        user_explicit.contains("KEEP_USER_FORMATTED_INPUT"),
+        "{user_explicit}"
+    );
+    assert!(!user_explicit.contains("class Service:"), "{user_explicit}");
+}

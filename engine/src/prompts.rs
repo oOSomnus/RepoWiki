@@ -288,25 +288,60 @@ pub fn raw_prompt(kind: PromptType, vars: &BTreeMap<String, Value>) -> &'static 
 }
 
 pub fn render(kind: PromptType, vars: &BTreeMap<String, Value>) -> Result<String> {
+    render_with_nodes(kind, vars, None)
+}
+
+pub(crate) fn render_with_components(
+    kind: PromptType,
+    vars: &BTreeMap<String, Value>,
+    nodes: &BTreeMap<String, Node>,
+) -> Result<String> {
+    if matches!(kind, PromptType::User | PromptType::Cluster) {
+        user_prompt_with_limits_and_nodes(kind, vars, Some(nodes))
+    } else {
+        render_with_nodes(kind, vars, Some(nodes))
+    }
+}
+
+fn render_with_nodes(
+    kind: PromptType,
+    vars: &BTreeMap<String, Value>,
+    nodes: Option<&BTreeMap<String, Node>>,
+) -> Result<String> {
     validate_variables(kind, vars)?;
     let (_, optional) = variable_contract(kind);
     let mut values = vars.clone();
+    let empty_nodes = BTreeMap::new();
+    let component_nodes = nodes.unwrap_or(&empty_nodes);
     if let Some(ids) = string_list(vars.get("component_ids")) {
-        if kind == PromptType::Cluster && !values.contains_key("potential_core_components") {
+        if kind == PromptType::Cluster
+            && values
+                .get("potential_core_components")
+                .is_none_or(Value::is_null)
+        {
+            let listing = format_component_listing(&ids, component_nodes);
+            let codes = format_component_codes(&ids, component_nodes);
             values.insert(
                 "potential_core_components".to_string(),
-                Value::String(format_component_listing(&ids, &BTreeMap::new())),
+                Value::String(format!("{listing}\n{codes}")),
             );
         }
-        if kind == PromptType::User && !values.contains_key("formatted_core_component_codes") {
+        if kind == PromptType::User
+            && values
+                .get("formatted_core_component_codes")
+                .is_none_or(Value::is_null)
+        {
+            let codes = if nodes.is_some() {
+                format_component_codes(&ids, component_nodes)
+            } else {
+                ids.iter()
+                    .map(|id| format!("- {id}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
             values.insert(
                 "formatted_core_component_codes".to_string(),
-                Value::String(
-                    ids.iter()
-                        .map(|id| format!("- {id}"))
-                        .collect::<Vec<_>>()
-                        .join("\n"),
-                ),
+                Value::String(codes),
             );
         }
     }
@@ -568,7 +603,15 @@ pub fn mode_note(mode: &str) -> &'static str {
 }
 
 pub fn user_prompt_with_limits(kind: PromptType, vars: &BTreeMap<String, Value>) -> Result<String> {
-    let rendered = render(kind, vars)?;
+    user_prompt_with_limits_and_nodes(kind, vars, None)
+}
+
+fn user_prompt_with_limits_and_nodes(
+    kind: PromptType,
+    vars: &BTreeMap<String, Value>,
+    nodes: Option<&BTreeMap<String, Node>>,
+) -> Result<String> {
+    let rendered = render_with_nodes(kind, vars, nodes)?;
     if rendered.chars().count() <= MAX_USER_PROMPT_CHARS {
         return Ok(rendered);
     }
@@ -591,7 +634,7 @@ pub fn user_prompt_with_limits(kind: PromptType, vars: &BTreeMap<String, Value>)
                 )
             )),
         );
-        let slim_rendered = render(kind, &slim)?;
+        let slim_rendered = render_with_nodes(kind, &slim, nodes)?;
         if slim_rendered.chars().count() <= MAX_USER_PROMPT_CHARS {
             return Ok(slim_rendered);
         }

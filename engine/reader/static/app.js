@@ -161,7 +161,7 @@
     $('#brand-title').textContent = edition.title || edition.label || 'RepoWiki';
     renderInfo(edition.info || {});
     renderNavigation(edition.navigation || []);
-    renderExtraPages(edition.pages || [], edition.navigation || []);
+    renderExtraPages(edition.pages || []);
     return true;
   }
 
@@ -231,10 +231,8 @@
     return wrapper;
   }
 
-  function renderExtraPages(pages, navigation) {
-    const knownFiles = new Set();
-    flattenNavigation(navigation).forEach((node) => knownFiles.add(node.filename));
-    const extras = pages.filter((page) => !knownFiles.has(page.filename) && page.filename !== 'overview.md');
+  function renderExtraPages(pages) {
+    const extras = pages.slice(1).filter((page) => page.path.length === 0);
     const container = $('#extra-pages');
     const list = $('#extra-pages-list');
     list.replaceChildren();
@@ -248,15 +246,6 @@
       list.appendChild(button);
     });
     container.hidden = extras.length === 0;
-  }
-
-  function flattenNavigation(nodes) {
-    const result = [];
-    nodes.forEach((node) => {
-      result.push(node);
-      result.push(...flattenNavigation(node.children || []));
-    });
-    return result;
   }
 
   function configureNavigationFilter() {
@@ -310,8 +299,6 @@
   function defaultPage(editionId) {
     const edition = editionById(editionId || state.currentEditionId);
     const pages = edition ? edition.pages || [] : [];
-    const overview = pages.find((page) => page.filename === 'overview.md');
-    if (overview) return overview.filename;
     const first = pages[0];
     return first ? first.filename : null;
   }

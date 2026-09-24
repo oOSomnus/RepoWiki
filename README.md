@@ -19,6 +19,11 @@ The Skill analyzes the current working directory and writes the generated wiki
 to `.repowiki/`. Use the [standalone reader](#standalone-reader) to inspect it
 locally.
 
+The [Change Wiki Skill](change-wiki/SKILL.md), installed separately, creates
+an immutable change edition. Invoke `/change-wiki <base-ref>...<head-ref>` to
+write `.repowiki/changes/<merge-base-full-SHA>..<head-full-SHA>/`; this leaves
+the repository edition unchanged, and the standalone Reader can switch editions.
+
 ## Build and install
 
 Requirements: GNU Make, Rust/Cargo, Python 3, `zip`, and `unzip`.
@@ -32,6 +37,9 @@ make build
 
 # Build, validate, and install to ~/.agents/skills/RepoWiki.
 make install
+
+# Build, validate, and install the separate Change Wiki Skill.
+make install-change-wiki
 
 # Install below a different Skill collection directory.
 make install INSTALL_DIR=/custom/agent/skills

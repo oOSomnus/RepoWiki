@@ -16,6 +16,11 @@ RepoWiki 是一个用于生成仓库 Wiki 的 Agent Skill。它使用可移植�
 Skill 会分析当前工作目录，并将生成的 Wiki 写入 `.repowiki/`。然后可以
 使用[独立 Reader](#独立-reader)在本地查看。
 
+单独安装的 [Change Wiki Skill](../change-wiki/SKILL.md) 会生成不可变的变更版本。
+调用 `/change-wiki <base-ref>...<head-ref>` 后，输出写入
+`.repowiki/changes/<merge-base-full-SHA>..<head-full-SHA>/`；仓库版本保持不变，
+可在独立 Reader 中切换版本查看。
+
 ## 构建与安装
 
 依赖：GNU Make、Rust/Cargo、Python 3，以及 `zip` 和 `unzip`。
@@ -29,6 +34,9 @@ make build
 
 # 构建、校验并安装到 ~/.agents/skills/RepoWiki。
 make install
+
+# 单独构建、校验并安装 Change Wiki Skill。
+make install-change-wiki
 
 # 安装到指定的 Skill 集合目录。
 make install INSTALL_DIR=/custom/agent/skills

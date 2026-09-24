@@ -382,3 +382,23 @@ fn oversized_prompt_is_capped_without_splitting_unicode() {
     assert!(prompt.contains("prompt content truncated") || prompt.contains("🙂"));
     assert!(std::str::from_utf8(prompt.as_bytes()).is_ok());
 }
+
+#[test]
+fn component_ids_fill_null_alternates_for_direct_render() {
+    let mut cluster = BTreeMap::new();
+    cluster.insert("potential_core_components".to_string(), Value::Null);
+    cluster.insert("component_ids".to_string(), json!(["src/lib.rs::run"]));
+    let cluster = prompts::render(PromptType::Cluster, &cluster).expect("cluster prompt");
+    assert!(cluster.contains("# src/lib.rs"), "{cluster}");
+    assert!(cluster.contains("src/lib.rs::run"), "{cluster}");
+    assert!(!cluster.contains("fn run()"), "{cluster}");
+
+    let mut user = BTreeMap::new();
+    user.insert("module_name".to_string(), json!("Runtime"));
+    user.insert("module_tree".to_string(), json!({}));
+    user.insert("formatted_core_component_codes".to_string(), Value::Null);
+    user.insert("component_ids".to_string(), json!(["src/lib.rs::run"]));
+    let user = prompts::render(PromptType::User, &user).expect("user prompt");
+    assert!(user.contains("- src/lib.rs::run"), "{user}");
+    assert!(!user.contains("fn run()"), "{user}");
+}
