@@ -7,69 +7,39 @@
     loadedEditionId: null,
     currentFile: null,
     loadToken: 0,
-    language: (navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en',
     theme: 'light'
   };
 
   const strings = {
-    en: {
-      reader: 'Reader',
-      edition: 'Edition',
-      repositoryEdition: 'Repository',
-      changeEdition: 'Change',
-      filter: 'Filter pages',
-      otherPages: 'Other pages',
-      overview: 'Overview',
-      loading: 'Loading documentation…',
-      generated: 'Generated',
-      model: 'Model',
-      commit: 'Commit',
-      components: 'Components',
-      modules: 'Modules',
-      leaves: 'Leaf pages',
-      previous: 'Previous',
-      next: 'Next',
-      onThisPage: 'On this page',
-      loadError: 'Could not load this page.',
-      copy: 'Copy code',
-      copied: 'Copied',
-      openNavigation: 'Open navigation',
-      closeNavigation: 'Close navigation',
-      lightTheme: 'Use light theme',
-      darkTheme: 'Use dark theme',
-      diagramError: 'Diagram failed to render'
-    },
-    zh: {
-      reader: '阅读器',
-      edition: '版本',
-      repositoryEdition: '整个仓库',
-      changeEdition: '变更',
-      filter: '筛选页面',
-      otherPages: '其他页面',
-      overview: '概览',
-      loading: '正在加载文档…',
-      generated: '生成时间',
-      model: '模型',
-      commit: '提交',
-      components: '组件',
-      modules: '模块',
-      leaves: '叶页面',
-      previous: '上一页',
-      next: '下一页',
-      onThisPage: '本页目录',
-      loadError: '无法加载此页面。',
-      copy: '复制代码',
-      copied: '已复制',
-      openNavigation: '打开导航',
-      closeNavigation: '关闭导航',
-      lightTheme: '切换到浅色主题',
-      darkTheme: '切换到深色主题',
-      diagramError: '图表渲染失败'
-    }
+    reader: 'Reader',
+    edition: 'Edition',
+    repositoryEdition: 'Repository',
+    changeEdition: 'Change',
+    filter: 'Filter pages',
+    otherPages: 'Other pages',
+    overview: 'Overview',
+    loading: 'Loading documentation…',
+    generated: 'Generated',
+    model: 'Model',
+    commit: 'Commit',
+    components: 'Components',
+    modules: 'Modules',
+    leaves: 'Leaf pages',
+    previous: 'Previous',
+    next: 'Next',
+    onThisPage: 'On this page',
+    loadError: 'Could not load this page.',
+    copy: 'Copy code',
+    copied: 'Copied',
+    openNavigation: 'Open navigation',
+    closeNavigation: 'Close navigation',
+    lightTheme: 'Use light theme',
+    darkTheme: 'Use dark theme',
+    diagramError: 'Diagram failed to render'
   };
 
   const $ = (selector) => document.querySelector(selector);
-  const t = (key) => strings[state.language][key] || strings.en[key] || key;
+  const t = (key) => strings[key] || key;
 
   document.addEventListener('DOMContentLoaded', init);
 
@@ -100,7 +70,7 @@
   }
 
   function applyStaticLabels() {
-    document.documentElement.lang = state.language === 'zh' ? 'zh-CN' : 'en';
+    document.documentElement.lang = 'en';
     $('#brand-subtitle').textContent = t('reader');
     $('#edition-label').textContent = t('edition');
     $('#search-label').textContent = t('filter');
@@ -160,7 +130,7 @@
     $('#edition-selector').value = edition.id;
     $('#brand-title').textContent = edition.title || edition.label || 'RepoWiki';
     renderInfo(edition.info || {});
-    renderNavigation(edition.navigation || []);
+    renderNavigation(edition.navigation || [], edition.pages || []);
     renderExtraPages(edition.pages || []);
     return true;
   }
@@ -170,9 +140,9 @@
     if (info.generated_at) rows.push([t('generated'), formatDate(info.generated_at)]);
     if (info.model) rows.push([t('model'), info.model]);
     if (info.commit) rows.push([t('commit'), info.commit]);
-    if (info.total_components != null) rows.push([t('components'), info.total_components.toLocaleString()]);
-    if (info.module_count != null) rows.push([t('modules'), info.module_count.toLocaleString()]);
-    if (info.leaf_count != null) rows.push([t('leaves'), info.leaf_count.toLocaleString()]);
+    if (info.total_components != null) rows.push([t('components'), info.total_components.toLocaleString('en-US')]);
+    if (info.module_count != null) rows.push([t('modules'), info.module_count.toLocaleString('en-US')]);
+    if (info.leaf_count != null) rows.push([t('leaves'), info.leaf_count.toLocaleString('en-US')]);
     const card = $('#info-card');
     card.replaceChildren();
     if (!rows.length) {
@@ -190,9 +160,19 @@
     card.hidden = false;
   }
 
-  function renderNavigation(nodes) {
+  function renderNavigation(nodes, pages) {
     const navigation = $('#navigation');
     navigation.replaceChildren();
+    const overview = pages.find((page) => page.filename === 'overview.md');
+    if (overview) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'nav-item overview-page';
+      button.dataset.file = overview.filename;
+      button.textContent = t('overview');
+      button.addEventListener('click', () => navigateTo(overview.filename, null, state.currentEditionId));
+      navigation.appendChild(button);
+    }
     nodes.forEach((node) => navigation.appendChild(buildNavNode(node, 0)));
   }
 
@@ -232,7 +212,7 @@
   }
 
   function renderExtraPages(pages) {
-    const extras = pages.slice(1).filter((page) => page.path.length === 0);
+    const extras = pages.filter((page) => page.filename !== 'overview.md' && page.path.length === 0);
     const container = $('#extra-pages');
     const list = $('#extra-pages-list');
     list.replaceChildren();
@@ -251,7 +231,7 @@
   function configureNavigationFilter() {
     $('#nav-filter').addEventListener('input', (event) => {
       const query = event.target.value.trim().toLowerCase();
-      document.querySelectorAll('.nav-group, .nav-leaf, .extra-page').forEach((element) => {
+      document.querySelectorAll('.nav-group, .nav-leaf, .extra-page, .overview-page').forEach((element) => {
         if (!query) {
           element.classList.remove('nav-hidden', 'filter-open');
           return;
@@ -462,7 +442,7 @@
         failure.textContent = '⚠ ' + t('diagramError');
         const details = document.createElement('details');
         const summary = document.createElement('summary');
-        summary.textContent = state.language === 'zh' ? '查看 Mermaid 源码' : 'Show Mermaid source';
+        summary.textContent = 'Show Mermaid source';
         const pre = document.createElement('pre');
         pre.textContent = source;
         details.append(summary, pre);
@@ -590,7 +570,7 @@
 
   function formatDate(value) {
     const parsed = new Date(value);
-    return Number.isNaN(parsed.valueOf()) ? value : parsed.toLocaleString();
+    return Number.isNaN(parsed.valueOf()) ? value : parsed.toLocaleString('en-US');
   }
 
   function escapeHtml(value) {
