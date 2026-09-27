@@ -18,6 +18,7 @@ VERSION := $(shell sed -n 's/^version = "\([^"]*\)".*/\1/p' $(ENGINE_DIR)/Cargo.
 ARCHIVE := $(DIST_DIR)/$(PACKAGE_NAME)-$(VERSION).zip
 CHANGE_ARCHIVE := $(DIST_DIR)/$(CHANGE_SKILL_NAME)-$(VERSION).zip
 INSTALL_DIR ?= $(HOME)/.agents/skills
+INSTALL_SELECTION ?=
 
 PYTHON ?= python3
 CARGO ?= cargo
@@ -28,7 +29,7 @@ SKILL_VALIDATOR ?= $(if $(CODEX_HOME),$(CODEX_HOME),$(HOME)/.codex)/skills/.syst
 RUNTIME_PATHS := SKILL.md agents references
 PACKAGE_PATHS := SKILL.md agents references scripts
 
-.PHONY: build preview reader install install-change-wiki test-install test-install-change-wiki clean test test-contract preview-change-wiki build-change-wiki
+.PHONY: build preview reader install _install-package test-install clean test test-contract preview-change-wiki build-change-wiki
 
 ifeq ($(strip $(VERSION)),)
 $(error Could not read the package version from engine/Cargo.toml)
@@ -50,13 +51,57 @@ build-change-wiki: preview-change-wiki
 	@$(PYTHON) tools/validate-skill-package.py --profile change-wiki "$(CHANGE_PREVIEW_DIR)" "$(CHANGE_ARCHIVE)"
 	@printf 'created %s\n' "$(CHANGE_ARCHIVE)"
 
-install: build
+install:
+	@set -eu; \
+	selection="$(INSTALL_SELECTION)"; \
+	if [ -z "$$selection" ]; then \
+		if [ ! -t 0 ]; then \
+			echo "Set INSTALL_SELECTION to repowiki, change-wiki, or both when no terminal is available" >&2; exit 2; \
+		fi; \
+		printf 'Select Skills to install:\n'; \
+		printf '  1) RepoWiki\n  2) Change Wiki\n  3) Both\n  0) Cancel\n'; \
+		printf 'Choice: '; \
+		IFS= read -r choice || { echo "No selection received" >&2; exit 2; }; \
+		case "$$choice" in \
+			1) selection=repowiki ;; \
+			2) selection=change-wiki ;; \
+			3) selection=both ;; \
+			0|q|Q) printf 'installation cancelled\n'; exit 0 ;; \
+			*) echo "Invalid selection: $$choice" >&2; exit 2 ;; \
+		esac; \
+	fi; \
+	case "$$selection" in \
+		repowiki|change-wiki|both) ;; \
+		*) echo "INSTALL_SELECTION must be repowiki, change-wiki, or both" >&2; exit 2 ;; \
+	esac; \
+	if [ "$$selection" = repowiki ] || [ "$$selection" = both ]; then \
+		$(MAKE) --no-print-directory build; \
+	fi; \
+	if [ "$$selection" = change-wiki ] || [ "$$selection" = both ]; then \
+		$(MAKE) --no-print-directory build-change-wiki; \
+	fi; \
+	if [ "$$selection" = repowiki ] || [ "$$selection" = both ]; then \
+		$(MAKE) --no-print-directory _install-package \
+			INSTALL_SKILL_NAME="$(SKILL_NAME)" \
+			INSTALL_ARCHIVE="$(ARCHIVE)" \
+			INSTALL_PROFILE=repowiki; \
+	fi; \
+	if [ "$$selection" = change-wiki ] || [ "$$selection" = both ]; then \
+		$(MAKE) --no-print-directory _install-package \
+			INSTALL_SKILL_NAME="$(CHANGE_SKILL_NAME)" \
+			INSTALL_ARCHIVE="$(CHANGE_ARCHIVE)" \
+			INSTALL_PROFILE=change-wiki; \
+	fi
+
+_install-package:
 	@command -v "$(UNZIP)" >/dev/null 2>&1 || { echo "unzip is required to install the Skill" >&2; exit 127; }
 	@install_root="$(INSTALL_DIR)"; \
 	[ -n "$$install_root" ] || { echo "INSTALL_DIR must not be empty" >&2; exit 2; }; \
+	[ -n "$(INSTALL_SKILL_NAME)" ] || { echo "INSTALL_SKILL_NAME must not be empty" >&2; exit 2; }; \
+	[ -n "$(INSTALL_ARCHIVE)" ] || { echo "INSTALL_ARCHIVE must not be empty" >&2; exit 2; }; \
 	mkdir -p "$$install_root"; \
-	target="$$install_root/$(SKILL_NAME)"; \
-	staging="$$(mktemp -d "$$install_root/.$(SKILL_NAME).install.XXXXXX")"; \
+	target="$$install_root/$(INSTALL_SKILL_NAME)"; \
+	staging="$$(mktemp -d "$$install_root/.$(INSTALL_SKILL_NAME).install.XXXXXX")"; \
 	backup=""; \
 	cleanup() { \
 		status=$$?; \
@@ -71,78 +116,66 @@ install: build
 		exit "$$status"; \
 	}; \
 	trap cleanup EXIT HUP INT TERM; \
-	"$(UNZIP)" -q "$(ARCHIVE)" -d "$$staging"; \
-	"$(PYTHON)" tools/validate-skill-package.py "$$staging"; \
+	"$(UNZIP)" -q "$(INSTALL_ARCHIVE)" -d "$$staging"; \
+	case "$(INSTALL_PROFILE)" in \
+		repowiki) "$(PYTHON)" tools/validate-skill-package.py "$$staging" ;; \
+		change-wiki) "$(PYTHON)" tools/validate-skill-package.py --profile change-wiki "$$staging" ;; \
+		*) echo "INSTALL_PROFILE must be repowiki or change-wiki" >&2; exit 2 ;; \
+	esac; \
 	if [ -e "$$target" ] || [ -L "$$target" ]; then \
-		backup="$$(mktemp -d "$$install_root/.$(SKILL_NAME).backup.XXXXXX")"; \
+		backup="$$(mktemp -d "$$install_root/.$(INSTALL_SKILL_NAME).backup.XXXXXX")"; \
 		rmdir "$$backup"; \
 		mv "$$target" "$$backup"; \
 	fi; \
 	mv "$$staging" "$$target"; \
 	staging=""; \
-	printf 'installed %s to %s\n' "$(SKILL_NAME)" "$$target"
+	printf 'installed %s to %s\n' "$(INSTALL_SKILL_NAME)" "$$target"
 
-install-change-wiki: build-change-wiki
-	@command -v "$(UNZIP)" >/dev/null 2>&1 || { echo "unzip is required to install the Skill" >&2; exit 127; }
-	@install_root="$(INSTALL_DIR)"; \
-	[ -n "$$install_root" ] || { echo "INSTALL_DIR must not be empty" >&2; exit 2; }; \
-	mkdir -p "$$install_root"; \
-	target="$$install_root/$(CHANGE_SKILL_NAME)"; \
-	staging="$$(mktemp -d "$$install_root/.$(CHANGE_SKILL_NAME).install.XXXXXX")"; \
-	backup=""; \
-	cleanup() { \
-		status=$$?; \
-		trap - EXIT HUP INT TERM; \
-		if [ "$$status" -ne 0 ]; then \
-			if [ -e "$$target" ] || [ -L "$$target" ]; then rm -rf "$$target"; fi; \
-			if [ -n "$$backup" ] && { [ -e "$$backup" ] || [ -L "$$backup" ]; }; then mv "$$backup" "$$target"; fi; \
-		elif [ -n "$$backup" ] && { [ -e "$$backup" ] || [ -L "$$backup" ]; }; then \
-			rm -rf "$$backup"; \
+test-install:
+	@temporary_install_root="$$(mktemp -d)"; \
+	cleanup() { status=$$?; trap - EXIT HUP INT TERM; rm -rf "$$temporary_install_root"; exit "$$status"; }; \
+	trap cleanup EXIT HUP INT TERM; \
+	repowiki_root="$$temporary_install_root/repowiki"; \
+	change_root="$$temporary_install_root/change-wiki"; \
+	both_root="$$temporary_install_root/both"; \
+	check_installed_skill() { \
+		root=$$1; skill_name=$$2; profile=$$3; \
+		if [ "$$profile" = change-wiki ]; then \
+			"$(PYTHON)" tools/validate-skill-package.py --profile change-wiki "$$root/$$skill_name"; \
+		else \
+			"$(PYTHON)" tools/validate-skill-package.py "$$root/$$skill_name"; \
 		fi; \
-		if [ -n "$$staging" ] && [ -e "$$staging" ]; then rm -rf "$$staging"; fi; \
-		exit "$$status"; \
+		test ! -e "$$root/$$skill_name/stale.txt"; \
+		installed_binary="$$root/$$skill_name/scripts/codewiki"; \
+		if [ -f "$$installed_binary.exe" ]; then installed_binary="$$installed_binary.exe"; fi; \
+		test -f "$$installed_binary"; \
+		case "$$installed_binary" in *.exe) ;; *) test -x "$$installed_binary" ;; esac; \
 	}; \
-	trap cleanup EXIT HUP INT TERM; \
-	"$(UNZIP)" -q "$(CHANGE_ARCHIVE)" -d "$$staging"; \
-	"$(PYTHON)" tools/validate-skill-package.py --profile change-wiki "$$staging"; \
-	if [ -e "$$target" ] || [ -L "$$target" ]; then \
-		backup="$$(mktemp -d "$$install_root/.$(CHANGE_SKILL_NAME).backup.XXXXXX")"; \
-		rmdir "$$backup"; \
-		mv "$$target" "$$backup"; \
+	mkdir -p "$$repowiki_root/$(SKILL_NAME)"; \
+	printf 'stale file\n' > "$$repowiki_root/$(SKILL_NAME)/stale.txt"; \
+	$(MAKE) --no-print-directory install INSTALL_DIR="$$repowiki_root" INSTALL_SELECTION=repowiki; \
+	check_installed_skill "$$repowiki_root" "$(SKILL_NAME)" repowiki; \
+	test ! -e "$$repowiki_root/$(CHANGE_SKILL_NAME)"; \
+	mkdir -p "$$change_root/$(CHANGE_SKILL_NAME)"; \
+	printf 'stale file\n' > "$$change_root/$(CHANGE_SKILL_NAME)/stale.txt"; \
+	$(MAKE) --no-print-directory install INSTALL_DIR="$$change_root" INSTALL_SELECTION=change-wiki; \
+	check_installed_skill "$$change_root" "$(CHANGE_SKILL_NAME)" change-wiki; \
+	test ! -e "$$change_root/$(SKILL_NAME)"; \
+	mkdir -p "$$both_root/$(SKILL_NAME)" "$$both_root/$(CHANGE_SKILL_NAME)"; \
+	printf 'stale file\n' > "$$both_root/$(SKILL_NAME)/stale.txt"; \
+	printf 'stale file\n' > "$$both_root/$(CHANGE_SKILL_NAME)/stale.txt"; \
+	$(MAKE) --no-print-directory install INSTALL_DIR="$$both_root" INSTALL_SELECTION=both; \
+	check_installed_skill "$$both_root" "$(SKILL_NAME)" repowiki; \
+	check_installed_skill "$$both_root" "$(CHANGE_SKILL_NAME)" change-wiki; \
+	if $(MAKE) --no-print-directory install INSTALL_DIR="$$temporary_install_root/no-selection" INSTALL_SELECTION= </dev/null; then \
+		echo "install without a selection should fail when stdin is not a terminal" >&2; exit 1; \
 	fi; \
-	mv "$$staging" "$$target"; \
-	staging=""; \
-	printf 'installed %s to %s\n' "$(CHANGE_SKILL_NAME)" "$$target"
-
-test-install: build test-install-change-wiki
-	@temporary_install_root="$$(mktemp -d)"; \
-	cleanup() { status=$$?; trap - EXIT HUP INT TERM; rm -rf "$$temporary_install_root"; exit "$$status"; }; \
-	trap cleanup EXIT HUP INT TERM; \
-	mkdir -p "$$temporary_install_root/$(SKILL_NAME)"; \
-	printf 'stale file\n' > "$$temporary_install_root/$(SKILL_NAME)/stale.txt"; \
-	$(MAKE) --no-print-directory install INSTALL_DIR="$$temporary_install_root"; \
-	"$(PYTHON)" tools/validate-skill-package.py "$$temporary_install_root/$(SKILL_NAME)"; \
-	test ! -e "$$temporary_install_root/$(SKILL_NAME)/stale.txt"; \
-	installed_binary="$$temporary_install_root/$(SKILL_NAME)/scripts/codewiki"; \
-	if [ -f "$$installed_binary.exe" ]; then installed_binary="$$installed_binary.exe"; fi; \
-	test -f "$$installed_binary"; \
-	case "$$installed_binary" in *.exe) ;; *) test -x "$$installed_binary" ;; esac; \
-	printf 'PASS install smoke: %s\n' "$$temporary_install_root/$(SKILL_NAME)"
-
-test-install-change-wiki: build-change-wiki
-	@temporary_install_root="$$(mktemp -d)"; \
-	cleanup() { status=$$?; trap - EXIT HUP INT TERM; rm -rf "$$temporary_install_root"; exit "$$status"; }; \
-	trap cleanup EXIT HUP INT TERM; \
-	mkdir -p "$$temporary_install_root/$(CHANGE_SKILL_NAME)"; \
-	printf 'stale file\n' > "$$temporary_install_root/$(CHANGE_SKILL_NAME)/stale.txt"; \
-	$(MAKE) --no-print-directory install-change-wiki INSTALL_DIR="$$temporary_install_root"; \
-	"$(PYTHON)" tools/validate-skill-package.py --profile change-wiki "$$temporary_install_root/$(CHANGE_SKILL_NAME)"; \
-	test ! -e "$$temporary_install_root/$(CHANGE_SKILL_NAME)/stale.txt"; \
-	installed_binary="$$temporary_install_root/$(CHANGE_SKILL_NAME)/scripts/codewiki"; \
-	if [ -f "$$installed_binary.exe" ]; then installed_binary="$$installed_binary.exe"; fi; \
-	test -f "$$installed_binary"; \
-	case "$$installed_binary" in *.exe) ;; *) test -x "$$installed_binary" ;; esac; \
-	printf 'PASS install smoke: %s\n' "$$temporary_install_root/$(CHANGE_SKILL_NAME)"
+	if $(MAKE) --no-print-directory install INSTALL_DIR="$$temporary_install_root/invalid-selection" INSTALL_SELECTION=invalid; then \
+		echo "install with an invalid selection should fail" >&2; exit 1; \
+	fi; \
+	test ! -e "$$temporary_install_root/no-selection"; \
+	test ! -e "$$temporary_install_root/invalid-selection"; \
+	printf 'PASS install smoke: repowiki, change-wiki, both, and selection errors\n'
 
 preview:
 	@rm -rf "$(PREVIEW_DIR)"
