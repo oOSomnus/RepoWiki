@@ -62,9 +62,13 @@ rustup update stable
 rustup show active-toolchain
 ```
 
-`make install` builds the package, validates it, and installs it below
-`INSTALL_DIR` (default: `~/.agents/skills`). Installation is staged and
-validated before the existing `<INSTALL_DIR>/RepoWiki` directory is replaced.
+`make install` prompts for RepoWiki, Change Wiki, or both, then builds and
+validates only the selected packages before installing them below `INSTALL_DIR`
+(default: `~/.agents/skills`). Scripts and CI can set
+`INSTALL_SELECTION=repowiki`, `change-wiki`, or `both` to skip the prompt. Each
+installation is staged and validated before its existing skill directory is
+replaced. `make clean` removes generated build outputs, previews, archives, and
+local packaging artifacts for both Skills.
 
 To install an archive manually:
 

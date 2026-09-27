@@ -35,11 +35,13 @@ make preview
 # Build and validate the distributable ZIP archive.
 make build
 
-# Build, validate, and install to ~/.agents/skills/RepoWiki.
+# Interactively choose RepoWiki, Change Wiki, or both to install.
 make install
 
-# Build, validate, and install the separate Change Wiki Skill.
-make install-change-wiki
+# Choose an installation without prompting (useful for scripts and CI).
+make install INSTALL_SELECTION=repowiki
+make install INSTALL_SELECTION=change-wiki
+make install INSTALL_SELECTION=both
 
 # Install below a different Skill collection directory.
 make install INSTALL_DIR=/custom/agent/skills

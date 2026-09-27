@@ -32,11 +32,13 @@ make preview
 # 构建并校验可分发的 ZIP 包。
 make build
 
-# 构建、校验并安装到 ~/.agents/skills/RepoWiki。
+# 交互选择安装 RepoWiki、Change Wiki 或两者。
 make install
 
-# 单独构建、校验并安装 Change Wiki Skill。
-make install-change-wiki
+# 非交互选择安装内容（适用于脚本和 CI）。
+make install INSTALL_SELECTION=repowiki
+make install INSTALL_SELECTION=change-wiki
+make install INSTALL_SELECTION=both
 
 # 安装到指定的 Skill 集合目录。
 make install INSTALL_DIR=/custom/agent/skills
