@@ -1,61 +1,61 @@
-# AST_Create_Query Module Documentation
+====== AST_Create_Query Module Documentation ======
 
-## Overview
+===== Overview =====
 
 The AST_Create_Query module is a core component of the ClickHouse SQL parser system, responsible for representing and handling CREATE, ATTACH, and related DDL (Data Definition Language) queries in Abstract Syntax Tree (AST) form. This module provides the foundational structures for parsing, storing, and formatting database object creation statements.
 
-## Purpose and Core Functionality
+===== Purpose and Core Functionality =====
 
 The primary purpose of the AST_Create_Query module is to:
 
-1. **Represent CREATE/ATTACH Statements**: Define AST nodes for various database object creation operations including tables, views, dictionaries, and databases
-2. **Handle Complex DDL Syntax**: Support sophisticated CREATE statement syntax including storage engines, partitioning, indexing, and constraints
-3. **Enable Query Manipulation**: Provide cloning and formatting capabilities for query transformation and serialization
-4. **Support Multiple Object Types**: Handle different database objects through a unified interface
+  - **Represent CREATE/ATTACH Statements**: Define AST nodes for various database object creation operations including tables, views, dictionaries, and databases
+  - **Handle Complex DDL Syntax**: Support sophisticated CREATE statement syntax including storage engines, partitioning, indexing, and constraints
+  - **Enable Query Manipulation**: Provide cloning and formatting capabilities for query transformation and serialization
+  - **Support Multiple Object Types**: Handle different database objects through a unified interface
 
-## Architecture and Component Relationships
+===== Architecture and Component Relationships =====
 
-### Core Components
+==== Core Components ====
 
-#### 1. ASTColumnsElement
-- **Purpose**: Wrapper class for individual column and constraint elements within CREATE statements
-- **Key Features**:
-  - Supports prefix-based formatting (e.g., "INDEX", "CONSTRAINT", "PROJECTION")
-  - Provides cloning and formatting capabilities
-  - Manages child element references through pointer manipulation
+=== 1. ASTColumnsElement ===
+  * **Purpose**: Wrapper class for individual column and constraint elements within CREATE statements
+  * **Key Features**:
+    * Supports prefix-based formatting (e.g., "INDEX", "CONSTRAINT", "PROJECTION")
+    * Provides cloning and formatting capabilities
+    * Manages child element references through pointer manipulation
 
-#### 2. ASTStorage
-- **Purpose**: Represents storage engine configuration and table properties
-- **Components**:
-  - Engine specification (`ASTFunction *engine`)
-  - Partitioning configuration (`IAST *partition_by`)
-  - Primary key definition (`IAST *primary_key`)
-  - Ordering configuration (`IAST *order_by`)
-  - Sampling configuration (`IAST *sample_by`)
-  - TTL settings (`IAST *ttl_table`)
-  - Storage settings (`ASTSetQuery *settings`)
+=== 2. ASTStorage ===
+  * **Purpose**: Represents storage engine configuration and table properties
+  * **Components**:
+    * Engine specification (''ASTFunction *engine'')
+    * Partitioning configuration (''IAST *partition_by'')
+    * Primary key definition (''IAST *primary_key'')
+    * Ordering configuration (''IAST *order_by'')
+    * Sampling configuration (''IAST *sample_by'')
+    * TTL settings (''IAST *ttl_table'')
+    * Storage settings (''ASTSetQuery *settings'')
 
-#### 3. ASTColumns
-- **Purpose**: Container for column definitions, indices, constraints, and projections
-- **Components**:
-  - Column definitions (`ASTExpressionList *columns`)
-  - Index definitions (`ASTExpressionList *indices`)
-  - Constraint definitions (`ASTExpressionList *constraints`)
-  - Projection definitions (`ASTExpressionList *projections`)
-  - Primary key handling (`IAST *primary_key`, `IAST *primary_key_from_columns`)
+=== 3. ASTColumns ===
+  * **Purpose**: Container for column definitions, indices, constraints, and projections
+  * **Components**:
+    * Column definitions (''ASTExpressionList *columns'')
+    * Index definitions (''ASTExpressionList *indices'')
+    * Constraint definitions (''ASTExpressionList *constraints'')
+    * Projection definitions (''ASTExpressionList *projections'')
+    * Primary key handling (''IAST *primary_key'', ''IAST *primary_key_from_columns'')
 
-#### 4. ASTCreateQuery
-- **Purpose**: Main AST node representing CREATE/ATTACH statements
-- **Key Features**:
-  - Multi-object support (tables, views, dictionaries, databases)
-  - Comprehensive flag system for different statement types
-  - UUID management for replication and clustering
-  - Target table support for materialized views
-  - SQL security support for views
+=== 4. ASTCreateQuery ===
+  * **Purpose**: Main AST node representing CREATE/ATTACH statements
+  * **Key Features**:
+    * Multi-object support (tables, views, dictionaries, databases)
+    * Comprehensive flag system for different statement types
+    * UUID management for replication and clustering
+    * Target table support for materialized views
+    * SQL security support for views
 
-### Module Dependencies
+==== Module Dependencies ====
 
-```mermaid
+<mermaid>
 graph TD
     AST_Create_Query[AST_Create_Query Module]
     
@@ -94,13 +94,13 @@ graph TD
     AST_Create_Query --> QuoteString
     AST_Create_Query --> IOOperators
     AST_Create_Query --> WriteBufferFromString
-```
+</mermaid>
 
-## Data Flow and Processing
+===== Data Flow and Processing =====
 
-### Query Parsing Flow
+==== Query Parsing Flow ====
 
-```mermaid
+<mermaid>
 sequenceDiagram
     participant Parser
     participant ASTCreateQuery
@@ -132,11 +132,11 @@ sequenceDiagram
     
     Formatter->>ASTCreateQuery: Format for output
     ASTCreateQuery->>Formatter: Return formatted SQL
-```
+</mermaid>
 
-### Object Type Handling
+==== Object Type Handling ====
 
-```mermaid
+<mermaid>
 graph TD
     Start[CREATE Statement]
     
@@ -156,13 +156,13 @@ graph TD
     TableFormat --> End
     ViewFormat --> End
     DictionaryFormat --> End
-```
+</mermaid>
 
-## Component Interactions
+===== Component Interactions =====
 
-### ASTColumnsElement Usage
+==== ASTColumnsElement Usage ====
 
-```mermaid
+<mermaid>
 graph LR
     ASTColumns[ASTColumns]
     ASTColumnsElement[ASTColumnsElement]
@@ -182,61 +182,61 @@ graph LR
     ASTColumnsElement -->|prefix=INDEX| Index
     ASTColumnsElement -->|prefix=CONSTRAINT| Constraint
     ASTColumnsElement -->|prefix=PROJECTION| Projection
-```
+</mermaid>
 
-## Key Features and Capabilities
+===== Key Features and Capabilities =====
 
-### 1. Multi-Object Support
+==== 1. Multi-Object Support ====
 The module handles various database objects through a unified interface:
-- **Tables**: Standard tables with columns and storage engines
-- **Views**: Ordinary, materialized, live, and window views
-- **Dictionaries**: External data source dictionaries
-- **Databases**: Database creation with storage engines
+  * **Tables**: Standard tables with columns and storage engines
+  * **Views**: Ordinary, materialized, live, and window views
+  * **Dictionaries**: External data source dictionaries
+  * **Databases**: Database creation with storage engines
 
-### 2. Advanced Storage Configuration
+==== 2. Advanced Storage Configuration ====
 Supports complex storage engine configurations:
-- Engine specification with parameters
-- Partitioning strategies
-- Primary key and ordering configurations
-- TTL (Time To Live) settings
-- Storage-specific settings
+  * Engine specification with parameters
+  * Partitioning strategies
+  * Primary key and ordering configurations
+  * TTL (Time To Live) settings
+  * Storage-specific settings
 
-### 3. View Management
+==== 3. View Management ====
 Comprehensive view support including:
-- Multiple view types (ordinary, materialized, live, window)
-- Target table specifications for materialized views
-- SQL security configurations
-- Refresh strategies for materialized views
-- Parameterized view support
+  * Multiple view types (ordinary, materialized, live, window)
+  * Target table specifications for materialized views
+  * SQL security configurations
+  * Refresh strategies for materialized views
+  * Parameterized view support
 
-### 4. Clustering and Replication
+==== 4. Clustering and Replication ====
 Built-in support for distributed environments:
-- UUID generation and management
-- Cluster-aware formatting
-- Replication configuration
-- ON CLUSTER clause support
+  * UUID generation and management
+  * Cluster-aware formatting
+  * Replication configuration
+  * ON CLUSTER clause support
 
-## Integration with Other Modules
+===== Integration with Other Modules =====
 
-### Related Modules
-- **[Parsers](Parsers.md)**: Parent module providing base parsing infrastructure
-- **[Interpreters](Interpreters.md)**: Processes AST nodes into executable operations
-- **[Storage_Engine](Storage_Engine.md)**: Handles storage engine implementations
-- **[Core_Engine](Core_Engine.md)**: Provides core system settings and utilities
+==== Related Modules ====
+  * **[[repo:parsers:start|Parsers]]**: Parent module providing base parsing infrastructure
+  * **[[repo:interpreters:start|Interpreters]]**: Processes AST nodes into executable operations
+  * **[[repo:storage_engine:start|Storage_Engine]]**: Handles storage engine implementations
+  * **[[repo:core_engine:start|Core_Engine]]**: Provides core system settings and utilities
 
-### Usage Context
+==== Usage Context ====
 The AST_Create_Query module is typically used in:
-1. **Query Parsing**: Converting SQL text to AST representation
-2. **Query Analysis**: Examining CREATE statement structure
-3. **Query Transformation**: Modifying or rewriting CREATE statements
-4. **Query Serialization**: Converting AST back to SQL text
-5. **Schema Management**: Database administration and migration tools
+  - **Query Parsing**: Converting SQL text to AST representation
+  - **Query Analysis**: Examining CREATE statement structure
+  - **Query Transformation**: Modifying or rewriting CREATE statements
+  - **Query Serialization**: Converting AST back to SQL text
+  - **Schema Management**: Database administration and migration tools
 
-## Process Flow Examples
+===== Process Flow Examples =====
 
-### CREATE TABLE Processing
+==== CREATE TABLE Processing ====
 
-```mermaid
+<mermaid>
 flowchart TD
     A[CREATE TABLE Statement] --> B[Parse Table Name]
     B --> C{Has Columns?}
@@ -257,11 +257,11 @@ flowchart TD
     K --> L[Build ASTCreateQuery]
     L --> M[Validate Statement]
     M --> N[Return AST Node]
-```
+</mermaid>
 
-### CREATE VIEW Processing
+==== CREATE VIEW Processing ====
 
-```mermaid
+<mermaid>
 flowchart TD
     A[CREATE VIEW Statement] --> B[Parse View Name]
     B --> C{View Type?}
@@ -281,34 +281,34 @@ flowchart TD
     
     K --> L[Build ASTCreateQuery]
     L --> M[Return AST Node]
-```
+</mermaid>
 
-## Error Handling and Validation
+===== Error Handling and Validation =====
 
 The module incorporates several validation mechanisms:
-- **Type Checking**: Ensures correct object type combinations
-- **Required Elements**: Validates mandatory components for each object type
-- **Syntax Validation**: Checks SQL syntax compliance during formatting
-- **UUID Consistency**: Validates UUID generation and management
+  * **Type Checking**: Ensures correct object type combinations
+  * **Required Elements**: Validates mandatory components for each object type
+  * **Syntax Validation**: Checks SQL syntax compliance during formatting
+  * **UUID Consistency**: Validates UUID generation and management
 
-## Performance Considerations
+===== Performance Considerations =====
 
-### Memory Management
-- Uses shared pointers for automatic memory management
-- Implements efficient cloning through selective copying
-- Minimizes string allocations during formatting
+==== Memory Management ====
+  * Uses shared pointers for automatic memory management
+  * Implements efficient cloning through selective copying
+  * Minimizes string allocations during formatting
 
-### Processing Optimization
-- Lazy evaluation of complex components
-- Efficient tree traversal algorithms
-- Optimized formatting for large statements
+==== Processing Optimization ====
+  * Lazy evaluation of complex components
+  * Efficient tree traversal algorithms
+  * Optimized formatting for large statements
 
-## Extension Points
+===== Extension Points =====
 
 The module provides several extension mechanisms:
-- **Custom Storage Engines**: Through ASTStorage extension
-- **New Object Types**: Via ASTCreateQuery inheritance
-- **Additional Constraints**: Through ASTColumns modification
-- **Formatting Options**: Via FormatSettings customization
+  * **Custom Storage Engines**: Through ASTStorage extension
+  * **New Object Types**: Via ASTCreateQuery inheritance
+  * **Additional Constraints**: Through ASTColumns modification
+  * **Formatting Options**: Via FormatSettings customization
 
 This comprehensive design makes the AST_Create_Query module a robust foundation for handling complex DDL operations in ClickHouse while maintaining flexibility for future enhancements.

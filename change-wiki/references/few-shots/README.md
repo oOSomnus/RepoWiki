@@ -1,9 +1,9 @@
 # Architecture documentation few-shots
 
-The four Markdown files below contain complete, unabridged reference articles
-from the public CodeWiki ClickHouse demo. They are prompt examples, not facts
-about the repository being documented. They were copied from commit
-`9dc8cf8c41705960f2002f3489a6dc302c936114`:
+These four reference files are complete prompt examples written in native DokuWiki page syntax.
+The source pages were adapted from the public CodeWiki
+ClickHouse demo at commit `9dc8cf8c41705960f2002f3489a6dc302c936114`. Their
+filenames identify bundled prompt references; they are not output page paths.
 
 - `clickhouse-overview.md` — [upstream overview](https://github.com/FSoft-AI4Code/codewiki-demo/blob/9dc8cf8c41705960f2002f3489a6dc302c936114/docs/ClickHouse--ClickHouse-docs/overview.md)
 - `clickhouse-storage-engine.md` — [upstream Storage Engine](https://github.com/FSoft-AI4Code/codewiki-demo/blob/9dc8cf8c41705960f2002f3489a6dc302c936114/docs/ClickHouse--ClickHouse-docs/Storage_Engine.md)

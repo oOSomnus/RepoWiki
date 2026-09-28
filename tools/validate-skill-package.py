@@ -33,7 +33,32 @@ FILES_BY_PROFILE = {
     "change-wiki": CHANGE_WIKI_FILES,
 }
 EXECUTABLE_FILES = {"scripts/codewiki", "scripts/codewiki.exe"}
-ALLOWED_TOP_LEVEL = {"SKILL.md", "agents", "references", "scripts"}
+ALLOWED_TOP_LEVEL = {"SKILL.md", "agents", "references", "scripts", "vendor", "engine"}
+WIKI_RUNTIME_PREFIXES = ("vendor/dokuwiki/", "engine/dokuwiki/")
+WIKI_RUNTIME_REQUIRED_FILES = {
+    "vendor/dokuwiki/VERSION",
+    "vendor/dokuwiki/COPYING",
+    "vendor/dokuwiki/doku.php",
+    "vendor/dokuwiki/bin/plugin.php",
+    "vendor/dokuwiki/conf/dokuwiki.php",
+    "vendor/dokuwiki/lib/plugins/mermaid/plugin.info.txt",
+    "vendor/dokuwiki/lib/plugins/mermaid/syntax.php",
+    "vendor/dokuwiki/lib/plugins/mermaid/action.php",
+    "vendor/dokuwiki/lib/plugins/mermaid/mermaid.min.js",
+    "vendor/dokuwiki/lib/plugins/mermaid/mermaid.css",
+    "vendor/dokuwiki/lib/plugins/mermaid/LICENSE",
+    "vendor/dokuwiki/lib/plugins/mermaid/LICENSE Mermaid",
+    "engine/dokuwiki/bootstrap.php",
+    "engine/dokuwiki/router.php",
+    "engine/dokuwiki/bin/repowiki.php",
+    "engine/dokuwiki/plugins/repowiki/cli.php",
+    "engine/dokuwiki/plugins/repowiki/action.php",
+    "engine/dokuwiki/plugins/repowiki/syntax.php",
+    "engine/dokuwiki/plugins/repowiki/lib.php",
+    "engine/dokuwiki/plugins/repowiki/plugin.info.txt",
+    "engine/dokuwiki/plugins/repowiki/LICENSE",
+}
+EXPECTED_DOKUWIKI_VERSION = b'2026-07-14c "Mort"'
 FORBIDDEN_TOP_LEVEL = {
     ".git",
     ".codewiki",
@@ -44,7 +69,6 @@ FORBIDDEN_TOP_LEVEL = {
     "dist",
     "src",
     "prompts",
-    "engine",
     "Cargo.toml",
     "Cargo.lock",
     "README.md",
@@ -144,7 +168,36 @@ def validate_package(package: LoadedPackage, label: str, profile: str) -> None:
             f"found {binaries}"
         )
 
-    expected = required | set(binaries)
+    runtime_files = {
+        name
+        for name in files
+        if any(name.startswith(prefix) for prefix in WIKI_RUNTIME_PREFIXES)
+    }
+    missing_runtime = sorted(WIKI_RUNTIME_REQUIRED_FILES - files)
+    if missing_runtime:
+        fail(f"{label} is missing DokuWiki runtime files: {', '.join(missing_runtime)}")
+    if not runtime_files:
+        fail(f"{label} is missing the bundled DokuWiki runtime")
+    version = package.files["vendor/dokuwiki/VERSION"].strip()
+    if version != EXPECTED_DOKUWIKI_VERSION:
+        fail(
+            f"{label} bundles DokuWiki {version.decode('utf-8', errors='replace')!r}; "
+            f"expected {EXPECTED_DOKUWIKI_VERSION.decode('utf-8')!r}"
+        )
+    mermaid_js = package.files["vendor/dokuwiki/lib/plugins/mermaid/mermaid.min.js"]
+    if b'version:"11.15.0"' not in mermaid_js:
+        fail(f"{label} does not contain the pinned Mermaid 11.15.0 runtime")
+    gpl = package.files["vendor/dokuwiki/COPYING"]
+    if (
+        b"GNU GENERAL PUBLIC LICENSE" not in gpl
+        or package.files["engine/dokuwiki/plugins/repowiki/LICENSE"] != gpl
+        or b"GNU GENERAL PUBLIC LICENSE" not in package.files["vendor/dokuwiki/lib/plugins/mermaid/LICENSE"]
+    ):
+        fail(f"{label} is missing a complete DokuWiki/RepoWiki/Mermaid GPL notice")
+    if b"The MIT License" not in package.files["vendor/dokuwiki/lib/plugins/mermaid/LICENSE Mermaid"]:
+        fail(f"{label} is missing the Mermaid JavaScript MIT notice")
+
+    expected = required | set(binaries) | runtime_files
     extra = sorted(files - expected)
     if extra:
         fail(f"{label} contains non-runtime files: {', '.join(extra)}")

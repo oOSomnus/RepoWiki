@@ -224,6 +224,7 @@ pub struct UpdateRecord {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Metadata {
+    pub wiki_id: String,
     pub generation_info: GenerationInfo,
     pub statistics: Statistics,
     pub files_generated: Vec<String>,

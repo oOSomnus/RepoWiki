@@ -329,8 +329,13 @@ fn overview_context_strips_components_and_exposes_only_target_children_docs() {
         },
     );
     let output = tempdir().expect("overview docs directory");
-    fs::write(output.path().join("API.md"), "# API\n").expect("write child page");
-    let context = docs::overview_context(&tree, &["Platform".to_string()], output.path())
+    let api_page = output
+        .path()
+        .join("dokuwiki/data/pages/repo/platform/api/start.txt");
+    fs::create_dir_all(api_page.parent().expect("DokuWiki page parent"))
+        .expect("create DokuWiki page parent");
+    fs::write(&api_page, "====== API ======\n").expect("write child page");
+    let context = docs::overview_context("repo", &tree, &["Platform".to_string()], output.path())
         .expect("overview context");
     let serialized = serde_json::to_string(&context).expect("serialize context");
     assert!(!serialized.contains("\"a\""));
@@ -340,8 +345,16 @@ fn overview_context_strips_components_and_exposes_only_target_children_docs() {
         json!(true)
     );
     assert_eq!(
+        context["Platform"]["doc_path"],
+        json!("repo:platform:start")
+    );
+    assert_eq!(
+        context["Platform"]["children"]["API"]["doc_path"],
+        json!("repo:platform:api:start")
+    );
+    assert_eq!(
         context["Platform"]["children"]["API"]["docs_path"],
-        json!(output.path().join("API.md"))
+        json!(api_page)
     );
     assert_eq!(context["Platform"]["docs_path"], Value::Null);
 }

@@ -21,6 +21,11 @@ every clustering and documentation request.
 
 ## Runtime
 
+System PHP 8.2 or newer with the `mbstring` and `xml` extensions enabled is
+required for generation, validation, and the Reader. The bundled runtime
+includes the pinned DokuWiki engine and plugins; commands do not download
+runtime dependencies.
+
 Resolve the directory containing this file and invoke the bundled executable:
 
 - POSIX: `scripts/codewiki`
@@ -65,8 +70,7 @@ Keep refinement artifacts in separate files with explicit roles:
 ```text
 <name>.vars.json       prompt variables (JSON object)
 <name>.ids.json        input component IDs (JSON string array or one per line)
-<name>.response.txt    model clustering response
-<name>.content.md      generated Markdown page
+<name>.content.txt     generated native DokuWiki page source
 ```
 
 Before `tree apply-cluster`, confirm that the response file exists and is
@@ -125,7 +129,7 @@ Print only paths, hashes, sizes, and small summaries in the host trace.
    The response must be model-generated. If it is empty, malformed, or
    contains no valid architecture anchors, retry the same request and report
    failure if the retry also fails. Never promote an automatic directory
-   bucket or hard-coded Markdown template as a successful model response.
+   bucket or hard-coded page-source template as a successful model response.
 
    Keep the prompt variables, exact input IDs, and model response in separate
    files. Do not call `tree apply-cluster` until the response file has been
@@ -156,14 +160,18 @@ Print only paths, hashes, sizes, and small summaries in the host trace.
    does not require exhaustive candidate coverage. Every module must have a
    review whose decision matches its children. A high-risk retained leaf is
    allowed only with a concrete reason and remains a visible warning. Use
-   non-empty ASCII module keys containing letters, digits, `_`, or `-`; the
-   processing order exposes the canonical `doc_path` that every page writer
-   must use. `first_module_tree.json` is an initial snapshot only and must not
-   drive final page generation.
+   non-empty ASCII module keys containing letters, digits, `_`, or `-`; each
+   key is one namespace segment. The processing order exposes the canonical
+   `doc_path` page ID that every page writer must use. IDs include the edition
+   namespace, every ancestor segment, and the final `:start` page; for example,
+   `System/API` in the repository edition is `repo:system:api:start`. It is a
+   logical ID, not a filesystem path. Its source file is
+   `.repowiki/dokuwiki/data/pages/repo/system/api/start.txt`.
 
-   Treat the returned `tree order` JSON as the only source of page paths and
-   write order. Do not reconstruct paths from module names or read the raw
-   session file as a substitute for invoking the command.
+   Treat the returned `tree order` JSON as the only source of canonical page
+   IDs and write order. Use each full `doc_path` value verbatim; do not
+   reconstruct IDs from module names or read the raw session file as a
+   substitute for invoking the command.
 
 7. Before each overview prompt, run:
 
@@ -171,28 +179,35 @@ Print only paths, hashes, sizes, and small summaries in the host trace.
    codewiki tree overview-context --repo-root <repo> --session <session_id>
    ```
 
-   The returned context includes the target tree, child page paths, and a
-   reduced `architecture_context` containing grounded module nodes, edges, and
-   primary paths. Pass the JSON value under `repo_structure` to the prompt's
-   `repo_structure` variable and the value under `architecture_context` to its
-   `architecture_context` variable; do not pass the wrapper as one opaque
-   structure.
+   The returned context includes the target tree, canonical child page IDs,
+   and a reduced `architecture_context` containing grounded module nodes,
+   edges, and primary paths. Pass the JSON value under `repo_structure` to the
+   prompt's `repo_structure` variable and the value under
+   `architecture_context` to its `architecture_context` variable; do not pass
+   the wrapper as one opaque structure.
 
 8. Generate pages through fresh page-scoped workers and the CLI only:
 
    - use `system_leaf` and `user` for selected leaf modules;
    - use `system_complex` for selected complex modules;
    - use `overview_module` for parents after child pages exist;
-   - use `overview_repo` for `overview.md`.
+   - use `overview_repo` for the overview page ID `repo:start`.
 
-   Use one new worker with isolated context per Markdown page. Batch pages in
+   Use one new worker with isolated context per DokuWiki page. Batch pages in
    dependency order, with at most four workers at once: generate independent
    leaves together, write each completed batch through serialized CLI calls,
    then generate parent pages after their child pages exist; generate the
    repository overview last. Give each worker only its page's source evidence,
-   canonical path, parent/child context, and complete role-matched references.
-   Workers return Markdown to unique `.content.md` staging files and never call
-   stateful CLI commands.
+   full canonical page ID, parent/child context, and complete role-matched
+   references. Workers return native DokuWiki source to unique `.content.txt`
+   staging files and never call stateful CLI commands.
+
+   Page sources use DokuWiki syntax: headings such as `====== Heading ======`,
+   internal links such as `[[repo:system:api:start|API]]`, code blocks such as
+   `<code rust>...</code>`, and Mermaid diagrams inside `<mermaid>...</mermaid>`.
+   Keep links within the `repo:` namespace. Store pages through the CLI as
+   `.txt` files under `.repowiki/dokuwiki/data/pages/repo/`; never write page
+   files directly.
 
    The prompts do not prescribe a heading sequence. Each page must explain its
    responsibility boundary, a real flow, key interfaces/types, and its
@@ -229,8 +244,8 @@ show. It is better to omit a diagram than to invent one.
 The published architecture wiki contains:
 
 ```text
-.repowiki/overview.md
-.repowiki/<architecture-module>.md
+.repowiki/dokuwiki/data/pages/repo/start.txt
+.repowiki/dokuwiki/data/pages/repo/<ancestor>/.../<module>/start.txt
 .repowiki/module_tree.json
 .repowiki/first_module_tree.json
 .repowiki/metadata.json
@@ -255,26 +270,34 @@ pages meet language-aware prose and source-anchor floors, parent links are
 complete, and overview/parent Mermaid diagrams pass architecture-quality
 checks. It also returns decomposition warnings for high-risk retained leaves;
 surface them instead of treating them as resolved silently. It does not
-require a page for every parsed component.
+require a page for every parsed component. Validation runs through the real
+DokuWiki parser and plugins, checks native internal links against the current
+`repo:` edition, and validates Mermaid plugin blocks.
 
 `codewiki html --repo-root <repo> --session <session_id>` may be run after
-validation to publish the static reader view.
+validation to render the same native DokuWiki source.
+
+The Reader opens the generated bundle with `repowiki-reader <.repowiki>`.
+It requires PHP 8.2+ with `mbstring` and `xml` enabled and does not support old
+Markdown bundles; regenerate those bundles with this workflow.
 
 ## Incremental updates
 
 Use the existing update workflow for architecture pages. Route changed
-components to the deepest documented architecture module, not to a low-level
-function page. Re-cluster when the change alters a module's responsibility,
-public interface, or cross-module flow. A body-only change that does not alter
-architecture should update the source anchors or remain unmentioned.
+components to the deepest documented architecture module by its full canonical
+page ID, not a low-level function page or a possibly repeated module title.
+Re-cluster when the change alters a module's responsibility, public interface,
+or cross-module flow. A body-only change that does not alter architecture
+should update source anchors or remain unmentioned. Keep page links inside the
+`repo:` namespace and edit native DokuWiki `.txt` sources through the CLI.
 
 ## Completion criteria
 
 The task is complete only when:
 
 - the final tree contains semantic architecture modules and valid source IDs;
-- every final tree module has a model-generated page;
-- `overview.md` and parent pages link to their documented children;
+- every final tree module has a model-generated DokuWiki page at its canonical ID;
+- the overview `repo:start` and parent pages link to their documented children;
 - overview and parent diagrams pass architecture-quality validation;
 - pages are explanatory rather than fixed templates or component inventories;
 - each module has a complete decomposition review and retained high-risk leaves are reported;

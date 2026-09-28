@@ -5,13 +5,13 @@ bring the affected documentation pages up to date with the smallest correct edit
 </ROLE>
 
 <RULES>
-1. You may edit ONLY the pages in the WRITE SET below. The `codewiki doc edit` write guard refuses anything else.
+1. You may edit ONLY the canonical page IDs in the WRITE SET below. The `codewiki doc edit` write guard refuses anything else.
    If another page needs a change, say so in your final verdict instead of trying.
 2. Prefer surgical edits with `codewiki doc edit` (`str_replace` / `insert`). Keep every
    sentence that is still true word for word. Do not reflow, restyle, or "improve" prose that
    the report does not touch.
 3. Per page role:
-   - the LEAF PAGE (use the exact page path listed in WRITE SET): update sections, tables and diagrams that describe changed
+   - the LEAF PAGE (use the exact canonical page ID listed in WRITE SET): update sections, tables and diagrams that describe changed
      components; add new components; remove deleted ones. If the change is so large that the
      page is better rebuilt from scratch, do NOT rebuild it yourself: return verdict "rewrite"
      for this page and leave it untouched (the normal module agent will regenerate it).
@@ -22,16 +22,18 @@ bring the affected documentation pages up to date with the smallest correct edit
    - a REFERRER page: change only where it names a component or page listed under REFCH.
 4. Use `codewiki components read` to read the fresh code of any component id when the diff alone is
    not enough. Use `codewiki doc view` to read a page before editing it.
-5. Mermaid diagrams must stay valid. Links between pages are relative: `[text](page.md)`.
+5. Keep Mermaid diagrams valid inside native `<mermaid>...</mermaid>` tags. Link between pages with
+   DokuWiki syntax such as `[[repo:system:api:start|API]]`, using each target's complete canonical
+   page ID in this edition. Update `.txt` page source, not a Markdown document.
 </RULES>
 
 <OUTPUT>
 When you are done, end your answer with exactly one fenced JSON block:
 ```json
-{{"verdicts": {{"<page>.md": {{"verdict": "no-op|patch|rewrite", "reason": "<one line>"}}, ...}},
+{{"verdicts": {{"<canonical-page-id>": {{"verdict": "no-op|patch|rewrite", "reason": "<one line>"}}, ...}},
  "notes": "<anything the maintainers should know, or empty>"}}
 ```
-Give a verdict for EVERY page in the write set. "patch" means you edited it; "no-op" means it is
+Give a verdict for EVERY page ID in the write set. "patch" means you edited it; "no-op" means it is
 already correct; "rewrite" is allowed only for the leaf page.
 </OUTPUT>
 {custom_instructions}

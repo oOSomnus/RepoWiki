@@ -1,14 +1,14 @@
-# Storage Engine Module
+====== Storage Engine Module ======
 
-## 1. Introduction
+===== 1. Introduction =====
 
-The Storage Engine is the component responsible for managing the physical storage of data on disk. It defines how data is stored, retrieved, updated, and deleted. The primary implementation within this module is the `MergeTree` family of table engines, which are designed for high-performance data insertion and large-scale data analysis.
+The Storage Engine is the component responsible for managing the physical storage of data on disk. It defines how data is stored, retrieved, updated, and deleted. The primary implementation within this module is the ''MergeTree'' family of table engines, which are designed for high-performance data insertion and large-scale data analysis.
 
-## 2. Architecture
+===== 2. Architecture =====
 
-The Storage Engine's architecture is centered around the `MergeTree` engine and its variants. The core class, `MergeTreeData`, manages the data parts, their metadata, and background processes like merging and mutation. `StorageMergeTree` and `StorageReplicatedMergeTree` are the main table engine implementations that build upon `MergeTreeData`.
+The Storage Engine's architecture is centered around the ''MergeTree'' engine and its variants. The core class, ''MergeTreeData'', manages the data parts, their metadata, and background processes like merging and mutation. ''StorageMergeTree'' and ''StorageReplicatedMergeTree'' are the main table engine implementations that build upon ''MergeTreeData''.
 
-```mermaid
+<mermaid>
 graph TD
     subgraph Storage_Engine
         MergeTreeData
@@ -36,11 +36,11 @@ graph TD
     linkStyle 7 stroke:#ff0000,stroke-width:2px
     linkStyle 8 stroke:#ff0000,stroke-width:2px
     linkStyle 9 stroke:#ff0000,stroke-width:2px
-```
+</mermaid>
 
-### Component Dependencies
+==== Component Dependencies ====
 
-```mermaid
+<mermaid>
 sequenceDiagram
     participant User
     participant Interpreters
@@ -56,13 +56,13 @@ sequenceDiagram
     IO_System-->>Storage_Engine: Return data blocks
     Storage_Engine-->>Interpreters: Return data stream
     Interpreters-->>User: Return query result
-```
+</mermaid>
 
-## 3. Sub-modules
+===== 3. Sub-modules =====
 
 The Storage Engine is divided into several key sub-modules:
 
-- **[MergeTree Engine](MergeTree_Engine.md)**: Implements the `StorageMergeTree` and `StorageReplicatedMergeTree` table engines, which are the primary entry points for data manipulation and querying.
-- **[MergeTree Data](MergeTree_Data.md)**: The core data management layer for the MergeTree family. It handles data parts, background merging, mutations, and data selection.
-- **[MergeTree Settings](MergeTree_Settings.md)**: Provides a comprehensive set of configurable parameters to fine-tune the behavior of MergeTree tables.
-- **[Storage Utilities](Storage_Utilities.md)**: Contains helper components and data structures used across the storage engine.
+  * **[[repo:storage_engine:merge_tree_engine:start|MergeTree Engine]]**: Implements the ''StorageMergeTree'' and ''StorageReplicatedMergeTree'' table engines, which are the primary entry points for data manipulation and querying.
+  * **[[repo:storage_engine:merge_tree_data:start|MergeTree Data]]**: The core data management layer for the MergeTree family. It handles data parts, background merging, mutations, and data selection.
+  * **[[repo:storage_engine:merge_tree_settings:start|MergeTree Settings]]**: Provides a comprehensive set of configurable parameters to fine-tune the behavior of MergeTree tables.
+  * **[[repo:storage_engine:storage_utilities:start|Storage Utilities]]**: Contains helper components and data structures used across the storage engine.

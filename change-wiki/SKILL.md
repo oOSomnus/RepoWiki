@@ -21,6 +21,11 @@ and [references/prompt-map.md](references/prompt-map.md).
 
 ## Workflow
 
+System PHP 8.2 or newer with the `mbstring` and `xml` extensions enabled is
+required for generation, validation, and the Reader. The bundled runtime
+includes the pinned DokuWiki engine and plugins; commands do not download
+runtime dependencies.
+
 1. Resolve the original repository root and parse exactly one explicit
    `base-ref...head-ref`. Follow the reference workflow to resolve both refs to
    local commits, compute the merge base, and collect rename-aware status plus
@@ -28,9 +33,12 @@ and [references/prompt-map.md](references/prompt-map.md).
    is invalid, there is no merge base, the diff is empty, or it has no
    explainable text evidence.
 2. Compute the full-SHA range ID and fixed paths under the original
-   repository's `.repowiki/`. Refuse an existing change bundle or worktree
-   path; never overwrite. Create a detached worktree at the exact head commit,
-   using the original repository basename as its final directory name.
+   repository's `.repowiki/`. The change edition's stable DokuWiki namespace is
+   `change_<SHA256(complete base..head ID)>`, where the hash input is the full
+   lowercase `<merge-base-SHA>..<head-SHA>` range ID. Refuse an existing change
+   bundle or worktree path; never overwrite. Create a detached worktree at the
+   exact head commit, using the original repository basename as its final
+   directory name.
 3. Run a fresh full analysis, without `--include`, `--focus`, or update mode:
 
    ```text
@@ -60,15 +68,33 @@ and [references/prompt-map.md](references/prompt-map.md).
    Require every page to explain only change-owned responsibilities. Unchanged
    dependencies may explain relationships, callers, or impact, but must not
    become page anchors. Each page worker receives only its own diff, relevant
-   current source, necessary unchanged-neighbor source, canonical page path,
-   and complete matching few-shots. The repository overview receives the full
-   range metadata, file statuses, changed component IDs, final tree, and the
-   complete dependency graph as `architecture_context`.
+   current source, necessary unchanged-neighbor source, full canonical page ID
+   from `tree order`, and complete matching DokuWiki-native few-shots. The page
+   ID includes the `change_<SHA256(complete base..head ID)>:` edition namespace
+   and every ancestor segment, ending in `:start`; it is not a filesystem
+   path. The source file is stored under
+   `<change-bundle>/dokuwiki/data/pages/<change-namespace>/.../start.txt`.
+   The repository overview receives the full range metadata, file statuses,
+   changed component IDs, final tree, and the complete dependency graph as
+   `architecture_context`.
+
+Every page is native DokuWiki source: use headings such as
+`====== Heading ======`, links such as
+`[[change_<SHA256(complete base..head ID)>:system:api:start|API]]`, code blocks
+such as `<code rust>...</code>`, and Mermaid diagrams inside
+`<mermaid>...</mermaid>`. Keep internal links within this change edition's
+namespace and write `.txt` pages only through the CLI.
+
 7. Write every page through the CLI, then run `doc validate`. Repair a failing
    page at most once with its evidence and diagnostics, and validate again.
    Close the session only after validation succeeds. On success, remove the
    worktree and report the refs, resolved SHAs, bundle path, and validation
    result.
+
+The Reader opens the enclosing `.repowiki/` directory with
+`repowiki-reader <.repowiki>`. It requires PHP 8.2+ with `mbstring` and `xml`
+enabled and does not support old Markdown bundles; regenerate those bundles
+with the RepoWiki and Change Wiki workflows.
 
 On any failure after creation, keep the session directory for diagnosis and
 report its session ID. Remove only the change bundle and worktree created by

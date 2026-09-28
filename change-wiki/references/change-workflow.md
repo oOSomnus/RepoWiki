@@ -110,8 +110,12 @@ with `tree apply-cluster`, then recursively audit broad modules using
 `scope=module`, exact parent component IDs, a parent-path JSON string array,
 and `decomposition_review` for every response. Apply each response through the
 CLI. Save the first tree, refine it, then save the final tree with
-`--require-decomposition-review`; run `tree order` and use only its canonical
-`doc_path` values.
+`--require-decomposition-review`; run `tree order` and use only its full
+canonical `doc_path` page IDs. Each ID includes
+`change_<SHA256(complete base..head ID)>:` plus every ancestor segment and
+ends in `:start`; for example, a System/API module uses
+`change_<SHA256(complete base..head ID)>:system:api:start`. `doc_path` is a
+logical ID, not a filesystem path.
 
 The shared change-only instructions are:
 
@@ -126,9 +130,10 @@ Pass these instructions as `custom_instructions` to both repository/module
 `cluster` prompts and to `overview_repo`/`overview_module`. For leaf and complex
 pages, pass them to `system_leaf`/`system_complex`; the `user` prompt remains
 unchanged. A page worker receives only its page's relevant before/after diff,
-current component source, necessary unchanged-neighbor source, canonical page
-path, and complete role-matched examples. Never send every file or the full
-repository to every page worker.
+current component source, necessary unchanged-neighbor source, its full
+canonical page ID from `tree order`, and complete role-matched DokuWiki-native
+examples. Keep every generated internal link within the change edition's
+namespace. Never send every file or the full repository to every page worker.
 
 If readable text changes exist but no current head component IDs exist (for
 example, a deletion-only change), skip `tree apply-cluster`. Build a single
@@ -141,22 +146,38 @@ only changes without text evidence stop before bundle creation.
 ## Pages and validation
 
 Follow `tree order` in dependency order: leaves first, parent overviews after
-child pages, repository `overview.md` last. Use `system_leaf` plus `user` for
-leaf modules, `system_complex` for selected complex modules,
-`overview_module` for parents, and `overview_repo` for `overview.md`. Select
-complete examples from `references/few-shots/` matching the role; do not send
-irrelevant examples. Preserve the existing page length, source-anchor, child
-link, local-link, and Mermaid checks. The change overview's `repo_structure`
-contains the invocation refs, resolved base/head/merge-base SHAs, file status,
-changed component IDs, and final change tree. Its `architecture_context`
-retains the complete head dependency graph. Mention before/after behavior and
-source evidence only where supported by the patch and retrieved sources.
+child pages, and the change overview at
+`change_<SHA256(complete base..head ID)>:start` last. Use `system_leaf` plus
+`user` for leaf modules, `system_complex` for selected complex modules,
+`overview_module` for parents, and `overview_repo` for the change overview.
+Select complete examples from `references/few-shots/` matching the role; do
+not send irrelevant examples. Their `repo:` page IDs illustrate link syntax
+only: generated links must use this change edition's full
+`change_<SHA256(complete base..head ID)>:` IDs. Preserve the existing page
+length, source-anchor, child-link, same-edition link, and Mermaid checks. The
+change overview's
+`repo_structure` contains the invocation refs, resolved base/head/merge-base
+SHAs, file status, changed component IDs, and final change tree. Its
+`architecture_context` retains the complete head dependency graph. Mention
+before/after behavior and source evidence only where supported by the patch and
+retrieved sources.
 
-Write Markdown through `doc write` using the exact `doc_path` from `tree order`.
+Page bodies are native DokuWiki source: headings such as `====== Heading ======`,
+links such as
+`[[change_<SHA256(complete base..head ID)>:system:api:start|API]]`, code blocks
+such as `<code rust>...</code>`, and Mermaid diagrams inside
+`<mermaid>...</mermaid>`. Use the exact full `doc_path` value from `tree order`
+with `doc write`; it maps to a `.txt` source under
+`<change-bundle>/dokuwiki/data/pages/<change-namespace>/.../start.txt`.
 Run `doc validate` after all pages exist. For a failing page, give one fresh
 repair worker only that page's evidence and diagnostics; retry once and
 validate again. Do not close a session with an invalid report. Close a
 successful session through `session close` before removing the worktree.
+
+The Reader opens the enclosing `.repowiki/` directory with
+`repowiki-reader <.repowiki>` and requires PHP 8.2+ with `mbstring` and `xml`
+enabled. It does not support old Markdown bundles; regenerate those with the
+RepoWiki and Change Wiki workflows.
 
 ## Failure and cleanup
 

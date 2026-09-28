@@ -33,14 +33,13 @@ The overview must contain one primary Mermaid architecture diagram. It must
 show a concrete end-to-end path with meaningful module or interface names,
 grounded relationships, and a visible endpoint such as a result, persisted
 state, external system, or storage layer. Do not use generic placeholders such
-as Entry, Core, Result, Other, or All. Keep build/test/release details out of
-the primary runtime diagram; mention them separately when artifact context is
-available.
+as Entry, Core, Result, Other, or All. Wrap the diagram in native DokuWiki
+`<mermaid>...</mermaid>` tags.
 
 When a diagram would otherwise be speculative, use the supplied architecture
 context and source evidence to narrow it or omit the speculative relationship.
 
-Return Markdown only inside:
+Return native DokuWiki page source only inside:
 <OVERVIEW>
 overview_content
 </OVERVIEW>

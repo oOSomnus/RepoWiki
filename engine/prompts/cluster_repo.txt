@@ -24,9 +24,12 @@ to `low`, `medium`, or `high`; a broad module that remains a leaf must have a
 concrete explanation. Do not split only to increase page count, and do not
 force a directory-shaped hierarchy.
 
-Module keys become canonical Markdown page names. Use non-empty ASCII keys
-containing only letters, digits, `_`, or `-`; put localized wording in the
-Markdown title and prose. Name modules by responsibility, not nearest folder.
+Module keys are DokuWiki namespace segments, not complete page IDs. Use
+non-empty ASCII keys containing only letters, digits, `_`, or `-`; put
+localized wording in native DokuWiki headings and prose. Canonical page IDs
+include the edition namespace and full ancestry, ending in `:start` (for
+example, `repo:system:api:start`); their source pages end in `.txt` under
+`dokuwiki/data/pages/`. Name modules by responsibility, not nearest folder.
 Build, packaging, and test infrastructure may be one secondary module, but
 must not dominate the runtime architecture.
 

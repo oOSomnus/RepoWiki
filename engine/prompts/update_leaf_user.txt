@@ -18,7 +18,7 @@ Update the documentation for the module `{leaf_name}` (mode: {mode}).
 {leaf_components}
 </LEAF_COMPONENTS>
 
-<CURRENT_LEAF_PAGE path="the leaf page path listed in WRITE_SET">
+<CURRENT_LEAF_PAGE wiki_id="the complete canonical page ID listed in WRITE_SET">
 {leaf_page}
 </CURRENT_LEAF_PAGE>
 

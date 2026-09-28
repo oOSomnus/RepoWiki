@@ -83,7 +83,7 @@ fn default_output_dir_is_repowiki_and_document_paths_are_strict() {
     assert!(output.is_dir());
     assert!(!repo.path().join("docs").exists());
 
-    for path in [".repowiki/guide.md", "docs/legacy.md"] {
+    for path in [".repowiki/guide.md", "docs/legacy.md", "guide.md"] {
         let (success, _) = run_failure([
             "doc",
             "write",
@@ -94,11 +94,11 @@ fn default_output_dir_is_repowiki_and_document_paths_are_strict() {
             "--path",
             path,
             "--content",
-            "# Guide\n",
+            "====== Guide ======\n",
         ]);
-        assert!(!success, "legacy document path should fail: {path}");
+        assert!(!success, "non-page-ID document path should fail: {path}");
     }
-    run([
+    let written = run([
         "doc",
         "write",
         "--repo-root",
@@ -106,12 +106,16 @@ fn default_output_dir_is_repowiki_and_document_paths_are_strict() {
         "--session",
         session,
         "--path",
-        "guide.md",
+        "repo:guide:start",
         "--content",
-        "# Guide\n",
+        "====== Guide ======\n",
     ]);
 
-    assert!(output.join("guide.md").is_file());
+    assert_eq!(written["result"]["path"], json!("repo:guide:start"));
+    assert!(output
+        .join("dokuwiki/data/pages/repo/guide/start.txt")
+        .is_file());
+    assert!(!output.join("guide.md").exists());
     assert!(!output.join(".repowiki").exists());
 }
 
@@ -288,7 +292,7 @@ fn file_side_workflow_creates_reference_artifacts() {
 
     fs::write(
         &vars,
-        r#"{"module_name":"Service","doc_path":"Service.md"}"#,
+        r#"{"module_name":"Service","doc_path":"repo:service:start"}"#,
     )
     .expect("write current vars");
     let prompt = run([
@@ -328,8 +332,39 @@ fn file_side_workflow_creates_reference_artifacts() {
         .unwrap()
         .is_empty());
 
-    let service_doc = "# Service\n\n## Purpose and responsibility\n\nThe Service class in `app.py` is the entry point for this small application. It owns the public `Service.run` operation and keeps callers independent from the helper that performs the calculation. The analyzed source identifies these components as `app.py::Service` and `app.py::Service.run`; this page describes their relationship rather than treating them as unrelated symbols.\n\n## Architecture and request flow\n\nA caller invokes `Service.run`, which delegates the reusable calculation to `helper` and returns the resulting integer. The path is synchronous: there is no queue, persistent state, or external service in the supplied implementation. That boundary matters because the service is responsible for orchestration while the helper owns the calculation itself.\n\n## Interface and module boundary\n\n`Service.run` is the interface visible to the caller. The helper remains an internal implementation detail in `app.py`, represented by `app.py::helper`; callers do not need to know how its result is assembled. Keeping the delegation in one method gives the module a clear entry point and lets the helper remain independently understandable. The page covers only behavior present in the analyzed source.\n";
-    let overview_doc = "# Repository Overview\n\n## Purpose\n\nThis repository contains a compact Python service. The analyzed `app.py` source has a public `Service.run` entry point and a helper that performs the calculation. The wiki follows the request from the caller through that entry point and delegation boundary, then explains where to read the implementation. This is a synchronous in-process example: the available source shows no network hop, worker queue, persistent store, or hidden service layer.\n\n## End-to-end architecture\n\nThe caller invokes `Service.run` in `app.py`. The method delegates the reusable calculation to `helper`, receives its integer value, and returns that value to the caller. The `Service` module owns the public orchestration boundary, while the helper owns the calculation. These responsibilities are small but distinct, so readers can begin with the module page and follow the exact path through the source without inferring a larger architecture that is not present.\n\n```mermaid\nflowchart LR\n  Client[Python caller] --> Entry[Service.run in app.py]\n  Entry --> Helper[helper in app.py]\n  Helper --> Value[integer returned to caller]\n```\n\nThe [Service module](Service.md) describes the entry-point contract, the helper relationship, and the synchronous behavior grounded in `app.py`. Start there when tracing the implementation. The repository has no other documented runtime module in this fixture, so the overview keeps the architecture focused on the complete path that the source actually supports. This separation also helps a reader distinguish public orchestration from the reusable calculation, then follow each responsibility back to its source location and understand where a behavior change belongs.\n";
+    let service_doc = r#"====== Service ======
+
+===== Purpose and responsibility =====
+
+The Service module forms the single public entry point for this compact Python fixture. In app.py, app.py::Service owns app.py::Service.run, while app.py::helper supplies the reusable calculation invoked by that method. The class keeps callers independent from the implementation detail and returns the helper's integer result without adding another stateful layer. There is no network boundary, queue, persistent store, or external service in the supplied source, so this page describes the complete in-process responsibility rather than assuming infrastructure that is absent.
+
+===== Architecture and request flow =====
+
+A caller constructs Service and calls Service.run. The method delegates the calculation to helper in the same process, receives its result, and returns it to that caller. app.py::Service and app.py::Service.run anchor the public operation, while app.py::helper anchors the delegated operation. This sequence is synchronous: the method call itself establishes the control transfer, and no retry, asynchronous callback, or hidden persistence is visible in app.py. Keeping that separation makes the service responsible for orchestration and the helper responsible for the reusable computation.
+
+===== Responsibilities and interfaces =====
+
+The stable interface is Service.run, which returns the integer produced by helper. Callers do not need to know how helper computes that value, and the current fixture shows no additional configuration or lifecycle state. Changes to the public operation belong at the Service boundary; changes to the reusable calculation belong in helper. This division follows the two source-backed components in app.py and keeps the explanation focused on behavior that the implementation actually provides.
+"#;
+    let overview_doc = r#"====== Repository Overview ======
+
+===== Purpose =====
+
+This repository contains a compact Python service whose complete request path stays inside one process. The Service class in app.py receives work through Service.run and delegates a reusable calculation to helper. The resulting integer returns through the same call chain to the caller. The analyzed source exposes no network transport, background worker, persistent store, or external service, so this overview limits its architecture to the components actually present. The [[repo:service:start|Service module]] page explains the class boundary and the behavior owned by its public operation.
+
+===== End-to-end architecture =====
+
+<mermaid>
+flowchart LR
+  Service --> Helper
+</mermaid>
+
+The request enters the Service boundary at Service.run, crosses the local delegation to helper, and returns as the helper's integer result. Service owns orchestration and the externally visible method, while helper owns the reusable calculation. This is a synchronous path rather than a distributed interaction: the call to helper occurs in the same execution flow and the provided fixture does not introduce retries, queues, or stored state. The diagram names those two source-backed responsibilities and shows their ordering without adding infrastructure that the repository does not contain.
+
+===== Where to read next =====
+
+Start with the Service module page for its purpose, request flow, and public interface. Its discussion ties the Service class and Service.run to app.py, then follows the handoff to helper. That page provides the detailed implementation boundary behind this overview, while this page remains a navigation map of the complete small fixture. If the implementation changes, compare the same local entry, delegation, and return path against app.py rather than assuming a larger service topology.
+"#;
     let written = run([
         "doc",
         "write",
@@ -338,14 +373,15 @@ fn file_side_workflow_creates_reference_artifacts() {
         "--session",
         session,
         "--path",
-        "Service.md",
+        "repo:service:start",
         "--content",
         service_doc,
     ]);
-    assert!(written["result"]["path"]
-        .as_str()
-        .unwrap()
-        .ends_with("Service.md"));
+    assert_eq!(written["result"]["path"], json!("repo:service:start"));
+    assert!(output
+        .path()
+        .join("dokuwiki/data/pages/repo/service/start.txt")
+        .is_file());
     assert!(output.path().join("module_tree.json").exists());
     assert!(output.path().join("first_module_tree.json").exists());
 
@@ -357,10 +393,27 @@ fn file_side_workflow_creates_reference_artifacts() {
         "--session",
         session,
         "--path",
-        "overview.md",
+        "repo:start",
         "--content",
         overview_doc,
     ]);
+    let viewed = run([
+        "doc",
+        "view",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        session,
+        "--path",
+        "repo:start",
+    ]);
+    assert_eq!(viewed["result"]["page_id"], json!("repo:start"));
+    assert_eq!(viewed["result"]["content"], json!(overview_doc));
+    assert_eq!(viewed["result"]["links"], json!(["repo:service:start"]));
+    assert!(viewed["result"]["html"]
+        .as_str()
+        .unwrap()
+        .contains("Service module"));
 
     let report = run([
         "doc",
@@ -370,8 +423,45 @@ fn file_side_workflow_creates_reference_artifacts() {
         "--session",
         session,
     ]);
-    assert_eq!(report["result"]["valid"], true, "{report}");
+    assert_eq!(
+        report["result"]["pages"]["repo:service:start"]["parser_succeeded"],
+        json!(true)
+    );
+    assert_eq!(
+        report["result"]["pages"]["repo:start"]["parser_succeeded"],
+        json!(true)
+    );
+    assert_eq!(
+        report["result"]["checks"]["canonical_page_ids"],
+        json!(true)
+    );
 
+    assert_eq!(report["result"]["valid"], true, "{report}");
+    let export = run([
+        "html",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        session,
+    ]);
+    assert_eq!(export["ok"], json!(true));
+    let html_path = output.path().join("index.html");
+    let html = fs::read_to_string(&html_path).expect("read DokuWiki HTML export");
+    assert!(html.contains("class=\"mermaid\""));
+    assert!(html.contains("href=\"#page-repo--service--start\""));
+    assert!(!html.contains("cdn.jsdelivr.net"));
+    assert!(output.path().join("assets/mermaid.min.js").is_file());
+    assert!(output.path().join("assets/mermaid.css").is_file());
+    assert!(html.contains("assets/LICENSE-mermaid-plugin-GPL.txt"));
+    assert!(html.contains("assets/LICENSE-mermaid-js-MIT.txt"));
+    assert!(output
+        .path()
+        .join("assets/LICENSE-mermaid-plugin-GPL.txt")
+        .is_file());
+    assert!(output
+        .path()
+        .join("assets/LICENSE-mermaid-js-MIT.txt")
+        .is_file());
     let closed = run([
         "session",
         "close",
@@ -382,6 +472,179 @@ fn file_side_workflow_creates_reference_artifacts() {
     ]);
     assert_eq!(closed["cleaned"], true);
     assert!(output.path().join("metadata.json").exists());
+    let metadata: Value =
+        serde_json::from_slice(&fs::read(output.path().join("metadata.json")).expect("metadata"))
+            .expect("metadata JSON");
+    let generated = metadata["files_generated"]
+        .as_array()
+        .expect("generated files");
+    for page_path in [
+        "dokuwiki/data/pages/repo/service/start.txt",
+        "dokuwiki/data/pages/repo/start.txt",
+    ] {
+        assert!(
+            generated.iter().any(|path| path == page_path),
+            "metadata omitted output-relative DokuWiki page storage path {page_path}"
+        );
+    }
+
+    fs::write(
+        repo.path().join("app.py"),
+        "class Service:\n    def run(self):\n        return helper()\n\ndef helper():\n    return 1\n\ndef added_helper():\n    return 2\n",
+    )
+    .expect("add a source component for the update");
+    let updated = run([
+        "generate",
+        "--repo",
+        repo_arg.as_str(),
+        "--output",
+        output_arg.as_str(),
+        "--update",
+    ]);
+    let update_session = updated["session_id"].as_str().expect("update session ID");
+    assert_eq!(updated["update_plan"]["outcome"], json!("incremental"));
+    assert!(updated["update_plan"]["diff"]["added"]
+        .as_array()
+        .expect("added component IDs")
+        .contains(&json!("app.py::added_helper")));
+
+    let routed = run([
+        "update",
+        "route",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        update_session,
+    ]);
+    assert_eq!(
+        routed["routes"]["app.py::added_helper"],
+        json!("repo:service:start"),
+        "{routed}"
+    );
+    let decisions = repo.path().join("update-decisions.json");
+    fs::write(
+        &decisions,
+        serde_json::to_vec(&json!({
+            "decisions": [{
+                "component_id": "app.py::added_helper",
+                "action": "place",
+                "leaf": "repo:service:start"
+            }]
+        }))
+        .expect("serialize update decisions"),
+    )
+    .expect("write update decisions");
+    let decisions_arg = decisions.to_string_lossy().to_string();
+    run([
+        "update",
+        "route-apply",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        update_session,
+        "--decisions-file",
+        decisions_arg.as_str(),
+    ]);
+
+    let context = run([
+        "update",
+        "context",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        update_session,
+    ]);
+    assert_eq!(context["stale_scan"]["missing_pages"], json!([]));
+    assert_eq!(context["stale_scan"]["broken_links"], json!([]));
+    let stale = run([
+        "update",
+        "stale-scan",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        update_session,
+    ]);
+    assert_eq!(stale["scanned"], json!(true));
+
+    let operations = repo.path().join("update-operations.json");
+    fs::write(
+        &operations,
+        serde_json::to_vec(&json!([{
+            "kind": "str_replace",
+            "old": "The stable interface is Service.run",
+            "new": "The stable interface is Service.run, alongside app.py::added_helper"
+        }]))
+        .expect("serialize DokuWiki edit operations"),
+    )
+    .expect("write DokuWiki edit operations");
+    let operations_arg = operations.to_string_lossy().to_string();
+    run([
+        "doc",
+        "edit",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        update_session,
+        "--path",
+        "repo:service:start",
+        "--operations-file",
+        operations_arg.as_str(),
+    ]);
+    let updated_page = run([
+        "doc",
+        "view",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        update_session,
+        "--path",
+        "repo:service:start",
+    ]);
+    assert!(updated_page["result"]["content"]
+        .as_str()
+        .expect("updated DokuWiki page source")
+        .contains("app.py::added_helper"));
+
+    let verdicts = repo.path().join("update-verdicts.json");
+    fs::write(
+        &verdicts,
+        serde_json::to_vec(&json!({
+            "verdicts": {
+                "repo:service:start": "patch",
+                "repo:start": "patch"
+            }
+        }))
+        .expect("serialize canonical page verdicts"),
+    )
+    .expect("write update verdicts");
+    let verdicts_arg = verdicts.to_string_lossy().to_string();
+    let finalized = run([
+        "update",
+        "finalize",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        update_session,
+        "--verdicts-file",
+        verdicts_arg.as_str(),
+    ]);
+    assert_eq!(finalized["outcome"], json!("incremental"));
+    let update_record: Value =
+        serde_json::from_slice(&fs::read(output.path().join("update_record.json")).unwrap())
+            .expect("update record JSON");
+    assert_eq!(
+        update_record["verdicts"]["repo:service:start"],
+        json!("patch")
+    );
+    let updated_close = run([
+        "session",
+        "close",
+        "--repo-root",
+        repo_arg.as_str(),
+        "--session",
+        update_session,
+    ]);
+    assert_eq!(updated_close["cleaned"], json!(true));
 }
 
 #[test]
@@ -672,87 +935,102 @@ fn recursive_tree_commands_are_file_side_and_work_outside_repo_cwd() {
                 .position(|item| item["module"] == "Platform")
                 .unwrap()
     );
+    for (module, page_id) in [
+        ("API", "repo:platform:api:start"),
+        ("Runtime", "repo:platform:runtime:start"),
+        ("Platform", "repo:platform:start"),
+    ] {
+        let item = items
+            .iter()
+            .find(|item| item["module"] == module)
+            .expect("processing item");
+        assert_eq!(item["doc_path"], json!(page_id));
+    }
 
-    for page in ["API.md", "Runtime.md", "Platform.md", "overview.md"] {
-        let content = match page {
-            "API.md" => {
-                r#"# API
+    let pages = [
+        (
+            "repo:platform:api:start",
+            r#"====== API ======
 
-## Purpose and boundary
+===== Purpose and boundary =====
 
-The API module owns the public request surface in `src/api.rs`, where the analyzed `Api` type is defined. It gives callers one place to enter the request flow and keeps the runtime implementation behind a narrow boundary. In this fixture, the module has no parser or transport layer of its own; its purpose is to accept work and hand it to the execution subsystem without exposing runtime details.
+The API module owns the public request surface implemented in src/api.rs, where the analyzed Api type is defined. It gives callers one place to enter the request flow and keeps the runtime implementation behind a narrow boundary. In this fixture the API has no parser or transport layer of its own; its purpose is to accept work and hand it to the execution subsystem without exposing runtime details. That small responsibility makes the entry point clear without inventing protocols absent from the source.
 
-## Architecture and request flow
+===== Architecture and request flow =====
 
-The `Api` component in `src/api.rs` is the first documented stage after the caller. It validates and dispatches the request, then passes responsibility to Runtime. Keeping that handoff at the API boundary lets the downstream module own execution while the public surface stays small. The source fixture is intentionally compact, so the page describes only the boundary represented by `Api` rather than inferring validation branches or protocols that are not present.
+The Api component in src/api.rs is the first documented stage after the caller. It dispatches the request to Runtime, then returns the execution result through the same public boundary. Keeping that handoff in the API module lets the downstream module own execution while the caller-facing surface stays small. The selected source anchor src/api.rs::Api and its path identify the implementation behind this role. The fixture is intentionally compact, so this page does not infer validation branches or other behavior not shown in the source.
 
-## Responsibilities and interfaces
+===== Responsibilities and interfaces =====
 
-The API page is the entry point for reading the [Runtime module](Runtime.md). Runtime performs the next stage and returns the execution result to this layer. This relationship explains why the API and Runtime pages are separate: one describes the caller-facing contract, while the other describes work performed after dispatch. The selected source anchors and file path provide the implementation starting point for both responsibilities.
-"#
-            }
-            "Runtime.md" => {
-                r#"# Runtime
+The API page links to the [[repo:platform:runtime:start|Runtime module]] because that module performs the next stage in the request path. API owns entry and dispatch; Runtime owns execution after the handoff. This relationship explains why the pages are separate rather than combining caller interaction and implementation detail. The source anchor and file path give a concrete starting point for both responsibilities, and the child page describes the behavior on the other side of the boundary.
+"#,
+        ),
+        (
+            "repo:platform:runtime:start",
+            r#"====== Runtime ======
 
-## Purpose and boundary
+===== Purpose and boundary =====
 
-The Runtime module owns the execution implementation in `src/runtime.rs`, where the analyzed `Runtime` type is defined. It receives work from the public API layer, performs the operation represented by the fixture, and returns a result. The module boundary keeps execution details downstream from the caller-facing contract and gives the parent Platform page a concrete child responsibility to explain.
+The Runtime module owns the execution implementation in src/runtime.rs, where the analyzed Runtime type is defined. It receives work from the public API layer, performs the operation represented by the fixture, and returns a result. This boundary keeps execution details downstream from the caller-facing contract and gives the parent Platform page a concrete child responsibility to explain. The supplied code contains no separate storage, scheduler, or external service.
 
-## Architecture and execution path
+===== Architecture and execution path =====
 
-The `Runtime` component in `src/runtime.rs` is the second stage in the request path. API hands work to this module; Runtime performs the execution step and returns the result to the caller-facing layer. The available source fixture contains no separate storage, scheduler, or external service, so this page keeps the flow local and does not invent additional stages or state transitions.
+The Runtime component in src/runtime.rs is the execution stage in the request path. API hands work to this module; Runtime performs the local operation and returns the result to the caller-facing layer. The selected source anchor src/runtime.rs::Runtime and its implementation path identify the behavior owned here. Since the available fixture has no additional service boundary or stored state, the page follows only the in-process transition visible between API and Runtime instead of adding unsupported stages.
 
-## Responsibilities and interfaces
+===== Responsibilities and interfaces =====
 
-Runtime participates in the [Platform subsystem](Platform.md) alongside the [API module](API.md). API owns entry and dispatch, while Runtime owns the execution behavior after that handoff. The parent page explains how the two responsibilities compose; this page stays focused on the source in `src/runtime.rs` and the behavior represented by the `Runtime` component.
-"#
-            }
-            "Platform.md" => {
-                r#"# Platform
+Runtime participates in the Platform subsystem beside the API module, whose public boundary is documented separately. API owns entry and dispatch, while Runtime owns the execution behavior after that handoff. The parent page explains how these responsibilities compose, and the API page explains how callers enter the flow. This page stays focused on src/runtime.rs and the behavior represented by the Runtime component rather than repeating its sibling's interface description.
+"#,
+        ),
+        (
+            "repo:platform:start",
+            r#"====== Platform ======
 
-## Purpose and boundary
+===== Purpose and boundary =====
 
-Platform groups the caller-facing API and the runtime execution stage into one request path. The `Api` component in `src/api.rs` accepts and dispatches work; the `Runtime` component in `src/runtime.rs` performs the downstream operation. This parent page explains their connection, while each child page owns the detailed explanation of its source boundary.
+Platform groups the caller-facing API and the runtime execution stage into one request path. The Api component in src/api.rs accepts and dispatches work; the Runtime component in src/runtime.rs performs the downstream operation. Their selected source anchors, src/api.rs::Api and src/runtime.rs::Runtime, define the two responsibilities represented by this parent. The module explains their connection, while each child page owns the detailed account of its implementation boundary. The fixture contains no storage or external integration.
 
-## Architecture: how the children compose
+===== Architecture: how the children compose =====
 
-```mermaid
+<mermaid>
 flowchart LR
   API --> Runtime
-```
+</mermaid>
 
-The [API module](API.md) is the public entry boundary. It hands accepted work to the [Runtime module](Runtime.md), which performs execution and returns the result. The sequence is grounded in the selected `Api` and `Runtime` components and their source paths. It has two clear responsibilities, rather than one broad page that mixes caller interaction with execution details.
+The [[repo:platform:api:start|API module]] is the public entry boundary. It hands accepted work to the [[repo:platform:runtime:start|Runtime module]], which performs execution and returns the result. This sequence is grounded in the selected Api and Runtime components and their source paths. It has two clear responsibilities rather than one broad page that mixes caller interaction with execution details. The parent provides a shared view of the handoff without duplicating each child's explanation.
 
-## Responsibilities and reading the subsystem
+===== Responsibilities and reading the subsystem =====
 
-Read API first to understand the public request surface, then follow its handoff into Runtime. The parent exists to show why those modules belong together and how their responsibilities meet; it does not replace their child pages with a repeated component list. No storage or external integration is present in this fixture, so Platform stops at the API-to-runtime flow shown by the source.
+Read API first to understand the public request surface, then follow its handoff into Runtime. The parent exists to show why those modules belong together and how their responsibilities meet; it does not replace their child pages with a repeated component list. No storage or external integration is present in this fixture, so Platform stops at the API-to-runtime flow shown by the source. This gives readers a focused route from request entry to execution while keeping each page aligned with the responsibility represented by its own source anchors.
 
-The split also gives changes a clear home: changes to the caller-facing contract start in API, while changes to execution behavior start in Runtime. Reviewers can use the parent page to understand the handoff first, then read the child page that owns the relevant responsibility. This keeps the subsystem map useful without duplicating implementation details.
-"#
-            }
-            _ => {
-                r#"# Repository Overview
+The split also gives changes a clear home: changes to the caller-facing contract start in API, while changes to execution behavior start in Runtime. Reviewers can use this parent page to understand the handoff first, then read the child page that owns the relevant responsibility. The parent-child structure is therefore an explanation of the implementation boundary as well as a navigation map; it does not add infrastructure or behavior that the fixture does not contain.
+"#,
+        ),
+        (
+            "repo:start",
+            r#"====== Repository Overview ======
 
-## Purpose
+===== Purpose =====
 
-This repository demonstrates a small Rust request path split across a public API and a runtime implementation. The `Api` component in `src/api.rs` receives work from the caller, while the `Runtime` component in `src/runtime.rs` performs the execution stage. The wiki organizes these modules under Platform so a developer can understand the end-to-end shape before opening implementation details. The analyzed fixture contains no additional transport, persistence, or external system, so the overview stays within those source-backed boundaries.
+This repository demonstrates a small Rust request path split across a public API and a runtime implementation. The Api component in src/api.rs receives work from the caller, while the Runtime component in src/runtime.rs performs the execution stage. The wiki organizes these responsibilities under Platform so a developer can understand the end-to-end shape before opening implementation details. The analyzed fixture contains no additional transport, persistence, or external system, so this overview stays within the boundaries shown by the source. The [[repo:platform:start|Platform module]] page explains how its children compose.
 
-## End-to-end architecture
+===== End-to-end architecture =====
 
-```mermaid
+<mermaid>
 flowchart LR
-  Platform --> API --> Runtime
-```
+  Platform --> API
+</mermaid>
 
-The request enters through API, crosses into Runtime, and returns as the result of the runtime operation. API owns the caller-facing contract and dispatch; Runtime owns execution. Platform provides their shared subsystem context and documents the handoff between those roles. This simple path is the complete architecture visible in the repository fixture, rather than a placeholder for services or infrastructure that the source does not contain. The overview serves as a quick navigation map: it names the two source-backed roles, shows their order, and points from each role to the detailed page where its implementation boundary is described.
+The request enters through API, crosses into Runtime, and returns as the result of the execution step. API owns the caller-facing contract and dispatch; Runtime owns the downstream work. Platform provides their shared subsystem context and documents the handoff between those roles. This path is the complete architecture visible in the fixture, rather than a placeholder for services or infrastructure the source does not contain. The diagram highlights the Platform-to-API navigation path and the module pages provide the detailed account of the API-to-Runtime handoff.
 
-## Where to read next
+===== Where to read next =====
 
-Start with the [Platform module](Platform.md) for the relationship between its children. The [API page](API.md) explains the public entry and dispatch boundary, and the [Runtime page](Runtime.md) follows the execution stage in `src/runtime.rs`. Together these pages provide a route from the overall request flow to the components that implement it without repeating each page's detailed explanation.
-"#
-            }
-        };
-        run_from(
+Start with the Platform module for the relationship between its children. The API page explains public entry and dispatch, and the Runtime page follows execution in src/runtime.rs. Together these pages provide a route from the overall request flow to the components that implement it without repeating each page's detailed explanation. The wiki is intended as a source-grounded map: readers can follow the parent link, then inspect the child that owns the relevant behavior.
+"#,
+        ),
+    ];
+    for (page, content) in pages {
+        let written = run_from(
             scratch.path(),
             [
                 "doc",
@@ -767,7 +1045,49 @@ Start with the [Platform module](Platform.md) for the relationship between its c
                 content,
             ],
         );
+        assert_eq!(written["result"]["path"], json!(page));
     }
+    for page_file in [
+        "repo/platform/api/start.txt",
+        "repo/platform/runtime/start.txt",
+        "repo/platform/start.txt",
+        "repo/start.txt",
+    ] {
+        assert!(
+            output
+                .path()
+                .join("dokuwiki/data/pages")
+                .join(page_file)
+                .is_file(),
+            "missing DokuWiki page storage file {page_file}"
+        );
+    }
+
+    let report = run_from(
+        scratch.path(),
+        [
+            "doc",
+            "validate",
+            "--repo-root",
+            repo_arg.as_str(),
+            "--session",
+            session,
+        ],
+    );
+    assert_eq!(report["result"]["valid"], true, "{report}");
+    for page_id in [
+        "repo:platform:api:start",
+        "repo:platform:runtime:start",
+        "repo:platform:start",
+        "repo:start",
+    ] {
+        assert_eq!(
+            report["result"]["pages"][page_id]["parser_succeeded"],
+            json!(true),
+            "missing native page report for {page_id}"
+        );
+    }
+
     let closed = run_from(
         scratch.path(),
         [
@@ -781,6 +1101,23 @@ Start with the [Platform module](Platform.md) for the relationship between its c
     );
     assert_eq!(closed["cleaned"], true);
     assert!(output.path().join("metadata.json").is_file());
+    let metadata: Value =
+        serde_json::from_slice(&fs::read(output.path().join("metadata.json")).expect("metadata"))
+            .expect("metadata JSON");
+    let generated = metadata["files_generated"]
+        .as_array()
+        .expect("generated files");
+    for page_path in [
+        "dokuwiki/data/pages/repo/platform/api/start.txt",
+        "dokuwiki/data/pages/repo/platform/runtime/start.txt",
+        "dokuwiki/data/pages/repo/platform/start.txt",
+        "dokuwiki/data/pages/repo/start.txt",
+    ] {
+        assert!(
+            generated.iter().any(|path| path == page_path),
+            "metadata omitted output-relative DokuWiki page path {page_path}"
+        );
+    }
 }
 
 #[test]
@@ -801,8 +1138,8 @@ fn concurrent_document_writes_are_serialized_and_idempotent() {
 
     let mut children = Vec::new();
     for index in 0..8 {
-        let path = format!("page-{index}.md");
-        let content = format!("# Page {index}\n");
+        let page_id = format!("repo:page-{index}:start");
+        let content = format!("====== Page {index} ======\n");
         children.push(spawn([
             "doc",
             "write",
@@ -811,7 +1148,7 @@ fn concurrent_document_writes_are_serialized_and_idempotent() {
             "--session",
             session,
             "--path",
-            path.as_str(),
+            page_id.as_str(),
             "--content",
             content.as_str(),
         ]));
@@ -827,7 +1164,12 @@ fn concurrent_document_writes_are_serialized_and_idempotent() {
     }
 
     for index in 0..8 {
-        assert!(output.path().join(format!("page-{index}.md")).is_file());
+        let page_file = format!("repo/page-{index}/start.txt");
+        assert!(output
+            .path()
+            .join("dokuwiki/data/pages")
+            .join(page_file)
+            .is_file());
     }
     let info = run([
         "session",
@@ -849,9 +1191,9 @@ fn concurrent_document_writes_are_serialized_and_idempotent() {
             "--session",
             session,
             "--path",
-            "same.md",
+            "repo:same:start",
             "--content",
-            "# Same\n",
+            "====== Same ======\n",
         ]));
     }
     let results = same_path_children
@@ -881,9 +1223,9 @@ fn concurrent_document_writes_are_serialized_and_idempotent() {
         "--session",
         session,
         "--path",
-        "same.md",
+        "repo:same:start",
         "--content",
-        "# Same\n",
+        "====== Same ======\n",
         "--if-existing",
         "same",
     ]);
@@ -898,9 +1240,9 @@ fn concurrent_document_writes_are_serialized_and_idempotent() {
         "--session",
         session,
         "--path",
-        "same.md",
+        "repo:same:start",
         "--content",
-        "# Different\n",
+        "====== Different ======\n",
         "--if-existing",
         "same",
     ]);
@@ -910,8 +1252,13 @@ fn concurrent_document_writes_are_serialized_and_idempotent() {
         .unwrap_or_default()
         .contains("different"));
     assert_eq!(
-        fs::read_to_string(output.path().join("same.md")).expect("read same page"),
-        "# Same\n"
+        fs::read_to_string(
+            output
+                .path()
+                .join("dokuwiki/data/pages/repo/same/start.txt"),
+        )
+        .expect("read same page"),
+        "====== Same ======\n"
     );
 }
 
@@ -962,9 +1309,9 @@ fn invalid_documentation_close_keeps_session_and_report() {
         "--first",
     ]);
 
-    for (path, content) in [
-        ("Service.md", "# Service\n"),
-        ("overview.md", "# Repository Overview\n"),
+    for (page_id, content) in [
+        ("repo:service:start", "====== Service ======\n"),
+        ("repo:start", "====== Repository Overview ======\n"),
     ] {
         run([
             "doc",
@@ -974,7 +1321,7 @@ fn invalid_documentation_close_keeps_session_and_report() {
             "--session",
             session,
             "--path",
-            path,
+            page_id,
             "--content",
             content,
         ]);
@@ -988,6 +1335,18 @@ fn invalid_documentation_close_keeps_session_and_report() {
         session,
     ]);
     assert_eq!(report["result"]["valid"], false, "{report}");
+    assert_eq!(
+        report["result"]["actual_page_ids"],
+        json!(["repo:service:start", "repo:start"])
+    );
+    assert!(report["result"]["pages"]
+        .as_object()
+        .expect("page report map")
+        .contains_key("repo:service:start"));
+    assert!(report["result"]["pages"]
+        .as_object()
+        .expect("page report map")
+        .contains_key("repo:start"));
 
     let (success, error) = run_failure([
         "session",
@@ -1019,6 +1378,18 @@ fn invalid_documentation_close_keeps_session_and_report() {
     )
     .expect("documentation report JSON");
     assert_eq!(persisted_report["valid"], false);
+    assert_eq!(
+        persisted_report["actual_page_ids"],
+        json!(["repo:service:start", "repo:start"])
+    );
+    assert!(persisted_report["pages"]
+        .as_object()
+        .expect("persisted page report map")
+        .contains_key("repo:service:start"));
+    assert!(persisted_report["pages"]
+        .as_object()
+        .expect("persisted page report map")
+        .contains_key("repo:start"));
     assert!(!repo.path().join(".repowiki/metadata.json").exists());
 }
 

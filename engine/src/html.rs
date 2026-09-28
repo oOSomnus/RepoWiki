@@ -1,203 +1,281 @@
+use crate::docs::{self, overview_page_id};
+use crate::dokuwiki;
+use crate::model::ModuleTree;
 use crate::session::{self, SessionState};
-use anyhow::{anyhow, Result};
-use serde::Serialize;
-use serde_json::Value;
-use std::collections::BTreeMap;
+use anyhow::{anyhow, Context, Result};
+use regex::{Captures, Regex};
+use std::collections::BTreeSet;
 use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
-/// Generate a self-contained client-side viewer for the optional HTML output.
-///
-/// Pages are embedded instead of fetched at runtime so the result works from
-/// `file://` as well as from a static host such as GitHub Pages.
+#[derive(Debug, Clone)]
+struct PageRef {
+    page_id: String,
+    title: String,
+}
+
+/// Export native DokuWiki-rendered pages into a single-file navigation shell.
 pub fn generate(state: &SessionState) -> Result<String> {
+    docs::validate_documentation(state)?;
     let output = session::output_dir(state);
-    let tree: Value = session::read_json(&output.join("module_tree.json"))?;
-    let metadata: Value = session::read_json(&output.join("metadata.json"))?;
+    let tree: ModuleTree = session::read_json(&output.join("module_tree.json"))?;
+    let mut expected = BTreeSet::new();
+    docs::collect_expected_pages(&state.wiki_id, &tree, &mut expected)?;
+    expected.insert(overview_page_id(&state.wiki_id)?);
 
-    let mut pages = BTreeMap::new();
-    if output.exists() {
-        for entry in fs::read_dir(&output)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("md") {
-                continue;
-            }
-            let stem = path
-                .file_stem()
-                .and_then(|value| value.to_str())
-                .unwrap_or_default()
-                .to_string();
-            pages.insert(stem, session::read_text(&path)?);
+    let mut pages = vec![PageRef {
+        page_id: overview_page_id(&state.wiki_id)?,
+        title: "Overview".to_string(),
+    }];
+    collect_pages(&state.wiki_id, &tree, &[], &mut pages)?;
+
+    let mut navigation = String::new();
+    navigation.push_str("<ul><li><a href=\"#");
+    navigation.push_str(&page_anchor(&pages[0].page_id));
+    navigation.push_str("\">Overview</a></li>");
+    render_navigation(&state.wiki_id, &tree, &[], &mut navigation)?;
+    navigation.push_str("</ul>");
+
+    let mut sections = String::new();
+    let render_context = dokuwiki::session_context(state)?;
+    for page in &pages {
+        if !expected.contains(&page.page_id) {
+            return Err(anyhow!(
+                "HTML export page is absent from canonical page set: {}",
+                page.page_id
+            ));
         }
-    }
-    if !pages.contains_key("overview") {
-        return Err(anyhow!("incomplete documentation: missing overview.md"));
+        let path = docs::page_file_path(&output, &state.wiki_id, &page.page_id)?;
+        ensure_regular_page(&path)?;
+        let rendered = dokuwiki::render_page_in_context(&render_context, &page.page_id)
+            .with_context(|| format!("render DokuWiki page {}", page.page_id))?;
+        sections.push_str("<section class=\"wiki-page\" id=\"");
+        sections.push_str(&page_anchor(&page.page_id));
+        sections.push_str("\" data-page-id=\"");
+        sections.push_str(&escape_html(&page.page_id));
+        sections.push_str("\" data-page-title=\"");
+        sections.push_str(&escape_html(&page.title));
+        sections.push_str("\">\n");
+        sections.push_str(&rewrite_page_links(&rendered, &expected));
+        sections.push_str("\n</section>\n");
     }
 
-    let html = format_template(
-        script_json(&tree)?,
-        script_json(&pages)?,
-        script_json(&metadata)?,
+    let runtime = &render_context.runtime;
+    let assets = ensure_export_assets(&output)?;
+    copy_export_asset(
+        &runtime.core_dir.join("lib/plugins/mermaid/mermaid.min.js"),
+        &assets.join("mermaid.min.js"),
+    )
+    .context("copy bundled Mermaid renderer")?;
+    copy_export_asset(
+        &runtime.core_dir.join("lib/plugins/mermaid/mermaid.css"),
+        &assets.join("mermaid.css"),
+    )
+    .context("copy bundled Mermaid styles")?;
+    copy_export_asset(
+        &runtime.core_dir.join("lib/plugins/mermaid/LICENSE"),
+        &assets.join("LICENSE-mermaid-plugin-GPL.txt"),
+    )
+    .context("copy Mermaid plugin license")?;
+    copy_export_asset(
+        &runtime.core_dir.join("lib/plugins/mermaid/LICENSE Mermaid"),
+        &assets.join("LICENSE-mermaid-js-MIT.txt"),
+    )
+    .context("copy Mermaid.js license")?;
+
+    let title = Path::new(&state.repo_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("RepoWiki");
+    let html = format!(
+        r##"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{}</title>
+<link rel="stylesheet" href="assets/mermaid.css">
+<style>{}</style>
+<script defer src="assets/mermaid.min.js"></script>
+<script defer>document.addEventListener('DOMContentLoaded',function(){{if(window.mermaid){{mermaid.initialize({{startOnLoad:false,securityLevel:'strict'}});mermaid.run({{querySelector:'.mermaid'}});}}}});</script>
+</head>
+<body>
+<header><h1>{}</h1></header>
+<aside aria-label="Wiki navigation">{}</aside>
+<main>{}</main>
+<footer><small>Rendered with DokuWiki's Mermaid plugin. The plugin is GPLv2; Mermaid.js is MIT. <a href="assets/LICENSE-mermaid-plugin-GPL.txt">Plugin license</a> · <a href="assets/LICENSE-mermaid-js-MIT.txt">Mermaid.js license</a>.</small></footer>
+</body>
+</html>
+"##,
+        escape_html(title),
+        EXPORT_STYLES,
+        escape_html(title),
+        navigation,
+        sections,
     );
     let path = output.join("index.html");
     session::write_text(&path, &html)?;
     Ok(path.to_string_lossy().into_owned())
 }
 
-fn script_json<T: Serialize>(value: &T) -> Result<String> {
-    // Prevent user-authored Markdown containing </script> from terminating a
-    // data script element. JSON parsing in the browser restores the text.
-    Ok(serde_json::to_string(value)?
-        .replace('<', "\\u003c")
-        .replace('>', "\\u003e")
-        .replace('&', "\\u0026"))
+const EXPORT_STYLES: &str = "body{margin:0;font:16px/1.55 system-ui,sans-serif;color:#17202a;background:#fff}header{padding:1rem 2rem;border-bottom:1px solid #ddd}aside{position:fixed;inset:5.5rem auto 0 0;width:18rem;overflow:auto;padding:1rem 1.5rem;border-right:1px solid #ddd;background:#fafafa}main{margin-left:21rem;padding:1.5rem 3rem;max-width:75rem}.wiki-page{padding:0 0 3rem;margin:0 0 3rem;border-bottom:1px solid #ddd}.wiki-page:target{scroll-margin-top:1rem}aside ul{padding-left:1.25rem}aside li{margin:.3rem 0}pre,code{font-family:ui-monospace,monospace}pre{overflow:auto;padding:.8rem;background:#f5f5f5}.mermaid{display:block;overflow:auto}img{max-width:100%}@media(max-width:850px){aside{position:static;width:auto;border-right:0;border-bottom:1px solid #ddd}main{margin:0;padding:1rem}}";
+
+fn collect_pages(
+    wiki_id: &str,
+    tree: &ModuleTree,
+    parent_path: &[String],
+    pages: &mut Vec<PageRef>,
+) -> Result<()> {
+    for (name, module) in tree {
+        let mut path = parent_path.to_vec();
+        path.push(name.clone());
+        pages.push(PageRef {
+            page_id: docs::module_page_id(wiki_id, &path)?,
+            title: name.clone(),
+        });
+        collect_pages(wiki_id, &module.children, &path, pages)?;
+    }
+    Ok(())
 }
 
-fn format_template(tree_json: String, pages_json: String, metadata_json: String) -> String {
-    let template = r##"<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CodeWiki</title>
-  <style>
-    :root { color-scheme: light dark; --bg: #101318; --panel: #191e27; --text: #e8edf5; --muted: #9ba8bb; --accent: #63b3ed; --border: #2a3342; }
-    * { box-sizing: border-box; }
-    body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.6 system-ui, sans-serif; }
-    header { padding: 18px 4vw 14px; border-bottom: 1px solid var(--border); }
-    header strong { font-size: 1.15rem; }
-    main { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: calc(100vh - 72px); }
-    aside { padding: 18px; background: var(--panel); border-right: 1px solid var(--border); overflow: auto; }
-    article { padding: 28px 5vw 56px; max-width: 1100px; width: 100%; }
-    .muted { color: var(--muted); }
-    .tree, .pages { list-style: none; margin: 0; padding: 0; }
-    .tree ul { list-style: none; margin: 2px 0 2px 14px; padding-left: 10px; border-left: 1px solid var(--border); }
-    .tree button, .pages button { width: 100%; text-align: left; color: var(--text); background: transparent; border: 0; border-radius: 5px; padding: 5px 7px; cursor: pointer; }
-    .tree button:hover, .pages button:hover, .selected { background: #26364b !important; color: white !important; }
-    .tree .module { color: var(--accent); }
-    h1, h2, h3 { line-height: 1.25; }
-    a { color: var(--accent); }
-    article p { max-width: 88ch; }
-    pre { overflow: auto; background: #0b0e12; padding: 16px; border-radius: 8px; }
-    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-    .meta { border-top: 1px solid var(--border); margin-top: 28px; padding-top: 12px; font-size: .85rem; }
-    @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { border-right: 0; border-bottom: 1px solid var(--border); max-height: 42vh; } }
-  </style>
-</head>
-<body>
-  <header><strong>CodeWiki</strong> <span class="muted">agent-generated repository documentation</span></header>
-  <main>
-    <aside>
-      <h3>Module tree</h3>
-      <ul id="tree" class="tree"></ul>
-      <h3>Pages</h3>
-      <ul id="pages" class="pages"></ul>
-    </aside>
-    <article><div id="content"></div><div id="meta" class="meta muted"></div></article>
-  </main>
-  <script type="application/json" id="codewiki-tree">__CODEWIKI_TREE__</script>
-  <script type="application/json" id="codewiki-pages">__CODEWIKI_PAGES__</script>
-  <script type="application/json" id="codewiki-metadata">__CODEWIKI_METADATA__</script>
-  <script>
-    const tree = JSON.parse(document.getElementById('codewiki-tree').textContent);
-    const pages = JSON.parse(document.getElementById('codewiki-pages').textContent);
-    const metadata = JSON.parse(document.getElementById('codewiki-metadata').textContent);
-    const content = document.getElementById('content');
-    const pageList = document.getElementById('pages');
-
-    function escapeHtml(value) {
-      return String(value).replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
-    }
-
-    function markdown(value) {
-      const lines = escapeHtml(value).split('\n');
-      let output = [], inCode = false;
-      for (const line of lines) {
-        if (line.startsWith('```')) {
-          output.push(inCode ? '</code></pre>' : '<pre><code>');
-          inCode = !inCode;
-        } else if (inCode) {
-          output.push(line);
-        } else if (line.startsWith('### ')) {
-          output.push('<h3>' + line.slice(4) + '</h3>');
-        } else if (line.startsWith('## ')) {
-          output.push('<h2>' + line.slice(3) + '</h2>');
-        } else if (line.startsWith('# ')) {
-          output.push('<h1>' + line.slice(2) + '</h1>');
-        } else if (line.trim() === '') {
-          output.push('');
-        } else {
-          output.push('<p>' + line + '</p>');
+fn render_navigation(
+    wiki_id: &str,
+    tree: &ModuleTree,
+    parent_path: &[String],
+    html: &mut String,
+) -> Result<()> {
+    for (name, module) in tree {
+        let mut path = parent_path.to_vec();
+        path.push(name.clone());
+        let page_id = docs::module_page_id(wiki_id, &path)?;
+        html.push_str("<li><a href=\"#");
+        html.push_str(&page_anchor(&page_id));
+        html.push_str("\">");
+        html.push_str(&escape_html(name));
+        html.push_str("</a>");
+        if !module.children.is_empty() {
+            html.push_str("<ul>");
+            render_navigation(wiki_id, &module.children, &path, html)?;
+            html.push_str("</ul>");
         }
-      }
-      return output.join('\n');
+        html.push_str("</li>");
     }
-
-    function openPage(name) {
-      const page = pages[name] ?? pages[name.replace(/\.md$/, '')];
-      if (page === undefined) return;
-      content.innerHTML = markdown(page);
-      for (const button of pageList.querySelectorAll('button')) button.classList.toggle('selected', button.dataset.page === name);
-      history.replaceState(null, '', '#' + encodeURIComponent(name));
-    }
-
-    function addTree(parent, modules) {
-      for (const [name, module] of Object.entries(modules || {})) {
-        const item = document.createElement('li');
-        const button = document.createElement('button');
-        button.className = 'module';
-        button.textContent = name;
-        button.addEventListener('click', () => openPage(name));
-        item.appendChild(button);
-        if (module.children && Object.keys(module.children).length) {
-          const children = document.createElement('ul');
-          addTree(children, module.children);
-          item.appendChild(children);
-        }
-        parent.appendChild(item);
-      }
-    }
-
-    for (const name of Object.keys(pages).sort()) {
-      const item = document.createElement('li');
-      const button = document.createElement('button');
-      button.textContent = name + '.md';
-      button.dataset.page = name;
-      button.addEventListener('click', () => openPage(name));
-      item.appendChild(button);
-      pageList.appendChild(item);
-    }
-    addTree(document.getElementById('tree'), tree);
-    const metadataText = metadata && metadata.generation_info ?
-      'Generated by ' + (metadata.generation_info.main_model || 'host-agent') +
-      (metadata.generation_info.timestamp ? ' at ' + metadata.generation_info.timestamp : '') :
-      'Generated by host-agent';
-    document.getElementById('meta').textContent = metadataText;
-    const hashPage = decodeURIComponent(location.hash.slice(1));
-    openPage(hashPage && pages[hashPage] !== undefined ? hashPage : (pages.overview !== undefined ? 'overview' : Object.keys(pages)[0]));
-  </script>
-</body>
-</html>
-"##;
-    template
-        .replace("__CODEWIKI_TREE__", &tree_json)
-        .replace("__CODEWIKI_PAGES__", &pages_json)
-        .replace("__CODEWIKI_METADATA__", &metadata_json)
+    Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::format_template;
+fn ensure_regular_page(path: &Path) -> Result<()> {
+    let metadata = fs::symlink_metadata(path)
+        .with_context(|| format!("read DokuWiki page file {}", path.display()))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(anyhow!(
+            "DokuWiki page is not a regular file: {}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+fn ensure_export_assets(output: &Path) -> Result<PathBuf> {
+    let assets = output.join("assets");
+    match fs::symlink_metadata(&assets) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            return Err(anyhow!(
+                "HTML export asset directory is not a real directory: {}",
+                assets.display()
+            ));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            fs::create_dir(&assets)?;
+        }
+        Err(error) => return Err(error.into()),
+    }
+    if !assets.canonicalize()?.starts_with(output.canonicalize()?) {
+        return Err(anyhow!(
+            "HTML export assets escape the wiki output directory: {}",
+            assets.display()
+        ));
+    }
+    Ok(assets)
+}
 
-    #[test]
-    fn viewer_embeds_pages_and_navigation() {
-        let html = format_template(
-            "{}".to_string(),
-            r##"{"overview":"# Overview\n\nhello"}"##.to_string(),
-            "null".to_string(),
-        );
-        assert!(html.contains("codewiki-pages"));
-        assert!(html.contains("openPage"));
-        assert!(html.contains("# Overview"));
+fn copy_export_asset(source: &Path, destination: &Path) -> Result<()> {
+    match fs::symlink_metadata(destination) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+            return Err(anyhow!(
+                "HTML export asset is not a regular file: {}",
+                destination.display()
+            ));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    fs::copy(source, destination)?;
+    Ok(())
+}
+
+fn page_anchor(page_id: &str) -> String {
+    format!("page-{}", page_id.replace(':', "--"))
+}
+
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+fn rewrite_page_links(html: &str, expected: &BTreeSet<String>) -> String {
+    static INTERNAL_LINK: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"href="([^"]*doku\.php\?id=)([^&"]+)(?:&amp;[^"]*)?""#)
+            .expect("valid DokuWiki link expression")
+    });
+    INTERNAL_LINK
+        .replace_all(html, |captures: &Captures<'_>| {
+            let original = captures.get(0).expect("full match").as_str();
+            let prefix = captures.get(1).expect("link prefix").as_str();
+            if prefix.contains("://") {
+                return original.to_string();
+            }
+            let encoded_id = captures.get(2).expect("page ID").as_str();
+            let decoded_id = percent_decode(encoded_id);
+            let page_id = decoded_id.split('#').next().unwrap_or_default();
+            if expected.contains(page_id) {
+                format!("href=\"#{}\"", page_anchor(page_id))
+            } else {
+                original.to_string()
+            }
+        })
+        .into_owned()
+}
+
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            if let (Some(high), Some(low)) = (hex(bytes[index + 1]), hex(bytes[index + 2])) {
+                decoded.push((high << 4) | low);
+                index += 3;
+                continue;
+            }
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8(decoded).unwrap_or_else(|_| value.to_string())
+}
+
+fn hex(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
     }
 }

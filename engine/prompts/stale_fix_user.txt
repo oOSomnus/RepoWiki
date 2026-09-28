@@ -1,4 +1,4 @@
-Page to fix: `{page}.md` (view it with `codewiki doc view --path {page}.md`; persist any change with `codewiki doc edit`).
+Page to fix: `{page}` (view it with `codewiki doc view --path {page}`; persist any change with `codewiki doc edit`). `{page}` is the complete canonical DokuWiki page ID, including its edition namespace and all ancestry segments; use it verbatim as the page key.
 
 <STALE_ITEMS>
 {items}

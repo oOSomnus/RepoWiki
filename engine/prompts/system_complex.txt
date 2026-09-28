@@ -16,8 +16,10 @@ child and neighboring modules.
 <GUIDANCE>
 Read the supplied module tree and source evidence. Choose a structure that
 matches the implementation; do not copy the examples' headings or prose.
-The host will write this response to the exact canonical path `{doc_path}`.
-Do not substitute a localized module label or invent another filename.
+The host writes this response to the exact canonical DokuWiki page ID
+`{doc_path}`. It includes the edition namespace and full module ancestry, for
+example `repo:system:api:start`; it is not a filename or a leaf-only name. Do
+not substitute a localized module label or invent another ID.
 Explain why the selected components form one module instead of presenting an
 inventory. Use concrete source paths, types, functions, and relationships.
 
@@ -31,12 +33,14 @@ sections, without padding or fixed headings.
 
 Use one or more Mermaid diagrams only when they explain distinct architecture
 questions such as composition, execution sequence, or data movement. Every
-node and edge must be grounded. Do not use a generic placeholder graph.
+node and edge must be grounded. Use native `<mermaid>...</mermaid>` tags and
+do not use a generic placeholder graph.
 
 The complete reference article below models depth and source specificity; do
 not reuse its repository-specific facts or sentences.
 
-The host writes the page through codewiki doc write. Do not create files or
-spawn untracked sub-modules.
+The host writes native DokuWiki source through codewiki doc write, using the
+exact canonical page ID `{doc_path}`. Do not create files or spawn untracked
+sub-modules.
 </GUIDANCE>
 {custom_instructions}

@@ -154,14 +154,14 @@ fn tree_validation_separates_unknown_ids_from_architecture_anchors() {
         json!([
             {
                 "module": "Leaf",
-                "doc_path": "Leaf.md",
+                "doc_path": "repo:root:leaf:start",
                 "path": ["Root", "Leaf"],
                 "is_leaf": true,
                 "components": ["known-leaf"]
             },
             {
                 "module": "Root",
-                "doc_path": "Root.md",
+                "doc_path": "repo:root:start",
                 "path": ["Root"],
                 "is_leaf": false,
                 "children": ["Leaf"],
@@ -219,21 +219,44 @@ fn processing_order_rejects_legacy_item_names() {
 }
 
 #[test]
-fn document_paths_require_current_flat_markdown_names() {
+fn document_paths_require_canonical_dokuwiki_page_ids() {
     let (_repo, mut state) = prepared_session(&[], &[]);
-    for path in [".repowiki/guide.md", "docs/guide.md", "guide"] {
+    for page_id in [
+        ".repowiki:guide:start",
+        "repo:docs:guide.md",
+        "other:guide:start",
+        "repo:bad name:start",
+    ] {
         assert!(
-            docs::write_document(&mut state, path, "# Guide\n").is_err(),
-            "old or extensionless path should be rejected: {path}"
+            docs::write_document(&mut state, page_id, "====== Guide ======\n").is_err(),
+            "non-canonical page ID should be rejected: {page_id}"
         );
     }
-    docs::write_document(&mut state, "guide.md", "# Guide\n").expect("write current path");
+    docs::write_document(&mut state, "repo:guide:start", "====== Guide ======\n")
+        .expect("write canonical page ID");
+    let page = docs::page_file_path(
+        std::path::Path::new(&state.output_dir),
+        &state.wiki_id,
+        "repo:guide:start",
+    )
+    .expect("canonical DokuWiki page file");
+    assert_eq!(
+        fs::read_to_string(page).expect("read DokuWiki source"),
+        "====== Guide ======\n"
+    );
 }
 
 #[test]
 fn edit_insert_is_multiline_and_undo_pops_each_saved_version() {
     let (_repo, mut state) = prepared_session(&[], &[]);
-    docs::write_document(&mut state, "guide.md", "zero\none\n").expect("write document");
+    let page_id = "repo:guide:start";
+    docs::write_document(&mut state, page_id, "zero\none\n").expect("write document");
+    let page = docs::page_file_path(
+        std::path::Path::new(&state.output_dir),
+        &state.wiki_id,
+        page_id,
+    )
+    .expect("page file");
 
     let insert: EditOperation = serde_json::from_value(json!({
         "kind": "insert",
@@ -241,10 +264,9 @@ fn edit_insert_is_multiline_and_undo_pops_each_saved_version() {
         "line": 1
     }))
     .expect("decode current insert");
-    docs::edit_document(&mut state, "guide.md", &[insert]).expect("insert lines");
+    docs::edit_document(&mut state, page_id, &[insert]).expect("insert lines");
     assert_eq!(
-        fs::read_to_string(std::path::Path::new(&state.output_dir).join("guide.md"))
-            .expect("read inserted document"),
+        fs::read_to_string(&page).expect("read inserted document"),
         "zero\nalpha\nbeta\none\n"
     );
 
@@ -254,18 +276,16 @@ fn edit_insert_is_multiline_and_undo_pops_each_saved_version() {
         "new": "BETA"
     }))
     .expect("decode current replace");
-    docs::edit_document(&mut state, "guide.md", &[replace]).expect("replace text");
-    docs::edit_document(&mut state, "guide.md", &[EditOperation::Undo]).expect("undo replace");
+    docs::edit_document(&mut state, page_id, &[replace]).expect("replace text");
+    docs::edit_document(&mut state, page_id, &[EditOperation::Undo]).expect("undo replace");
     assert_eq!(
-        fs::read_to_string(std::path::Path::new(&state.output_dir).join("guide.md"))
-            .expect("read undone replacement"),
+        fs::read_to_string(&page).expect("read undone replacement"),
         "zero\nalpha\nbeta\none\n"
     );
 
-    docs::edit_document(&mut state, "guide.md", &[EditOperation::Undo]).expect("undo insert");
+    docs::edit_document(&mut state, page_id, &[EditOperation::Undo]).expect("undo insert");
     assert_eq!(
-        fs::read_to_string(std::path::Path::new(&state.output_dir).join("guide.md"))
-            .expect("read undone insertion"),
+        fs::read_to_string(&page).expect("read undone insertion"),
         "zero\none\n"
     );
 
@@ -369,8 +389,14 @@ fn oversized_leaf_is_reported_and_blocks_documentation_close() {
     assert!(!saved.quality_valid);
     assert!(!saved.quality_errors.is_empty());
 
-    docs::write_document(&mut state, "TooLarge.md", "# Too large\n").expect("write module page");
-    docs::write_document(&mut state, "overview.md", "# Overview\n").expect("write overview");
+    docs::write_document(
+        &mut state,
+        "repo:toolarge:start",
+        "====== Too large ======\n",
+    )
+    .expect("write module page");
+    docs::write_document(&mut state, "repo:start", "====== Overview ======\n")
+        .expect("write overview");
     let error = docs::validate_documentation(&state).expect_err("quality gate should block close");
     assert!(error.to_string().contains("quality gate"));
 }
@@ -424,18 +450,20 @@ fn documentation_quality_rejects_component_list_templates() {
     docs::save_module_tree(&state, &tree, true).expect("save documentation tree");
     docs::write_document(
         &mut state,
-        "Leaf.md",
-        "# Leaf\n\n## Module location\n- src/lib.rs\n\n## Source files\n- src/lib.rs\n\n## Key components\n- src/lib.rs::run\n\n## Integration notes\nThis leaf documents a cohesive implementation area.\n\n[Missing](missing.md)\n",
+        "repo:leaf:start",
+        "====== Leaf ======\n\n===== Module location =====\n- src/lib.rs\n\n===== Source files =====\n- src/lib.rs\n\n===== Key components =====\n- src/lib.rs::run\n\n===== Integration notes =====\nThis leaf documents a cohesive implementation area.\n\n[[repo:missing:start|Missing]]\n",
     )
     .expect("write template page");
-    docs::write_document(&mut state, "overview.md", "# Overview\n").expect("write overview page");
-    docs::write_document(&mut state, "extra.md", "# Extra\n").expect("write extra page");
+    docs::write_document(&mut state, "repo:start", "====== Overview ======\n")
+        .expect("write overview page");
+    docs::write_document(&mut state, "repo:extra:start", "====== Extra ======\n")
+        .expect("write extra page");
 
     let report =
         docs::validate_documentation_report(&state).expect("documentation report should render");
     assert_eq!(report["valid"], json!(false));
     assert_eq!(
-        report["pages"]["Leaf.md"]["boilerplate_detected"],
+        report["pages"]["repo:leaf:start"]["boilerplate_detected"],
         json!(true)
     );
     assert!(report["errors"]
@@ -446,8 +474,15 @@ fn documentation_quality_rejects_component_list_templates() {
             .as_str()
             .unwrap_or_default()
             .contains("component-list template")));
-    assert_eq!(report["extra_pages"], json!(["extra.md"]));
-    assert_eq!(report["broken_links"][0]["target"], json!("missing.md"));
+    assert_eq!(report["extra_dokuwiki_pages"], json!(["repo:extra:start"]));
+    assert_eq!(
+        report["broken_dokuwiki_links"][0]["page_id"],
+        json!("repo:leaf:start")
+    );
+    assert_eq!(
+        report["broken_dokuwiki_links"][0]["target_page_id"],
+        json!("repo:missing:start")
+    );
 }
 
 #[test]
@@ -522,13 +557,23 @@ fn super_group_preserves_existing_modules_and_overview_context_links_children() 
     assert_eq!(tree["Platform"].components, vec!["a", "b"]);
 
     let output = session::output_dir(&state);
-    fs::create_dir_all(&output).expect("create docs output");
-    fs::write(output.join("Platform.md"), "# Platform\n").expect("write parent page");
-    let context = docs::overview_context(&tree, &[], &output).expect("build overview context");
+    let parent_id = docs::module_page_id(&state.wiki_id, &["Platform".to_string()])
+        .expect("parent module page ID");
+    let parent_file =
+        docs::page_file_path(&output, &state.wiki_id, &parent_id).expect("parent module page file");
+    fs::create_dir_all(parent_file.parent().expect("page parent")).expect("create page path");
+    fs::write(&parent_file, "====== Platform ======\n").expect("write parent page");
+    let context = docs::overview_context(&state.wiki_id, &tree, &[], &output)
+        .expect("build overview context");
     assert_eq!(context["Platform"]["components"], Value::Null);
     assert_eq!(
-        context["Platform"]["docs_path"],
-        json!(output.join("Platform.md"))
+        context["Platform"]["doc_path"],
+        json!("repo:platform:start")
+    );
+    assert_eq!(context["Platform"]["docs_path"], json!(parent_file));
+    assert_eq!(
+        context["Platform"]["children"]["API"]["doc_path"],
+        json!("repo:platform:api:start")
     );
     assert_eq!(
         context["Platform"]["children"]["API"]["docs_path"],
@@ -641,7 +686,7 @@ fn update_routing_decisions_reuse_tree_ownership_and_stale_scan() {
     session::write_json(
         &decisions,
         &json!({
-            "decisions": [{"component_id": "b", "action": "place", "leaf": "Runtime"}]
+            "decisions": [{"component_id": "b", "action": "place", "leaf": "repo:runtime:start"}]
         }),
     )
     .expect("write routing decisions");
@@ -657,5 +702,22 @@ fn update_routing_decisions_reuse_tree_ownership_and_stale_scan() {
         .as_array()
         .expect("missing pages")
         .iter()
-        .any(|page| page == "overview.md"));
+        .any(|page| page == "repo:start"));
+}
+#[test]
+fn processing_order_uses_full_canonical_dokuwiki_page_ids() {
+    let (_repo, state) = prepared_session(&[], &[]);
+    let tree = BTreeMap::from([(
+        "System".to_string(),
+        Module {
+            children: BTreeMap::from([("API".to_string(), Module::default())]),
+            ..Module::default()
+        },
+    )]);
+    let saved = docs::save_module_tree(&state, &tree, true).expect("save module tree");
+    let order: Vec<Value> = session::read_json(std::path::Path::new(&saved.processing_order_path))
+        .expect("read processing order");
+
+    assert_eq!(order[0]["doc_path"], json!("repo:system:api:start"));
+    assert_eq!(order[1]["doc_path"], json!("repo:system:start"));
 }

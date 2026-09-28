@@ -335,7 +335,7 @@ fn render_with_nodes(
                 format_component_codes(&ids, component_nodes)
             } else {
                 ids.iter()
-                    .map(|id| format!("- {id}"))
+                    .map(|id| format!("  - {id}"))
                     .collect::<Vec<_>>()
                     .join("\n")
             };
@@ -496,12 +496,12 @@ pub fn format_component_listing(ids: &[String], nodes: &BTreeMap<String, Node>) 
                 .iter()
                 .find_map(|id| nodes.get(id).and_then(|node| node.artifact_class.clone()))
                 .unwrap_or_else(|| "config".to_string());
-            output.push_str(&format!("# {path} (artifact: {class})\n"));
+            output.push_str(&format!("===== File: {path} (artifact: {class}) =====\n"));
         } else {
-            output.push_str(&format!("# {path}\n"));
+            output.push_str(&format!("===== File: {path} =====\n"));
         }
         for id in group {
-            output.push_str(&format!("\t{id}\n"));
+            output.push_str(&format!("  - {id}\n"));
         }
     }
     output
@@ -522,14 +522,14 @@ pub fn format_component_codes(ids: &[String], nodes: &BTreeMap<String, Node>) ->
     let mut output = String::new();
     for (path, group) in groups {
         output.push_str(&format!(
-            "# File: {path}\n\n## Core Components in this file:\n"
+            "===== File: {path} =====\n\n==== Core Components in this file ====\n"
         ));
         for node in &group {
-            output.push_str(&format!("- {}\n", node.id));
+            output.push_str(&format!("  - {}\n", node.id));
         }
-        output.push_str("\n## File Content:\n```");
-        output.push_str(fence_language(&path));
-        output.push('\n');
+        output.push_str("\n==== File Content ====\n<code ");
+        output.push_str(code_language(&path));
+        output.push_str(">\n");
         let artifact_group = group.iter().all(|node| node.component_type == "artifact");
         let source = if artifact_group {
             group
@@ -547,7 +547,7 @@ pub fn format_component_codes(ids: &[String], nodes: &BTreeMap<String, Node>) ->
         if !source.ends_with('\n') {
             output.push('\n');
         }
-        output.push_str("```\n\n");
+        output.push_str("</code>\n\n");
     }
     output
 }
@@ -569,7 +569,7 @@ fn value_to_prompt_text(value: &Value) -> String {
     }
 }
 
-fn fence_language(path: &str) -> &'static str {
+fn code_language(path: &str) -> &'static str {
     match path.rsplit('/').next().unwrap_or(path) {
         "Dockerfile" | "Containerfile" => "dockerfile",
         "Makefile" | "GNUmakefile" => "makefile",
@@ -690,10 +690,10 @@ mod tests {
         );
         vars.insert(
             "doc_path".to_string(),
-            Value::String("sample.md".to_string()),
+            Value::String("repo:sample:start".to_string()),
         );
         let prompt = render(PromptType::SystemComplex, &vars).expect("valid system prompt");
-        assert!(prompt.contains("sample.md"));
+        assert!(prompt.contains("repo:sample:start"));
     }
 
     #[test]
@@ -705,7 +705,7 @@ mod tests {
         );
         vars.insert(
             "doc_path".to_string(),
-            Value::String("sample.md".to_string()),
+            Value::String("repo:sample:start".to_string()),
         );
         assert!(render(PromptType::User, &vars).is_err());
         vars.remove("doc_path");
@@ -741,7 +741,7 @@ mod tests {
         );
         vars.insert(
             "doc_path".to_string(),
-            Value::String("sample.md".to_string()),
+            Value::String("repo:sample:start".to_string()),
         );
         let prompt = render(PromptType::SystemComplex, &vars).expect("valid system prompt");
         assert!(!prompt.contains("{custom_instructions}"));
