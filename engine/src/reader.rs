@@ -495,12 +495,30 @@ fn prepare_isolated_runtime(
     for edition in &loaded.editions {
         merge_edition_namespace(edition, &temporary.path)?;
     }
+    write_navigation_sidebar(&temporary.path)?;
     rebuild_runtime_search_index(&context)?;
 
     let catalog_path = savedir.join("repowiki_catalog.json");
     fs::write(&catalog_path, serde_json::to_vec(&loaded.catalog)?)
         .with_context(|| format!("write native DokuWiki catalog {}", catalog_path.display()))?;
     Ok(context)
+}
+
+/// Write the root sidebar page that hosts the catalog navigation.
+///
+/// The bundled default template renders its aside whenever the nearest
+/// `sidebar` page exists, so every edition namespace picks this one up.
+fn write_navigation_sidebar(runtime_root: &Path) -> Result<()> {
+    const SIDEBAR_PAGE_CONTENT: &str = "~~REPOWIKI_NAV~~\n";
+
+    let page = runtime_root.join("dokuwiki/data/pages/sidebar.txt");
+    let parent = page
+        .parent()
+        .ok_or_else(|| anyhow!("sidebar page has no parent directory"))?;
+    fs::create_dir_all(parent)?;
+    fs::write(&page, SIDEBAR_PAGE_CONTENT)
+        .with_context(|| format!("write DokuWiki sidebar page {}", page.display()))?;
+    Ok(())
 }
 
 fn rebuild_runtime_search_index(context: &dokuwiki::WikiContext) -> Result<()> {

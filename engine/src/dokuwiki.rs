@@ -361,6 +361,10 @@ $conf['remotecors'] = '';
 $conf['jquerycdn'] = 0;
 $conf['updatecheck'] = 0;
 $conf['sitemap'] = 0;
+// The visit-history trace labels every canonical page "start"; the RepoWiki
+// plugin renders a real ancestor path instead.
+$conf['breadcrumbs'] = 0;
+$conf['youarehere'] = 0;
 $conf['plugin']['mermaid']['location'] = 'local';
 $conf['plugin']['mermaid']['showSaveButton'] = 0;
 $conf['plugin']['mermaid']['showLockButton'] = 0;

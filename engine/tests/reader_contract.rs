@@ -630,12 +630,54 @@ fn binary_serves_native_dokuwiki_catalog_and_canonical_edition_pages() {
 
     assert!(repository_html.contains("data-repowiki-navigation"));
     assert!(repository_html.contains("Search this edition"));
+    assert!(
+        repository_html.contains("id=\"dokuwiki__aside\""),
+        "the navigation tree must live in the template sidebar, not above the page"
+    );
+    assert!(repository_html.contains("data-repowiki-path"));
+    assert!(
+        !repository_html.contains("<div class=\"trace\">"),
+        "the visit-history trace must be replaced by the ancestor path"
+    );
+
+    let (status, api_html) = http_request(address, "/doku.php?id=repo:platform:api:start");
+    assert_eq!(status, 200);
+    let api_html = String::from_utf8_lossy(&api_html);
+    assert!(
+        api_html.contains(">Repo overview</a>") && api_html.contains(">Platform</a>"),
+        "the ancestor path must use real page titles: {api_html}"
+    );
+    assert!(
+        api_html.contains("class=\"repowiki-path-current\" aria-current=\"page\">API</span>"),
+        "the current page title must close the ancestor path: {api_html}"
+    );
+
+    let (status, viewer_js) = http_request(address, "/lib/exe/js.php");
+    assert_eq!(status, 200);
+    assert!(
+        String::from_utf8_lossy(&viewer_js).contains("repowiki-viewer"),
+        "the diagram viewer must be part of the aggregated DokuWiki script"
+    );
+    let (status, viewer_css) = http_request(address, "/lib/exe/css.php");
+    assert_eq!(status, 200);
+    assert!(
+        String::from_utf8_lossy(&viewer_css).contains("repowiki-viewer"),
+        "the diagram viewer must be part of the aggregated DokuWiki styles"
+    );
 
     let repo_search = "/doku.php?id=repo:start&do=search&q=RepoEditionSearchMarker";
     let (status, repo_search_html) = http_request(address, repo_search);
     assert_eq!(status, 200);
     let repo_search_html = String::from_utf8_lossy(&repo_search_html);
     assert!(repo_search_html.contains("RepoEditionSearchMarker"));
+    assert!(
+        repo_search_html.contains("data-repowiki-navigation"),
+        "actions without a template sidebar must fall back to the inline tree"
+    );
+    assert!(
+        !repo_search_html.contains("data-repowiki-path"),
+        "the ancestor path belongs to page views, not search results"
+    );
     assert!(
         !repo_search_html.contains(&format!("{first_wiki_id}%3Aplatform%3Aapi%3Astart"))
             && !repo_search_html.contains(&format!("{first_wiki_id}:platform:api:start")),

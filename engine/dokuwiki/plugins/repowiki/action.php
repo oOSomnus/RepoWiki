@@ -45,12 +45,27 @@ class action_plugin_repowiki extends ActionPlugin
         exit;
     }
 
-    /** Add the catalog-driven controls within the bundled default template. */
+    /**
+     * Add the ancestor path above the page content, and only fall back to the
+     * full navigation tree when the template has no sidebar to host it.
+     *
+     * The bundled template shows its aside only while a page is displayed, so
+     * actions such as search still need the tree within the content area.
+     */
     public function addNavigation(Event $event, $param): void
     {
-        if (!is_string($event->data) || str_contains($event->data, 'data-repowiki-navigation')) return;
-        $navigation = RepoWikiCatalog::renderNavigation();
-        if ($navigation !== '') $event->data = $navigation . $event->data;
+        global $ACT;
+        if (!is_string($event->data)) return;
+        if (str_contains($event->data, 'data-repowiki-path') || str_contains($event->data, 'data-repowiki-navigation')) {
+            return;
+        }
+
+        $showingPage = ($ACT ?? null) === 'show';
+        $content = $showingPage ? RepoWikiCatalog::renderPath() : '';
+        if (!($showingPage && RepoWikiCatalog::sidebarAvailable())) {
+            $content .= RepoWikiCatalog::renderNavigation();
+        }
+        if ($content !== '') $event->data = $content . $event->data;
     }
 
     /**
