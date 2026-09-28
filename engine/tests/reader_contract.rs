@@ -654,15 +654,25 @@ fn binary_serves_native_dokuwiki_catalog_and_canonical_edition_pages() {
 
     let (status, viewer_js) = http_request(address, "/lib/exe/js.php");
     assert_eq!(status, 200);
+    let viewer_js = String::from_utf8_lossy(&viewer_js);
     assert!(
-        String::from_utf8_lossy(&viewer_js).contains("repowiki-viewer"),
+        viewer_js.contains("repowiki-viewer"),
         "the diagram viewer must be part of the aggregated DokuWiki script"
+    );
+    assert!(
+        viewer_js.contains("repowiki-diagram-actions") && viewer_js.contains("open-tab"),
+        "the aggregated script must carry the diagram corner actions and the new-tab opener"
     );
     let (status, viewer_css) = http_request(address, "/lib/exe/css.php");
     assert_eq!(status, 200);
+    let viewer_css = String::from_utf8_lossy(&viewer_css);
     assert!(
-        String::from_utf8_lossy(&viewer_css).contains("repowiki-viewer"),
+        viewer_css.contains("repowiki-viewer"),
         "the diagram viewer must be part of the aggregated DokuWiki styles"
+    );
+    assert!(
+        viewer_css.contains("repowiki-diagram-actions"),
+        "the aggregated styles must carry the diagram corner actions"
     );
 
     let repo_search = "/doku.php?id=repo:start&do=search&q=RepoEditionSearchMarker";

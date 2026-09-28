@@ -466,6 +466,28 @@ Start with the Service module page for its purpose, request flow, and public int
     assert!(html.contains("assets/repowiki-viewer.css"));
     assert!(output.path().join("assets/repowiki-viewer.js").is_file());
     assert!(output.path().join("assets/repowiki-viewer.css").is_file());
+    let viewer_js = fs::read_to_string(output.path().join("assets/repowiki-viewer.js"))
+        .expect("read exported diagram viewer script");
+    assert!(
+        viewer_js.contains("repowiki-diagram-actions")
+            && viewer_js.contains("open-tab")
+            && viewer_js.contains("XMLSerializer"),
+        "the exported viewer script must carry the corner actions and the new-tab opener"
+    );
+    assert!(
+        !viewer_js.to_lowercase().contains("</script"),
+        "the viewer script is serialized into generated documents and must not contain a script end tag"
+    );
+    assert!(
+        !viewer_js.contains("cdn.jsdelivr.net"),
+        "the exported viewer script must stay self-contained"
+    );
+    let viewer_css = fs::read_to_string(output.path().join("assets/repowiki-viewer.css"))
+        .expect("read exported diagram viewer styles");
+    assert!(
+        viewer_css.contains("repowiki-diagram-actions"),
+        "the exported viewer styles must carry the corner actions"
+    );
     let closed = run([
         "session",
         "close",

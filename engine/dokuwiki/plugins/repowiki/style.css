@@ -14,24 +14,52 @@
     cursor: zoom-in;
 }
 
-.mermaid::after {
-    content: "\2922";
+/* Full-screen / new-tab buttons, injected into the diagram container. */
+.repowiki-diagram-actions {
     position: absolute;
     top: .35rem;
     right: .35rem;
-    padding: .15rem .5rem;
-    border-radius: .25rem;
-    background: rgba(23, 32, 42, .78);
-    color: #fff;
-    font-size: .85rem;
-    line-height: 1.3;
+    display: flex;
+    gap: .35rem;
     opacity: 0;
     transition: opacity .15s ease;
     pointer-events: none;
 }
 
-.mermaid:hover::after {
-    opacity: 1;
+.repowiki-diagram-actions button {
+    pointer-events: auto;
+    min-width: 2rem;
+    padding: .15rem .5rem;
+    border: 0;
+    border-radius: .25rem;
+    background: rgba(23, 32, 42, .78);
+    color: #fff;
+    font: inherit;
+    font-size: .85rem;
+    line-height: 1.3;
+    cursor: pointer;
+}
+
+.repowiki-diagram-actions button:hover,
+.repowiki-diagram-actions button:focus {
+    background: rgba(23, 32, 42, .95);
+}
+
+/* The buttons only intercept their own clicks; the rest of the diagram
+   still opens the full-screen viewer. */
+@media (hover: hover) {
+    div:hover > .repowiki-diagram-actions,
+    .mermaid:hover ~ .repowiki-diagram-actions,
+    .mermaidlocked:hover ~ .repowiki-diagram-actions,
+    .repowiki-diagram-actions:focus-within {
+        opacity: 1;
+    }
+}
+
+@media (hover: none) {
+    .repowiki-diagram-actions {
+        opacity: 1;
+    }
 }
 
 /* Full-screen diagram viewer */
