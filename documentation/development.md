@@ -3,8 +3,8 @@
 [Back to README](../README.md) · [中文说明](README.zh-CN.md)
 
 This document keeps repository-maintenance details out of the project landing
-page. The root README is for the project overview and common commands; this
-page is for contributors working on the build, tests, and package layout.
+page. The root README is for the project overview and quick start; this page is
+for contributors working on the build, tests, package layout, and Reader.
 
 ## Repository structure
 
@@ -21,6 +21,10 @@ page is for contributors working on the build, tests, and package layout.
   source directories.
 
 ## Build pipeline
+
+Build requirements are GNU Make, Rust/Cargo, Python 3, `zip`, and `unzip`.
+Runtime wiki generation and the Reader require PHP 8.2+ with `mbstring` and
+`xml` enabled.
 
 `make preview` builds the release `codewiki` executable and copies the runtime
 Skill source into `preview/`. The binary is platform-specific, so build the
@@ -43,9 +47,7 @@ engine/dokuwiki/                  # RepoWiki DokuWiki adapter, plugins, and rout
 
 Both packages bundle the pinned DokuWiki `release-2026-07-14c` (“Mort”) and
 Mermaid plugin `v11.15b` source; the Reader runtime carries the same sources.
-These components are not downloaded at runtime. PHP 8.2+ with `mbstring` and
-`xml` enabled is a system prerequisite for Skill page generation/validation and
-the Reader; PHP itself is not bundled.
+These components are not downloaded at runtime, and PHP itself is not bundled.
 
 The Rust prompt sources are embedded into the executable during the build.
 
@@ -64,20 +66,23 @@ ancestry: for example, `System/API` becomes `repo:system:api:start`. Its source
 file is `dokuwiki/data/pages/repo/system/api/start.txt`. The `tree order`
 result's `doc_path` is this logical DokuWiki page ID, not a physical path.
 
-The Agent workflow and CLI actions remain unchanged: analysis, clustering and
-tree review, `tree order`, page-prompt generation leaf-to-root, `doc write`,
-`doc validate`, then `session close`. Incremental updates keep their existing
-plan/route/context/repair/finalize flow. Generated source now uses native
+The RepoWiki workflow runs analysis, clustering and tree review, `tree order`,
+page-prompt generation leaf-to-root, `doc write`, `doc validate`, then
+`session close`. Incremental updates use plan/route/context/repair/finalize.
+Generated source uses native
 DokuWiki syntax, including `====== Heading ======`, links such as
 `[[repo:system:api:start|API]]`, `<code rust>...</code>`, and
 `<mermaid>...</mermaid>`; the bundled engine and Mermaid plugin interpret the
-pages. There is no Markdown-bundle compatibility or automatic conversion:
-existing Markdown bundles must be regenerated with the updated Skill.
+pages.
 
 Keep each component's license and corresponding source notices with distributed
-packages. DokuWiki and the Mermaid plugin are GPLv2; Mermaid.js is MIT. The
-RepoWiki Rust crate remains MIT, which does not cover the GPL components, and
-the RepoWiki DokuWiki integration plugin is GPL-2.0-or-later.
+packages. RepoWiki's original Rust source, prompts, and documentation are MIT;
+the RepoWiki DokuWiki integration in `engine/dokuwiki/` is GPL-2.0-or-later.
+The Cargo source package includes both sets of files, so its metadata declares
+`MIT AND GPL-2.0-or-later`; this does not change the license of any individual
+component. DokuWiki and the Mermaid plugin are GPLv2, Mermaid.js is MIT, and
+Composer-managed dependencies retain their own licenses. See the root
+[`LICENSE`](../LICENSE) for the project license scope.
 
 ## Standalone reader
 
@@ -112,8 +117,14 @@ validates only the selected packages before installing them below `INSTALL_DIR`
 (default: `~/.agents/skills`). Scripts and CI can set
 `INSTALL_SELECTION=repowiki`, `change-wiki`, or `both` to skip the prompt. Each
 installation is staged and validated before its existing skill directory is
-replaced. `make clean` removes generated build outputs, previews, archives, and
-local packaging artifacts for both Skills.
+replaced. Set `INSTALL_DIR` to install below a different directory, for example:
+
+```bash
+make install INSTALL_DIR=/custom/agent/skills
+```
+
+`make clean` removes generated build outputs, previews, archives, and local
+packaging artifacts for both Skills.
 
 To install an archive manually:
 
@@ -162,9 +173,9 @@ make test-contract
 `make test-install` repeats the package validation through a temporary install
 directory and checks that a stale file is removed during replacement.
 
-The reference checkout is not a compatibility target. When changing prompts,
-update the architecture few-shots only when a new reference page adds a
-useful reading pattern or diagram discipline.
+The reference checkout is read-only source material for the architecture
+few-shots. When changing prompts, add an example only when a reference page
+adds a useful reading pattern or diagram discipline.
 
 Use `make clean` to remove generated build, preview, archive, and local
 packaging artifacts.
