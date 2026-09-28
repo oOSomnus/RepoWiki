@@ -439,13 +439,15 @@ fn http_request_with_method(
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
         .expect("set DokuWiki response timeout");
+    let mut request = Vec::new();
     write!(
-        stream,
+        &mut request,
         "{method} {target} HTTP/1.0\r\nHost: {address}\r\nAccept-Encoding: identity\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     )
-    .expect("write DokuWiki request");
-    stream.write_all(body).expect("write DokuWiki request body");
+    .expect("format DokuWiki request");
+    request.extend_from_slice(body);
+    stream.write_all(&request).expect("write DokuWiki request");
     let mut response = Vec::new();
     let mut buffer = [0_u8; 8192];
     loop {
@@ -464,7 +466,13 @@ fn http_request_with_method(
     let separator = response
         .windows(4)
         .position(|window| window == b"\r\n\r\n")
-        .expect("HTTP response headers");
+        .unwrap_or_else(|| {
+            let preview = String::from_utf8_lossy(&response[..response.len().min(512)]);
+            panic!(
+                "HTTP response headers for {method} {target}; received {} bytes: {preview:?}",
+                response.len()
+            )
+        });
     let headers = std::str::from_utf8(&response[..separator]).expect("UTF-8 HTTP headers");
     let status = headers
         .lines()
