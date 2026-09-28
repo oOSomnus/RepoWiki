@@ -10,14 +10,13 @@ same directory, or majority of graph neighbours). Place each one.
 </ORPHANS>
 
 For each orphan choose exactly one action:
-- "place": add it to an existing leaf module ("leaf": exact module name from the tree).
-- "create": create a new leaf module ("new_leaf": short snake_case name, "parent": exact name of an
-  existing module that has children, or null for top level). Use the same new_leaf name for
+- "place": add it to an existing leaf module ("leaf": exact canonical page ID from the tree, including edition namespace and all ancestor segments, ending in `:start`; e.g. `repo:system:api:start`).
+- "create": create a new leaf module ("new_leaf": short snake_case namespace segment, "parent": exact canonical page ID for an existing module that has children, or null for top level). Use the same new_leaf segment for
   orphans that belong together; a new subsystem landing in one commit should become one new leaf.
 - "untracked": leave it out of the wiki (tests, throwaway scripts, trivial helpers).
 
 Return exactly one fenced JSON block:
 ```json
-{{"decisions": [{{"component_id": "...", "action": "place|create|untracked", "leaf": "...",
-                 "new_leaf": "...", "parent": "...", "reason": "<one line>"}}]}}
+{{"decisions": [{{"component_id": "...", "action": "place|create|untracked", "leaf": "<canonical-page-id>",
+                 "new_leaf": "...", "parent": "<canonical-page-id-or-null>", "reason": "<one line>"}}]}}
 ```

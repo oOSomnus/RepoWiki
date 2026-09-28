@@ -1,6 +1,7 @@
 pub mod analyzer;
 pub mod cli;
 pub mod docs;
+pub mod dokuwiki;
 pub mod html;
 pub mod language;
 pub mod model;

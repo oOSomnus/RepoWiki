@@ -557,7 +557,7 @@ fn analyze_command(
                     "prompt_vars": "json_object",
                     "input_ids": "json_string_array_or_lines",
                     "model_response": "non_empty_file",
-                    "page_content": "markdown_file"
+                    "page_content": "dokuwiki_source"
                 },
                 "retry_policy": {
                     "tree_apply": "never_without_response",
@@ -585,7 +585,7 @@ fn analyze_command(
             },
             "generation_contract": {
                 "prompt_get_is_transport_only": true,
-                "model_must_return_cluster_or_markdown": true,
+                "model_must_return_cluster_or_dokuwiki": true,
                 "host_must_read_component_sources": true,
                 "host_must_validate_before_close": true,
                 "module_keys_must_be_ascii_page_safe": true,
@@ -730,7 +730,7 @@ fn apply_cluster(args: ApplyClusterArgs) -> Result<Value> {
             &args.scope,
             &parent_path,
         )?;
-        docs::validate_module_page_paths(&tree)?;
+        docs::validate_module_page_paths(&state.wiki_id, &tree)?;
         let output = args.output_tree_file.unwrap_or(args.tree_file);
         session::write_json(&output, &tree)?;
         Ok(json!({
@@ -743,11 +743,11 @@ fn apply_cluster(args: ApplyClusterArgs) -> Result<Value> {
 
 fn apply_super_group(args: ApplySuperGroupArgs) -> Result<Value> {
     let session = args.session.clone();
-    with_locked_session(&session, move |_state| {
+    with_locked_session(&session, move |state| {
         let mut tree = docs::read_tree_file(&args.tree_file)?;
         let response = read_non_empty_file(&args.response_file, "super-group response")?;
         let diagnostics = docs::apply_super_group_response(&mut tree, &response)?;
-        docs::validate_module_page_paths(&tree)?;
+        docs::validate_module_page_paths(&state.wiki_id, &tree)?;
         let output = args.output_tree_file.unwrap_or(args.tree_file);
         session::write_json(&output, &tree)?;
         Ok(json!({
@@ -783,14 +783,7 @@ fn overview_context(args: OverviewContextArgs) -> Result<Value> {
             let suffix = if target_path.is_empty() {
                 "repo".to_string()
             } else {
-                target_path
-                    .iter()
-                    .map(|name| {
-                        docs::module_page_filename(name)
-                            .map(|page| page.strip_suffix(".md").unwrap_or("module").to_string())
-                    })
-                    .collect::<Result<Vec<_>>>()?
-                    .join("__")
+                docs::module_page_id(&state.wiki_id, &target_path)?.replace(':', "__")
             };
             session::session_value_path(state, &format!("overview_context_{suffix}.json"))
         };

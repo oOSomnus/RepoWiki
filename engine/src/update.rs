@@ -1,4 +1,5 @@
 use crate::docs;
+use crate::dokuwiki;
 use crate::model::{ChangeSet, ModuleTree, Node, UpdateOptions, UpdateRecord};
 use crate::session::{self, SessionState};
 use anyhow::{anyhow, Result};
@@ -6,7 +7,7 @@ use chrono::Utc;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::Instant;
 
 pub const VALID_RUNGS: &[&str] = &["0", "1", "2", "3", "3b"];
@@ -78,10 +79,16 @@ pub fn plan(state: &SessionState, options: &UpdateOptions) -> Result<Value> {
         "incremental"
     };
     let active = active_ids(&diff);
+    let overview_page = docs::overview_page_id(&state.wiki_id)?;
     let mut write_sets = BTreeMap::new();
     for id in &active {
-        let page = module_page_for_node(state, id)?.unwrap_or_else(|| "overview.md".to_string());
-        write_sets.insert(id.clone(), vec![page, "overview.md".to_string()]);
+        let page = module_page_for_node(state, id)?.unwrap_or_else(|| overview_page.clone());
+        let pages = if page == overview_page {
+            vec![overview_page.clone()]
+        } else {
+            vec![page, overview_page.clone()]
+        };
+        write_sets.insert(id.clone(), pages);
     }
     let record = UpdateRecord {
         started_at: Utc::now().to_rfc3339(),
@@ -134,7 +141,12 @@ pub fn route(state: &SessionState) -> Result<Value> {
     let diff: ChangeSet = session::read_json(&root.join("changes.json"))?;
     let nodes: BTreeMap<String, Node> = session::read_json(&root.join("components.json"))?;
     let options = load_update_options(state)?;
-    let module_index = module_index(state);
+    let module_index = module_index(state)?;
+    let fallback_page = module_index
+        .values()
+        .next()
+        .cloned()
+        .unwrap_or(docs::overview_page_id(&state.wiki_id)?);
     let mut routes = BTreeMap::new();
     for id in diff
         .added
@@ -143,8 +155,8 @@ pub fn route(state: &SessionState) -> Result<Value> {
     {
         let route = nodes
             .get(id)
-            .map(|node| route_node(node, &nodes, &module_index, &options))
-            .unwrap_or_else(|| "Repository".to_string());
+            .map(|node| route_node(node, &nodes, &module_index, &options, &fallback_page))
+            .unwrap_or_else(|| fallback_page.clone());
         routes.insert(id.clone(), route);
     }
     let path = root.join("routes.json");
@@ -217,7 +229,7 @@ pub fn apply_routes(state: &SessionState, decisions_path: &Path) -> Result<Value
                     .get("leaf")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
-                add_to_leaf(&mut tree, leaf, id)
+                add_to_leaf(&state.wiki_id, &mut tree, leaf, id)?
             }
             "create" => {
                 let new_leaf = object
@@ -225,7 +237,7 @@ pub fn apply_routes(state: &SessionState, decisions_path: &Path) -> Result<Value
                     .and_then(Value::as_str)
                     .unwrap_or_default();
                 let parent = object.get("parent").and_then(Value::as_str);
-                create_leaf(&mut tree, parent, new_leaf, id)
+                create_leaf(&state.wiki_id, &mut tree, parent, new_leaf, id)?
             }
             "untracked" => {
                 untracked.push(id.to_string());
@@ -239,11 +251,11 @@ pub fn apply_routes(state: &SessionState, decisions_path: &Path) -> Result<Value
             rejected.push(json!({
                 "component_id": id,
                 "action": action,
-                "reason": "target leaf or parent was not found"
+                "reason": "target module page ID or parent page ID was not found"
             }));
         }
     }
-    docs::validate_module_page_paths(&tree)?;
+    docs::validate_module_page_paths(&state.wiki_id, &tree)?;
     let tree_path = session::module_tree_path(state);
     session::write_json(&tree_path, &tree)?;
     let saved = docs::save_module_tree(state, &tree, false)?;
@@ -325,43 +337,27 @@ pub fn context(state: &SessionState) -> Result<Value> {
 
 /// Deterministic stale-page scan used as a pre-finalization repair signal.
 /// Semantic freshness remains a host-agent decision, but missing pages, broken
-/// markdown links, and validation leftovers are objective and should not be
+/// DokuWiki links, and validation leftovers are objective and should not be
 /// hidden by an otherwise successful update.
 pub fn stale_scan(state: &SessionState) -> Result<Value> {
     let output = session::output_dir(state);
     let tree = docs::read_tree_file(&session::module_tree_path(state)).unwrap_or_default();
-    docs::validate_module_page_paths(&tree)?;
-    let mut expected = BTreeSet::from(["overview.md".to_string()]);
-    docs::collect_expected_pages(&tree, &mut expected)?;
-    let mut missing_pages = Vec::new();
-    for page in &expected {
-        if !output.join(page).is_file() {
-            missing_pages.push(page.clone());
-        }
-    }
+    docs::validate_module_page_paths(&state.wiki_id, &tree)?;
+    let mut expected = BTreeSet::from([docs::overview_page_id(&state.wiki_id)?]);
+    docs::collect_expected_pages(&state.wiki_id, &tree, &mut expected)?;
+
+    let pages = list_page_ids(state)?;
+    let present = pages.iter().cloned().collect::<BTreeSet<_>>();
+    let missing_pages = expected.difference(&present).cloned().collect::<Vec<_>>();
+    let extra_pages = present.difference(&expected).cloned().collect::<Vec<_>>();
     let mut broken_links = Vec::new();
-    let mut extra_pages = Vec::new();
-    if output.exists() {
-        for entry in fs::read_dir(&output)? {
-            let path = entry?.path();
-            if path.extension().and_then(|ext| ext.to_str()) != Some("md") {
-                continue;
-            }
-            let name = path
-                .file_name()
-                .and_then(|value| value.to_str())
-                .unwrap_or_default()
-                .to_string();
-            if !expected.contains(&name) {
-                extra_pages.push(name);
-            }
-            let content = fs::read_to_string(&path)?;
-            for target in docs::markdown_link_targets(&content) {
-                if !output.join(&target).is_file() {
-                    broken_links.push(
-                        json!({"page": path.file_name().unwrap_or_default(), "target": target}),
-                    );
-                }
+    for page_id in &pages {
+        let path = docs::page_file_path(&output, &state.wiki_id, page_id)?;
+        let content = fs::read_to_string(path)?;
+        let parsed = dokuwiki::parse_page(state, page_id, &content)?;
+        for target in parsed.links {
+            if !present.contains(&target) {
+                broken_links.push(json!({"page": page_id, "target": target}));
             }
         }
     }
@@ -395,12 +391,12 @@ pub fn finalize(state: &SessionState, model: &str, verdicts_path: Option<&Path>)
         UpdateRecord::default()
     };
     if let Some(path) = verdicts_path {
-        record.verdicts = read_verdicts(path)?;
+        record.verdicts = read_verdicts(path, &state.wiki_id)?;
     }
     record.reports = list_report_files(&root.join("reports"))?;
     record.stale_scan = stale_scan(state)?;
     record.finished_at = Utc::now().to_rfc3339();
-    record.pages_written = list_markdown_files(&session::output_dir(state))?;
+    record.pages_written = list_page_ids(state)?;
     record.wall_seconds = record
         .started_at
         .parse::<chrono::DateTime<chrono::FixedOffset>>()
@@ -427,7 +423,7 @@ pub fn finalize(state: &SessionState, model: &str, verdicts_path: Option<&Path>)
 /// Read the host agent's final page verdicts without making the engine parse
 /// natural-language output. Both a direct page map and a `{ "verdicts": ... }`
 /// envelope are accepted.
-fn read_verdicts(path: &Path) -> Result<BTreeMap<String, String>> {
+fn read_verdicts(path: &Path, wiki_id: &str) -> Result<BTreeMap<String, String>> {
     let value: Value = session::read_json(path)?;
     let raw = value.get("verdicts").unwrap_or(&value);
     let object = raw
@@ -435,7 +431,7 @@ fn read_verdicts(path: &Path) -> Result<BTreeMap<String, String>> {
         .ok_or_else(|| anyhow!("verdicts file must contain a JSON object"))?;
     let mut verdicts = BTreeMap::new();
     for (page, value) in object {
-        let normalized_page = page.strip_suffix(".md").unwrap_or(page).to_string();
+        docs::page_file_path(Path::new(""), wiki_id, page)?;
         let verdict = match value {
             Value::String(verdict) => verdict.trim().to_ascii_lowercase(),
             Value::Object(fields) => {
@@ -462,7 +458,7 @@ fn read_verdicts(path: &Path) -> Result<BTreeMap<String, String>> {
                 "verdict for {page} must be one of no-op, patch, rewrite, create, delete"
             ));
         }
-        verdicts.insert(normalized_page, verdict);
+        verdicts.insert(page.to_string(), verdict);
     }
     Ok(verdicts)
 }
@@ -512,40 +508,66 @@ fn remove_deleted_and_renamed(tree: &mut ModuleTree, diff: &ChangeSet) {
     visit(tree, diff);
 }
 
-fn add_to_leaf(tree: &mut ModuleTree, leaf_name: &str, id: &str) -> bool {
-    fn visit(modules: &mut ModuleTree, leaf_name: &str, id: &str) -> bool {
+fn add_to_leaf(
+    wiki_id: &str,
+    tree: &mut ModuleTree,
+    target_page_id: &str,
+    id: &str,
+) -> Result<bool> {
+    fn visit(
+        wiki_id: &str,
+        modules: &mut ModuleTree,
+        path: &mut Vec<String>,
+        target_page_id: &str,
+        id: &str,
+    ) -> Result<bool> {
         for (name, module) in modules.iter_mut() {
-            if name == leaf_name && module.children.is_empty() {
+            path.push(name.clone());
+            if module.children.is_empty() && docs::module_page_id(wiki_id, path)? == target_page_id
+            {
                 if !module.components.iter().any(|component| component == id) {
                     module.components.push(id.to_string());
                 }
-                return true;
+                path.pop();
+                return Ok(true);
             }
-            if visit(&mut module.children, leaf_name, id) {
+            if visit(wiki_id, &mut module.children, path, target_page_id, id)? {
                 if !module.components.iter().any(|component| component == id) {
                     module.components.push(id.to_string());
                 }
-                return true;
+                path.pop();
+                return Ok(true);
             }
+            path.pop();
         }
-        false
+        Ok(false)
     }
-    visit(tree, leaf_name, id)
+
+    visit(wiki_id, tree, &mut Vec::new(), target_page_id, id)
 }
 
 fn create_leaf(
+    wiki_id: &str,
     tree: &mut ModuleTree,
-    parent_name: Option<&str>,
+    parent_page_id: Option<&str>,
     leaf_name: &str,
     id: &str,
-) -> bool {
+) -> Result<bool> {
     if leaf_name.is_empty() {
-        return false;
+        return Ok(false);
     }
-    if let Some(parent_name) = parent_name.filter(|name| !name.is_empty()) {
-        fn visit(modules: &mut ModuleTree, parent_name: &str, leaf_name: &str, id: &str) -> bool {
+    if let Some(parent_page_id) = parent_page_id.filter(|page_id| !page_id.is_empty()) {
+        fn visit(
+            wiki_id: &str,
+            modules: &mut ModuleTree,
+            path: &mut Vec<String>,
+            parent_page_id: &str,
+            leaf_name: &str,
+            id: &str,
+        ) -> Result<bool> {
             for (name, module) in modules.iter_mut() {
-                if name == parent_name {
+                path.push(name.clone());
+                if docs::module_page_id(wiki_id, path)? == parent_page_id {
                     let child = module.children.entry(leaf_name.to_string()).or_default();
                     if !child.components.iter().any(|component| component == id) {
                         child.components.push(id.to_string());
@@ -553,24 +575,41 @@ fn create_leaf(
                     if !module.components.iter().any(|component| component == id) {
                         module.components.push(id.to_string());
                     }
-                    return true;
+                    path.pop();
+                    return Ok(true);
                 }
-                if visit(&mut module.children, parent_name, leaf_name, id) {
+                if visit(
+                    wiki_id,
+                    &mut module.children,
+                    path,
+                    parent_page_id,
+                    leaf_name,
+                    id,
+                )? {
                     if !module.components.iter().any(|component| component == id) {
                         module.components.push(id.to_string());
                     }
-                    return true;
+                    path.pop();
+                    return Ok(true);
                 }
+                path.pop();
             }
-            false
+            Ok(false)
         }
-        return visit(tree, parent_name, leaf_name, id);
+        return visit(
+            wiki_id,
+            tree,
+            &mut Vec::new(),
+            parent_page_id,
+            leaf_name,
+            id,
+        );
     }
     let module = tree.entry(leaf_name.to_string()).or_default();
     if !module.components.iter().any(|component| component == id) {
         module.components.push(id.to_string());
     }
-    true
+    Ok(true)
 }
 
 fn graph_diff(
@@ -714,35 +753,42 @@ fn is_no_change(diff: &ChangeSet) -> bool {
 
 fn module_page_for_node(state: &SessionState, id: &str) -> Result<Option<String>> {
     let tree = docs::read_tree_file(&session::module_tree_path(state))?;
-    deepest_module_page(&tree, id)
+    deepest_module_page(&state.wiki_id, &tree, id)
 }
 
 /// Parent modules intentionally repeat aggregate component IDs so their pages
-/// can describe the whole subtree.  Routing must therefore prefer the
-/// deepest matching child page, otherwise an update to a leaf is incorrectly
-/// sent to its first ancestor.
-fn deepest_module_page(tree: &ModuleTree, id: &str) -> Result<Option<String>> {
-    docs::validate_module_page_paths(tree)?;
+/// can describe the whole subtree. Routing therefore selects the deepest
+/// matching module and builds its page ID from the complete ancestry.
+fn deepest_module_page(wiki_id: &str, tree: &ModuleTree, id: &str) -> Result<Option<String>> {
+    docs::validate_module_page_paths(wiki_id, tree)?;
 
-    fn visit(name: &str, module: &crate::model::Module, id: &str) -> Result<Option<String>> {
-        for (child_name, child) in &module.children {
-            if let Some(value) = visit(child_name, child, id)? {
-                return Ok(Some(value));
+    fn visit(
+        wiki_id: &str,
+        modules: &ModuleTree,
+        path: &mut Vec<String>,
+        id: &str,
+        best: &mut Option<(usize, String)>,
+    ) -> Result<()> {
+        for (name, module) in modules {
+            path.push(name.clone());
+            visit(wiki_id, &module.children, path, id, best)?;
+            if module.components.iter().any(|component| component == id) {
+                let depth = path.len();
+                if best
+                    .as_ref()
+                    .is_none_or(|(best_depth, _)| depth > *best_depth)
+                {
+                    *best = Some((depth, docs::module_page_id(wiki_id, path)?));
+                }
             }
+            path.pop();
         }
-        if module.components.iter().any(|component| component == id) {
-            Ok(Some(docs::module_page_filename(name)?))
-        } else {
-            Ok(None)
-        }
+        Ok(())
     }
 
-    for (name, module) in tree {
-        if let Some(page) = visit(name, module, id)? {
-            return Ok(Some(page));
-        }
-    }
-    Ok(None)
+    let mut best = None;
+    visit(wiki_id, tree, &mut Vec::new(), id, &mut best)?;
+    Ok(best.map(|(_, page_id)| page_id))
 }
 
 fn load_update_options(state: &SessionState) -> Result<UpdateOptions> {
@@ -758,25 +804,35 @@ fn load_update_options(state: &SessionState) -> Result<UpdateOptions> {
     Ok(options)
 }
 
-fn module_index(state: &SessionState) -> BTreeMap<String, String> {
+fn module_index(state: &SessionState) -> Result<BTreeMap<String, String>> {
     let path = session::module_tree_path(state);
     let Ok(tree) = docs::read_tree_file(&path) else {
-        return BTreeMap::new();
+        return Ok(BTreeMap::new());
     };
+    docs::validate_module_page_paths(&state.wiki_id, &tree)?;
     let mut index = BTreeMap::new();
-    index_modules(&tree, &mut index);
-    index
+    index_modules(&state.wiki_id, &tree, &mut Vec::new(), &mut index)?;
+    Ok(index)
 }
 
-fn index_modules(tree: &ModuleTree, index: &mut BTreeMap<String, String>) {
+fn index_modules(
+    wiki_id: &str,
+    tree: &ModuleTree,
+    path: &mut Vec<String>,
+    index: &mut BTreeMap<String, String>,
+) -> Result<()> {
     for (name, module) in tree {
-        index_modules(&module.children, index);
+        path.push(name.clone());
+        index_modules(wiki_id, &module.children, path, index)?;
         if module.children.is_empty() {
+            let page_id = docs::module_page_id(wiki_id, path)?;
             for component in &module.components {
-                index.insert(component.clone(), name.clone());
+                index.insert(component.clone(), page_id.clone());
             }
         }
+        path.pop();
     }
+    Ok(())
 }
 
 fn route_node(
@@ -784,6 +840,7 @@ fn route_node(
     nodes: &BTreeMap<String, Node>,
     module_index: &BTreeMap<String, String>,
     options: &UpdateOptions,
+    fallback_page: &str,
 ) -> String {
     let mut counts = BTreeMap::<String, usize>::new();
     for dependency in &node.depends_on {
@@ -804,11 +861,7 @@ fn route_node(
             return module;
         }
     }
-    node.relative_path
-        .split('/')
-        .next()
-        .unwrap_or("Repository")
-        .to_string()
+    fallback_page.to_string()
 }
 
 fn upstream_ids(nodes: &BTreeMap<String, Node>, start: &str, max_hops: usize) -> Vec<String> {
@@ -887,19 +940,99 @@ fn truncate_text(text: &str, max_tokens: usize) -> String {
     format!("{head}{marker}{tail}")
 }
 
-fn list_markdown_files(output: &Path) -> Result<Vec<String>> {
-    let mut files = Vec::new();
-    if !output.exists() {
-        return Ok(files);
+fn list_page_ids(state: &SessionState) -> Result<Vec<String>> {
+    fn path_segments(path: &Path) -> Option<Vec<String>> {
+        path.components()
+            .map(|component| match component {
+                Component::Normal(segment) => segment.to_str().map(str::to_string),
+                _ => None,
+            })
+            .collect()
     }
-    for entry in fs::read_dir(output)? {
-        let entry = entry?;
-        if entry.path().extension().and_then(|ext| ext.to_str()) == Some("md") {
-            files.push(entry.file_name().to_string_lossy().into_owned());
+
+    fn visit(
+        directory: &Path,
+        pages_root: &Path,
+        output: &Path,
+        wiki_id: &str,
+        namespace: &[&str],
+        pages: &mut BTreeSet<String>,
+    ) -> Result<()> {
+        for entry in fs::read_dir(directory)? {
+            let entry = entry?;
+            let path = entry.path();
+            let file_type = entry.file_type()?;
+            if file_type.is_dir() {
+                visit(&path, pages_root, output, wiki_id, namespace, pages)?;
+            } else if file_type.is_file()
+                && path.extension().and_then(|extension| extension.to_str()) == Some("txt")
+            {
+                let Some(relative) = path.strip_prefix(pages_root).ok() else {
+                    continue;
+                };
+                let mut segments = relative
+                    .parent()
+                    .and_then(path_segments)
+                    .unwrap_or_default();
+                let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                    continue;
+                };
+                segments.push(stem.to_string());
+                if segments.len() <= namespace.len()
+                    || !segments
+                        .iter()
+                        .take(namespace.len())
+                        .map(String::as_str)
+                        .eq(namespace.iter().copied())
+                {
+                    continue;
+                }
+                let page_id = segments.join(":");
+                if let Ok(mapped_path) = docs::page_file_path(output, wiki_id, &page_id) {
+                    if mapped_path == path {
+                        pages.insert(page_id);
+                    }
+                }
+            }
         }
+        Ok(())
     }
-    files.sort();
-    Ok(files)
+
+    let output = session::output_dir(state);
+    let canonical_output = output.canonicalize()?;
+    let pages_root = output.join("dokuwiki").join("data").join("pages");
+    let canonical_pages_root = match pages_root.canonicalize() {
+        Ok(path) if path.starts_with(&canonical_output) => path,
+        Ok(_) => return Ok(Vec::new()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
+    let namespace = state.wiki_id.split(':').collect::<Vec<_>>();
+    let namespace_root = namespace
+        .iter()
+        .fold(pages_root.clone(), |path, segment| path.join(*segment));
+    let canonical_namespace_root = match namespace_root.canonicalize() {
+        Ok(path) if path.starts_with(&canonical_pages_root) => path,
+        Ok(_) => return Ok(Vec::new()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
+    if !fs::symlink_metadata(&namespace_root)?.file_type().is_dir()
+        || !canonical_namespace_root.is_dir()
+    {
+        return Ok(Vec::new());
+    }
+
+    let mut pages = BTreeSet::new();
+    visit(
+        &namespace_root,
+        &pages_root,
+        &output,
+        &state.wiki_id,
+        &namespace,
+        &mut pages,
+    )?;
+    Ok(pages.into_iter().collect())
 }
 
 fn list_report_files(reports: &Path) -> Result<Vec<String>> {
@@ -1043,24 +1176,31 @@ mod tests {
     }
 
     #[test]
-    fn verdict_file_accepts_reference_envelope_and_normalizes_pages() {
+    fn verdict_file_preserves_canonical_page_ids() {
         let directory = tempfile::tempdir().expect("temporary verdict directory");
         let path = directory.path().join("verdicts.json");
         session::write_json(
             &path,
             &json!({
                 "verdicts": {
-                    "Service.md": {"verdict": "patch", "reason": "updated signature"},
-                    "overview.md": "no-op"
+                    "repo:system:service:start": {"verdict": "patch", "reason": "updated signature"},
+                    "repo:start": "no-op"
                 },
                 "notes": "fixed replay"
             }),
         )
         .expect("write verdicts");
 
-        let verdicts = read_verdicts(&path).expect("parse verdicts");
-        assert_eq!(verdicts["Service"], "patch: updated signature");
-        assert_eq!(verdicts["overview"], "no-op");
+        let verdicts = read_verdicts(&path, "repo").expect("parse verdicts");
+        assert_eq!(
+            verdicts["repo:system:service:start"],
+            "patch: updated signature"
+        );
+        assert_eq!(verdicts["repo:start"], "no-op");
+
+        session::write_json(&path, &json!({"foreign:start": "no-op"}))
+            .expect("write out-of-edition verdict");
+        assert!(read_verdicts(&path, "repo").is_err());
     }
 
     #[test]
@@ -1077,18 +1217,8 @@ mod tests {
         let tree = ModuleTree::from([("Root".to_string(), root)]);
 
         assert_eq!(
-            deepest_module_page(&tree, "leaf-id").expect("valid module page paths"),
-            Some("Leaf.md".to_string())
-        );
-    }
-
-    #[test]
-    fn markdown_target_scan_ignores_external_links_and_fragments() {
-        assert_eq!(
-            docs::markdown_link_targets(
-                "[one](one.md) [external](https://x/two.md) [two](two.md#part)",
-            ),
-            vec!["one.md".to_string(), "two.md".to_string()]
+            deepest_module_page("repo", &tree, "leaf-id").expect("valid module page paths"),
+            Some("repo:root:leaf:start".to_string())
         );
     }
 }

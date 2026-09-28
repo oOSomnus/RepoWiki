@@ -10,6 +10,7 @@ examples shipped with the Skill instead of comparing prompt implementations.
 from __future__ import annotations
 
 import hashlib
+import re
 from pathlib import Path
 
 
@@ -38,6 +39,9 @@ def change_skill_contract() -> None:
             "/change-wiki <base-ref>...<head-ref>",
             ".repowiki/changes/",
             "references/change-workflow.md",
+            "PHP 8.2 or newer",
+            "change_<SHA256(complete base..head ID)>",
+            "does not support old",
         ],
         "change-wiki/SKILL.md",
     )
@@ -59,6 +63,9 @@ def change_skill_contract() -> None:
             "Do not fetch",
             ".repowiki/.codewiki/sessions/",
             "components: []",
+            "change_<SHA256(complete base..head ID)>:",
+            "<mermaid>...</mermaid>",
+            "does not support old",
         ],
         "change-wiki/references/change-workflow.md",
     )
@@ -94,6 +101,9 @@ def main() -> int:
             "decomposition_review",
             "breadth_risk",
             "<GROUPED_COMPONENTS>",
+            "DokuWiki namespace segments",
+            "repo:system:api:start",
+            ".txt",
         ],
         "cluster_module.txt": [
             "existing architecture module",
@@ -103,6 +113,8 @@ def main() -> int:
             "high-risk leaf",
             "directory-shaped child",
             "<GROUPED_COMPONENTS>",
+            "DokuWiki namespace segments",
+            "repo:system:api:start",
         ],
         "super_group.txt": [
             "<MODULES>",
@@ -115,13 +127,16 @@ def main() -> int:
             "<ARCHITECTURE_FEW_SHOTS>",
             "source-grounded architecture page",
             "Caller -> Entry -> Core -> Result",
+            "native DokuWiki source",
+            "repo:system:api:start",
         ],
         "overview_module.txt": [
             "<REPO_STRUCTURE>",
             "<ARCHITECTURE_CONTEXT>",
             "<ARCHITECTURE_FEW_SHOTS>",
-            "every linked immediate child page",
+            "every documented immediate child page",
             "Caller -> Entry -> Core -> Result",
+            "<mermaid>...</mermaid>",
         ],
         "overview_repo.txt": [
             "<REPO_STRUCTURE>",
@@ -130,6 +145,7 @@ def main() -> int:
             "primary Mermaid architecture diagram",
             "end-to-end path",
             "generic placeholders",
+            "native DokuWiki page source",
         ],
         "system_leaf.txt": [
             "architecture documentation writer",
@@ -138,6 +154,9 @@ def main() -> int:
             "substantive article",
             "two distinct source anchors",
             "complete reference article",
+            "native DokuWiki source",
+            "repo:system:api:start",
+            "<mermaid>...</mermaid>",
         ],
         "system_complex.txt": [
             "architecture documentation writer",
@@ -147,6 +166,8 @@ def main() -> int:
             "two distinct anchors",
             "complete reference article",
             "fixed headings",
+            "canonical DokuWiki page ID",
+            "repo:system:api:start",
         ],
         "filter_folders.txt": ["relative paths", "shortlist", "JSON format"],
         "update_leaf_user.txt": [
@@ -155,13 +176,28 @@ def main() -> int:
             "<LEAF_COMPONENTS>",
             "verdict",
         ],
+        "update_leaf_system.txt": [
+            "WRITE SET",
+            "DokuWiki syntax",
+            "canonical page ID",
+            "repo:system:api:start",
+        ],
         "routing_system.txt": ["existing module tree", "JSON only"],
-        "routing_user.txt": ["<MODULE_TREE>", "<ORPHANS>", "decisions"],
-        "stale_fix_system.txt": ["stale references", "verdicts"],
+        "routing_user.txt": [
+            "<MODULE_TREE>",
+            "<ORPHANS>",
+            "canonical page ID",
+        ],
+        "stale_fix_system.txt": [
+            "stale references",
+            "verdicts",
+            "canonical-page-id",
+        ],
         "stale_fix_user.txt": [
             "<STALE_ITEMS>",
             "codewiki doc view",
             "codewiki doc edit",
+            "complete canonical DokuWiki page ID",
         ],
     }
     expected_prompt_files = {
@@ -221,7 +257,7 @@ def main() -> int:
         [
             "clickhouse-overview.md",
             "clickhouse-storage-engine.md",
-            "complete, unabridged",
+            "native DokuWiki page syntax",
             "9dc8cf8c41705960f2002f3489a6dc302c936114",
         ],
         "few-shots/README.md",
@@ -232,28 +268,37 @@ def main() -> int:
         [
             "Audit every first-level module",
             "--require-decomposition-review",
-            "one new worker with isolated context per Markdown page",
+            "one new worker with isolated context per DokuWiki page",
             "at most four workers",
             "fresh reviewer/repair worker",
+            "PHP 8.2 or newer",
+            "repo:start",
+            "<mermaid>...</mermaid>",
+            ".txt",
         ],
         "skill/SKILL.md",
     )
     change_skill_contract()
     expected_hashes = {
-        "clickhouse-overview.md": "e9c9a826600ef7e49c28a340f54e41e6f6e4d9b0530fc6ee443a6f4bbada2e05",
-        "clickhouse-storage-engine.md": "c6623b0fcaea9f2d4bd634eef386dcfc15ab41636b02b05eb24d4b73166c3faf",
-        "clickhouse-query-pipeline.md": "62b905b3e74262659845e77e15266fb1747ea52a2ee1da7ede59e60a502cb8cb",
-        "clickhouse-ast-create-query.md": "12ca6ed91f5f8e8a31bd029845618a898dd59d9027eca01a6b124e60f1c9677a",
+        "clickhouse-overview.md": "98f7f367469fa3a07e5fa57b2a9e61bf04114b9c215398b0f1db1903dd0aa874",
+        "clickhouse-storage-engine.md": "45ed25706cc2cfcbd217a6c6f51499131a0e226423bd4d61fed391c1c640562b",
+        "clickhouse-query-pipeline.md": "c70ce5d1b6b6f337d90accd477963979e4afdfe85bf9bcbffe3ebbde4d2f219a",
+        "clickhouse-ast-create-query.md": "83e0fad779dc097bba8ea35627ba6599a92a09a53a21b7dd226f4ec8eb0579dd",
     }
     for path in FEW_SHOTS.glob("*.md"):
         if path.name == "README.md":
             continue
         text = path.read_text(encoding="utf-8")
         require(text.lower(), ["architecture", "mermaid"], f"few-shots/{path.name}")
+        require(text, ["======", "[[repo:", "<mermaid>"], f"few-shots/{path.name}")
+        if re.search(r"(?m)^#{1,6}\s|```|\[[^\]]+\]\([^)]+\)", text):
+            raise PromptContractFailure(
+                f"{path.name} still contains Markdown page syntax"
+            )
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         if digest != expected_hashes.get(path.name):
             raise PromptContractFailure(
-                f"{path.name} is not the complete pinned reference article: {digest}"
+                f"{path.name} is not the native DokuWiki reference source: {digest}"
             )
 
     print(

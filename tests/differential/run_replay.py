@@ -15,6 +15,7 @@ import difflib
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -60,13 +61,6 @@ LANGUAGES = [
     "scala",
     "typescript",
 ]
-RESERVED_DOCUMENT_STEMS = {
-    "overview",
-    "module_tree",
-    "first_module_tree",
-    "metadata",
-    "index",
-}
 
 
 class ReplayFailure(RuntimeError):
@@ -83,6 +77,14 @@ def load_json(path: Path) -> Any:
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(canonical_json(value), encoding="utf-8")
+
+
+
+def canonical_output_path(path: Path, output: Path) -> str:
+    relative = path.relative_to(output).as_posix()
+    if "/data/attic/" in relative:
+        return re.sub(r"\.\d+(\.txt\.gz)$", r".<timestamp>\1", relative)
+    return relative
 
 
 def run_command(binary: Path, args: list[str], *, cwd: Path | None = None) -> dict[str, Any]:
@@ -156,6 +158,8 @@ def prompt_vars(
     module_name: str,
     source_text: str,
     architecture_context: str = "",
+    doc_path: str | None = None,
+    component_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     tree_text = json.dumps(tree, ensure_ascii=False, indent=2, sort_keys=True)
     if prompt_type == "cluster":
@@ -163,7 +167,7 @@ def prompt_vars(
     if prompt_type == "system_leaf":
         return {
             "module_name": module_name,
-            "doc_path": document_path_for(module_name),
+            "doc_path": doc_path or document_path_for([module_name]),
             "custom_instructions": "offline replay",
             "few_shot_examples": FEW_SHOT_EXAMPLES,
         }
@@ -171,7 +175,7 @@ def prompt_vars(
         return {
             "module_name": module_name,
             "module_tree": tree_text,
-            "formatted_core_component_codes": source_text,
+            "component_ids": component_ids or [],
             "few_shot_examples": FEW_SHOT_EXAMPLES,
             "architecture_context": architecture_context,
         }
@@ -262,23 +266,20 @@ def expected_component_ids(tree: dict[str, Any]) -> list[str]:
     return sorted(ids)
 
 
-def document_path_for(module_name: str) -> str:
-    """Mirror the documented module-page naming convention for new runtimes."""
+def document_path_for(module_path: list[str], wiki_id: str = "repo") -> str:
+    """Return the canonical full DokuWiki page ID for a module ancestry."""
 
-    if not module_name or any(
-        not (character.isascii() and (character.isalnum() or character in "_-"))
-        for character in module_name
-    ):
-        raise ReplayFailure(f"replay module name is not page-safe: {module_name}")
-    stem = "".join(
-        character
-        if character.isascii() and (character.isalnum() or character in "_-")
-        else "_"
-        for character in module_name
-    ) or "module"
-    if stem in RESERVED_DOCUMENT_STEMS:
-        stem = f"{stem}_module"
-    return f"{stem}.md"
+    if not module_path:
+        raise ReplayFailure("replay module path cannot be empty")
+    segments: list[str] = []
+    for name in module_path:
+        if not name or any(
+            not (character.isascii() and (character.isalnum() or character in "_-"))
+            for character in name
+        ):
+            raise ReplayFailure(f"replay module name is not page-safe: {name}")
+        segments.append(name.lower())
+    return f"{wiki_id}:{':'.join(segments)}:start"
 
 
 def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict[str, Any]:
@@ -411,12 +412,10 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
                 str(ids_path),
             ],
         )
-        source_by_id: dict[str, str] = {}
         for item in components_result["components"]:
             source_path = Path(item["path"])
             if not source_path.is_file():
                 raise ReplayFailure(f"component source path does not exist: {source_path}")
-            source_by_id[item["id"]] = source_path.read_text(encoding="utf-8")
 
         ordered = run_command(
             binary,
@@ -429,15 +428,22 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
             doc_path = item["doc_path"]
             if item["is_leaf"]:
                 ids = item["components"]
-                source_text = "\n".join(source_by_id[component_id] for component_id in ids)
                 variables = prompt_vars(
-                    "system_leaf", transcript["module_tree"], module_name, source_text
+                    "system_leaf",
+                    transcript["module_tree"],
+                    module_name,
+                    "",
+                    doc_path=doc_path,
                 )
                 prompt_hashes["system_leaf"].append(
                     get_prompt(binary, repo, session_id, "system_leaf", variables, work)
                 )
                 variables = prompt_vars(
-                    "user", transcript["module_tree"], module_name, source_text
+                    "user",
+                    transcript["module_tree"],
+                    module_name,
+                    "",
+                    component_ids=ids,
                 )
                 prompt_hashes["user"].append(
                     get_prompt(binary, repo, session_id, "user", variables, work)
@@ -480,7 +486,9 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
                 )
             if module_name not in expected_documents:
                 raise ReplayFailure(f"transcript has no document for module {module_name}")
-            content_path = work / f"{doc_path}.content"
+            content_path = work / (
+                f"document-{hashlib.sha256(doc_path.encode('utf-8')).hexdigest()}.content"
+            )
             content_path.write_text(expected_documents[module_name], encoding="utf-8")
             run_command(
                 binary,
@@ -541,7 +549,7 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
                 work,
             )
         ]
-        overview_path = work / "overview.md.content"
+        overview_path = work / "repository-overview.content"
         overview_path.write_text(transcript["overview"], encoding="utf-8")
         run_command(
             binary,
@@ -553,7 +561,7 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
                 "--session",
                 session_id,
                 "--path",
-                "overview.md",
+                "repo:start",
                 "--if-existing",
                 "same",
                 "--content-file",
@@ -579,12 +587,13 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
         if session.exists():
             raise ReplayFailure(f"session was not cleaned after close: {session}")
         metadata = load_json(output / "metadata.json")
+        pages_dir = output / "dokuwiki" / "data" / "pages"
         documents = {
             path.relative_to(output).as_posix(): path.read_text(encoding="utf-8")
-            for path in output.rglob("*.md")
+            for path in pages_dir.rglob("*.txt")
         }
         output_files = sorted(
-            path.relative_to(output).as_posix()
+            canonical_output_path(path, output)
             for path in output.rglob("*")
             if path.is_file()
         )

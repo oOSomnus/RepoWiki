@@ -108,13 +108,25 @@ parent; it may return an empty `<GROUPED_COMPONENTS>{}</GROUPED_COMPONENTS>`
 only when that review says `retain_leaf`.
 
 `tree overview-context` renders a target's structure with components removed,
-immediate child `docs_path` values, and a reduced `architecture_context` with
-grounded module nodes, dependency edges, and primary paths. A child without an
-existing page has `docs_path: null`; an existing page has its resolved path.
-Its default target is the repository root and its result is written to the
-session workspace.
+immediate child `docs_path` values as full canonical DokuWiki page IDs, and a
+reduced `architecture_context` with grounded module nodes, dependency edges,
+and primary paths. A child without an existing page has `docs_path: null`;
+an existing page has its canonical ID. Its default target is the repository
+root and its result is written to the session workspace.
 
-`tree save --first` writes `first_module_tree.json` and `module_tree.json`, computes leaf-first `processing_order.json` (each item includes its exact canonical `doc_path`), and validates that every selected architecture anchor belongs to the analysis. Module keys must be non-empty ASCII page-safe names. The final tree is intentionally not an exhaustive partition of `leaf_nodes.json`; omitted candidates are recorded as analysis detail rather than treated as missing documentation. On a new generation's final save, pass `--require-decomposition-review` to require a valid review on every module. This flag is optional so older trees and update workflows remain readable.
+`tree save --first` writes `first_module_tree.json` and `module_tree.json`,
+computes leaf-first `processing_order.json` (each item includes its exact
+canonical `doc_path` page ID), and validates that every selected architecture
+anchor belongs to the analysis. Module keys are non-empty ASCII namespace
+segments. The full page ID includes the edition namespace, all ancestor
+segments, and final `:start`; for example `System/API` is `repo:system:api:start`.
+Its `.txt` source maps to
+`dokuwiki/data/pages/repo/system/api/start.txt`. The final tree is intentionally
+not an exhaustive partition of `leaf_nodes.json`; omitted candidates are
+recorded as analysis detail rather than treated as missing documentation. On a
+new generation's final save, pass `--require-decomposition-review` to require
+a valid review on every module. This flag is optional so older trees and update
+workflows remain readable.
 
 The final tree may repeat representative component IDs in a parent and its
 descendants. `tree save` additionally records these architecture quality fields in
@@ -150,17 +162,21 @@ the non-empty response file already exists.
 ## Update verdicts
 
 `update finalize` accepts `--verdicts-file <path>`. The file may contain either
-a direct object keyed by page name or an object with a `verdicts` member. Each
-value is a verdict string or an object containing `verdict` and optional
-`reason`; `.md` suffixes are normalized in the record.
+a direct object keyed by full canonical DokuWiki page ID or an object with a
+`verdicts` member. Each value is a verdict string or an object containing
+`verdict` and optional `reason`. Use the exact IDs in the update write set;
+page IDs have no filename suffix.
 
 ## Document editing
 
-`doc write` creates a new Markdown page and refuses to overwrite it. It also
-accepts `--if-existing same`: an existing page is treated as success only when
-its bytes exactly match the requested content; a different page remains an
-error. The result reports whether the page was `created` or `reused`. `doc edit`
-accepts a JSON array:
+`doc write` creates a native DokuWiki page under the exact canonical page ID
+and refuses to overwrite it. It also accepts `--if-existing same`: an existing
+page is treated as success only when its bytes exactly match the requested
+source; a different page remains an error. The result reports whether the page
+was `created` or `reused`. Page sources are stored as `.txt` files under
+`dokuwiki/data/pages/<edition-namespace>/.../start.txt`. `doc view --path` and
+`doc edit --path` take the full logical page ID, not a filesystem path.
+`doc edit` accepts a JSON array:
 
 ```json
 [
@@ -169,11 +185,16 @@ accepts a JSON array:
 ]
 ```
 
-`str_replace` requires exactly one match. `insert` is zero-based. `undo` restores the most recent saved version. Mermaid blocks are reported as balanced or unbalanced; validation is best-effort and does not hide the written page.
+`str_replace` requires exactly one match. `insert` is zero-based. `undo`
+restores the most recent saved version through DokuWiki's page API and history.
+Use native headings such as `====== Heading ======`, links such as
+`[[repo:system:api:start|API]]`, code blocks such as `<code rust>...</code>`,
+and Mermaid blocks as `<mermaid>...</mermaid>`.
 
 ## Output artifacts
 
-The generated output contains `overview.md`, semantic module Markdown files,
+The generated output contains `.repowiki/dokuwiki/data/pages/repo/start.txt`
+and `.txt` semantic module pages beneath that same `repo/` namespace, plus
 `module_tree.json`, `first_module_tree.json`, `metadata.json`,
 `temp/artifact_index.json`, and `temp/dependency_graphs/*_dependency_graph.json`.
 Incremental runs additionally write `update_record.json`.
@@ -198,11 +219,13 @@ architecture quality, and required child links. Leaf pages require at least
 pages require 200 English prose words or 700 CJK prose characters. Pages also
 need two semantic areas and up to two distinct component anchors when
 available. A valid report has `valid: true`. It rejects list-only or
-fixed-template pages, parent pages with no
-useful architecture diagram or child links, and a repository overview without
-a grounded end-to-end diagram and top-level links. It also rejects extra
-top-level Markdown pages, broken local Markdown links, and non-canonical local
-links. Natural CJK prose is counted by Unicode-aware units; do not insert
-artificial spaces between Chinese characters. The report is copied into
-metadata.json when the session closes. `session close` runs the same check as
-a hard gate, so a page file existing on disk is not sufficient.
+fixed-template pages, parent pages with no useful architecture diagram or child
+links, and a repository overview without a grounded end-to-end diagram and
+top-level links. The real DokuWiki parser and plugins validate native syntax,
+resolve internal links within the current edition namespace, and parse
+`<mermaid>` blocks. The report rejects extra `.txt` pages and broken or
+non-canonical DokuWiki links. Natural CJK prose is counted by Unicode-aware
+units; do not insert artificial spaces between Chinese characters. The report
+is copied into `metadata.json` when the session closes. `session close` runs
+the same check as a hard gate, so a page file existing on disk is not
+sufficient.

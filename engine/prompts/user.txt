@@ -24,15 +24,23 @@ when evidenced. Use at least two distinct source path or symbol anchors when
 the supplied component set contains at least two components. Use several
 substantive paragraphs across at least two semantic areas; do not pad the page
 to meet a length target. Use a free-form structure appropriate to the module.
+Write native DokuWiki source: headings such as `====== Heading ======`,
+internal links such as `[[repo:system:api:start|API]]`, code blocks such as
+`<code rust>...</code>`, and Mermaid diagrams as `<mermaid>...</mermaid>`.
+Use the exact full canonical page IDs supplied by the CLI for this edition;
+keep every internal link inside the edition namespace. Store the page through
+the CLI as the `.txt` source beneath
+`dokuwiki/data/pages/<edition-namespace>/.../start.txt`.
+
 Do not produce a directory listing, component inventory, repeated template,
 or generic explanation.
 
-The reference examples are supplied in full, not as excerpts. Use their
-information density and explanation style, but derive every fact from the
-target repository's evidence and write original prose.
+The reference examples are supplied in full as DokuWiki page sources. Use
+their information density and explanation style, but derive every fact from
+the target repository's evidence and write original prose.
 
 Add Mermaid only when it makes the architecture easier to understand. Prefer
 concrete module/interface/storage names and relationships from the supplied
 context. Do not invent a Caller -> Entry -> Core -> Result graph merely to
-include a diagram. Link to related documented pages when the module tree
-provides them.
+include a diagram. Link to related documented pages using their complete
+canonical IDs when the module tree provides them.

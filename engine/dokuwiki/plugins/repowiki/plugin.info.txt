@@ -1,0 +1,8 @@
+base   repowiki
+author RepoWiki contributors
+email
+date   2026-09-27
+name   RepoWiki integration
+desc   Edition navigation, scoped search, and the RepoWiki CLI adapter
+url    https://github.com/repowiki
+license GPL-2.0-or-later

@@ -1,3 +1,4 @@
+use crate::dokuwiki;
 use crate::model::{
     DecompositionDecision, DecompositionReview, Metadata, Module, ModuleTree, Node, Statistics,
     Summary, DEFAULT_CLUSTER_BATCH_SIZE, DEFAULT_MAX_TOKEN_PER_LEAF_MODULE,
@@ -13,25 +14,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 mod quality;
-pub use quality::{
-    markdown_link_targets, validate_documentation, validate_documentation_report, validate_mermaid,
-    MermaidReport,
-};
-
-const RESERVED_STEMS: &[&str] = &[
-    "overview",
-    "module_tree",
-    "first_module_tree",
-    "metadata",
-    "index",
-];
+pub use quality::{validate_documentation, validate_documentation_report};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WriteResult {
     pub path: String,
     pub created: bool,
     pub reused: bool,
-    pub mermaid: MermaidReport,
+    pub links: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,8 +70,14 @@ impl<'de> Deserialize<'de> for ProcessingItem {
         D: serde::Deserializer<'de>,
     {
         let input = ProcessingItemInput::deserialize(deserializer)?;
-        let canonical_doc_path = module_page_filename(&input.module)
+        let namespace = input.doc_path.split(':').next().unwrap_or_default();
+        let canonical_doc_path = module_page_id(namespace, &input.path)
             .map_err(|error| serde::de::Error::custom(error.to_string()))?;
+        if input.path.last() != Some(&input.module) {
+            return Err(serde::de::Error::custom(
+                "processing item module must be its final path segment",
+            ));
+        }
         if input.doc_path != canonical_doc_path {
             return Err(serde::de::Error::custom(format!(
                 "processing item doc_path must be '{canonical_doc_path}', got '{}'",
@@ -125,13 +121,14 @@ pub fn write_document_with_policy(
     reuse_if_same: bool,
 ) -> Result<WriteResult> {
     let path = document_path(state, requested)?;
+    let parsed = dokuwiki::parse_page(state, requested, content)?;
     if path.exists() {
-        if reuse_if_same && session::read_text(&path)? == content {
+        if reuse_if_same && dokuwiki::read_page(state, requested)? == content {
             return Ok(WriteResult {
-                path: path.to_string_lossy().into_owned(),
+                path: requested.to_string(),
                 created: false,
                 reused: true,
-                mermaid: validate_mermaid(content),
+                links: parsed.links,
             });
         }
         if reuse_if_same {
@@ -142,15 +139,14 @@ pub fn write_document_with_policy(
         }
         return Err(anyhow!("document already exists: {}", path.display()));
     }
-    let mermaid = validate_mermaid(content);
-    session::write_text(&path, content)?;
+    dokuwiki::write_page(state, requested, content)?;
     state.mark_write();
     session::save_state(state)?;
     Ok(WriteResult {
-        path: path.to_string_lossy().into_owned(),
+        path: requested.to_string(),
         created: true,
         reused: false,
-        mermaid,
+        links: parsed.links,
     })
 }
 
@@ -160,7 +156,10 @@ pub fn edit_document(
     operations: &[EditOperation],
 ) -> Result<WriteResult> {
     let path = document_path(state, requested)?;
-    let mut content = session::read_text(&path)?;
+    if !path.is_file() {
+        return Err(anyhow!("document page does not exist: {requested}"));
+    }
+    let mut content = dokuwiki::read_page(state, requested)?;
     let history =
         session::session_root(Path::new(&state.repo_path), &state.session_id).join("history");
     let mut history_stack = load_history(&history, &path)?;
@@ -202,7 +201,8 @@ pub fn edit_document(
             }
         }
     }
-
+    let parsed = dokuwiki::parse_page(state, requested, &content)?;
+    dokuwiki::write_page(state, requested, &content)?;
     for history_path in consumed_history {
         if history_path.exists() {
             fs::remove_file(&history_path).map_err(|error| {
@@ -216,25 +216,30 @@ pub fn edit_document(
         };
         write_history_snapshot(&history, &path, &snapshot, index)?;
     }
-    session::write_text(&path, &content)?;
-    let mermaid = validate_mermaid(&content);
     state.mark_write();
     session::save_state(state)?;
     Ok(WriteResult {
-        path: path.to_string_lossy().into_owned(),
+        path: requested.to_string(),
         created: false,
         reused: false,
-        mermaid,
+        links: parsed.links,
     })
 }
 
 pub fn view_document(state: &SessionState, requested: &str) -> Result<Value> {
     let path = document_path(state, requested)?;
-    let content = session::read_text(&path)?;
+    if !path.is_file() {
+        return Err(anyhow!("document page does not exist: {requested}"));
+    }
+    let content = dokuwiki::read_page(state, requested)?;
+    let parsed = dokuwiki::parse_page(state, requested, &content)?;
     Ok(json!({
-        "path": path,
+        "path": requested,
+        "file": path,
+        "page_id": requested,
         "content": content,
-        "mermaid": validate_mermaid(&content),
+        "links": parsed.links,
+        "html": parsed.html,
     }))
 }
 
@@ -252,7 +257,7 @@ pub fn save_module_tree_with_review(
     first: bool,
     require_decomposition_review: bool,
 ) -> Result<TreeSaveResult> {
-    validate_module_page_paths(tree)?;
+    validate_module_page_paths(&state.wiki_id, tree)?;
     let decomposition_review = assess_decomposition_reviews(tree, require_decomposition_review);
     let decomposition_review_errors = decomposition_review["errors"]
         .as_array()
@@ -288,27 +293,20 @@ pub fn save_module_tree_with_review(
 
     let nodes: BTreeMap<String, Node> =
         session::read_json(&session::session_value_path(state, "components.json"))?;
-    let mut assigned = BTreeSet::new();
-    let mut order = Vec::new();
-    let mut module_count = 0usize;
-    let mut leaf_count = 0usize;
+    let mut processing = ProcessingSummary::default();
     for (name, module) in tree {
-        collect_processing(
-            name,
-            module,
-            &[],
-            &mut order,
-            &mut assigned,
-            &mut module_count,
-            &mut leaf_count,
-        )?;
+        collect_processing(&state.wiki_id, name, module, &[], &mut processing)?;
     }
     let known_ids = nodes.keys().cloned().collect::<BTreeSet<_>>();
     let candidate_ids =
         session::read_json::<Vec<String>>(&session::session_value_path(state, "leaf_nodes.json"))?
             .into_iter()
             .collect::<BTreeSet<_>>();
-    let unmatched = assigned.difference(&known_ids).cloned().collect::<Vec<_>>();
+    let unmatched = processing
+        .assigned
+        .difference(&known_ids)
+        .cloned()
+        .collect::<Vec<_>>();
     let architecture_ids = collect_tree_ids(tree);
     let omitted_candidates = candidate_ids
         .difference(&architecture_ids)
@@ -333,8 +331,8 @@ pub fn save_module_tree_with_review(
         "unmatched_count": unmatched.len(),
         "omitted_analysis_candidate_ids": omitted_candidates,
         "architecture_anchor_count": architecture_ids.len(),
-        "module_count": module_count,
-        "leaf_count": leaf_count,
+        "module_count": processing.module_count,
+        "leaf_count": processing.leaf_count,
         "max_depth": quality["max_depth"],
         "quality_valid": quality_valid,
         "quality_errors": quality_errors,
@@ -349,15 +347,15 @@ pub fn save_module_tree_with_review(
     let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
     let order_path = root.join("processing_order.json");
     let validation_path = root.join("module_tree_validation.json");
-    session::write_json(&order_path, &order)?;
+    session::write_json(&order_path, &processing.order)?;
     session::write_json(&validation_path, &validation)?;
     Ok(TreeSaveResult {
         path: tree_path.to_string_lossy().into_owned(),
         first_path: first_path.map(|path| path.to_string_lossy().into_owned()),
         processing_order_path: order_path.to_string_lossy().into_owned(),
         validation_path: validation_path.to_string_lossy().into_owned(),
-        module_count,
-        leaf_count,
+        module_count: processing.module_count,
+        leaf_count: processing.leaf_count,
         max_depth: quality["max_depth"].as_u64().unwrap_or_default() as usize,
         quality_valid,
         quality_errors,
@@ -631,12 +629,14 @@ pub fn apply_super_group_response(tree: &mut ModuleTree, response: &str) -> Resu
 /// are intentionally removed; overview agents should read child pages rather
 /// than inline every leaf's source.
 pub fn overview_context(
+    wiki_id: &str,
     tree: &ModuleTree,
     target_path: &[String],
     output_dir: &Path,
 ) -> Result<Value> {
-    validate_module_page_paths(tree)?;
+    validate_module_page_paths(wiki_id, tree)?;
     fn visit(
+        wiki_id: &str,
         modules: &ModuleTree,
         target_path: &[String],
         prefix: &[String],
@@ -645,7 +645,9 @@ pub fn overview_context(
         let mut result = serde_json::Map::new();
         let target_is_here = prefix == target_path;
         for (name, module) in modules {
-            let doc_path = module_page_filename(name)?;
+            let mut current = prefix.to_vec();
+            current.push(name.clone());
+            let doc_path = module_page_id(wiki_id, &current)?;
             let mut object = serde_json::Map::new();
             object.insert(
                 "path".to_string(),
@@ -655,15 +657,13 @@ pub fn overview_context(
                     .map(Value::String)
                     .unwrap_or(Value::Null),
             );
-            let mut current = prefix.to_vec();
-            current.push(name.clone());
             let is_target = current == target_path;
             object.insert("doc_path".to_string(), Value::String(doc_path.clone()));
             object.insert(
                 "is_target_for_overview_generation".to_string(),
                 json!(is_target),
             );
-            let children = visit(&module.children, target_path, &current, output_dir)?;
+            let children = visit(wiki_id, &module.children, target_path, &current, output_dir)?;
             if let Some(children_object) = children.as_object() {
                 object.insert(
                     "children".to_string(),
@@ -671,7 +671,7 @@ pub fn overview_context(
                 );
             }
             if target_is_here {
-                let docs_path = output_dir.join(&doc_path);
+                let docs_path = page_file_path(output_dir, wiki_id, &doc_path)?;
                 object.insert(
                     "docs_path".to_string(),
                     if docs_path.is_file() {
@@ -686,7 +686,7 @@ pub fn overview_context(
         Ok(Value::Object(result))
     }
 
-    visit(tree, target_path, &[], output_dir)
+    visit(wiki_id, tree, target_path, &[], output_dir)
 }
 
 /// Build the overview context used by architecture prompts.  The structural
@@ -700,7 +700,7 @@ pub fn overview_context_for_session(
     target_path: &[String],
     output_dir: &Path,
 ) -> Result<Value> {
-    let structure = overview_context(tree, target_path, output_dir)?;
+    let structure = overview_context(&state.wiki_id, tree, target_path, output_dir)?;
     let nodes: BTreeMap<String, Node> =
         session::read_json(&session::session_value_path(state, "components.json"))?;
     Ok(json!({
@@ -1224,7 +1224,17 @@ fn assess_decomposition_reviews(tree: &ModuleTree, required: bool) -> Value {
 }
 
 pub fn read_processing_order(state: &SessionState) -> Result<Vec<ProcessingItem>> {
-    session::read_json(&session::session_value_path(state, "processing_order.json"))
+    let order: Vec<ProcessingItem> =
+        session::read_json(&session::session_value_path(state, "processing_order.json"))?;
+    for item in &order {
+        if item.doc_path != module_page_id(&state.wiki_id, &item.path)? {
+            return Err(anyhow!(
+                "processing order page ID does not match session namespace and module path: {}",
+                item.doc_path
+            ));
+        }
+    }
+    Ok(order)
 }
 
 pub fn finalize_metadata(state: &SessionState, model: &str) -> Result<Metadata> {
@@ -1234,27 +1244,32 @@ pub fn finalize_metadata(state: &SessionState, model: &str) -> Result<Metadata> 
     } else {
         ModuleTree::new()
     };
-    validate_module_page_paths(&tree)?;
+    validate_module_page_paths(&state.wiki_id, &tree)?;
     let mut files_generated = Vec::new();
-    for required in ["overview.md", "module_tree.json", "first_module_tree.json"] {
+    for required in ["module_tree.json", "first_module_tree.json"] {
         if output.join(required).exists() {
             files_generated.push(required.to_string());
         }
     }
-    let mut max_depth = 0usize;
-    let mut count = 0usize;
-    let mut module_leaf_count = 0usize;
-    collect_metadata(
-        &tree,
-        &output,
-        1,
-        &mut count,
-        &mut max_depth,
-        &mut module_leaf_count,
-        &mut files_generated,
-    )?;
+    let overview_id = overview_page_id(&state.wiki_id)?;
+    let overview_path = page_file_path(&output, &state.wiki_id, &overview_id)?;
+    if overview_path.is_file() {
+        files_generated.push(output_relative_path(&output, &overview_path)?);
+    }
+    let mut summary = MetadataSummary {
+        files: files_generated,
+        ..MetadataSummary::default()
+    };
+    collect_metadata(&state.wiki_id, &tree, &output, &[], 1, &mut summary)?;
+    let MetadataSummary {
+        count,
+        max_depth,
+        leaf_count: module_leaf_count,
+        files: files_generated,
+    } = summary;
     let architecture_anchors = collect_tree_ids(&tree).len();
     let metadata = Metadata {
+        wiki_id: state.wiki_id.clone(),
         generation_info: crate::model::GenerationInfo {
             timestamp: Utc::now().to_rfc3339(),
             main_model: model.to_string(),
@@ -1288,38 +1303,36 @@ pub fn finalize_metadata(state: &SessionState, model: &str) -> Result<Metadata> 
     Ok(metadata)
 }
 
+#[derive(Default)]
+struct ProcessingSummary {
+    order: Vec<ProcessingItem>,
+    assigned: BTreeSet<String>,
+    module_count: usize,
+    leaf_count: usize,
+}
+
 fn collect_processing(
+    wiki_id: &str,
     name: &str,
     module: &Module,
     parent_path: &[String],
-    order: &mut Vec<ProcessingItem>,
-    assigned: &mut BTreeSet<String>,
-    module_count: &mut usize,
-    leaf_count: &mut usize,
+    summary: &mut ProcessingSummary,
 ) -> Result<()> {
     let mut current_path = parent_path.to_vec();
     current_path.push(name.to_string());
     let mut child_names = Vec::new();
     for (child_name, child) in &module.children {
         child_names.push(child_name.clone());
-        collect_processing(
-            child_name,
-            child,
-            &current_path,
-            order,
-            assigned,
-            module_count,
-            leaf_count,
-        )?;
+        collect_processing(wiki_id, child_name, child, &current_path, summary)?;
     }
-    assigned.extend(module.components.iter().cloned());
+    summary.assigned.extend(module.components.iter().cloned());
     let is_leaf = module.children.is_empty();
     if is_leaf {
-        *leaf_count += 1;
+        summary.leaf_count += 1;
     }
-    *module_count += 1;
-    let doc_path = module_page_filename(name)?;
-    order.push(ProcessingItem {
+    summary.module_count += 1;
+    let doc_path = module_page_id(wiki_id, &current_path)?;
+    summary.order.push(ProcessingItem {
         module: name.to_string(),
         doc_path,
         path: current_path,
@@ -1519,73 +1532,103 @@ fn nonzero_or(value: usize, fallback: usize) -> usize {
     }
 }
 
+#[derive(Default)]
+struct MetadataSummary {
+    count: usize,
+    max_depth: usize,
+    leaf_count: usize,
+    files: Vec<String>,
+}
+
 fn collect_metadata(
+    wiki_id: &str,
     tree: &ModuleTree,
     output: &Path,
+    parent_path: &[String],
     depth: usize,
-    count: &mut usize,
-    max_depth: &mut usize,
-    leaf_count: &mut usize,
-    files: &mut Vec<String>,
+    summary: &mut MetadataSummary,
 ) -> Result<()> {
     for (name, module) in tree {
-        *count += 1;
-        *max_depth = (*max_depth).max(depth);
+        summary.count += 1;
+        summary.max_depth = summary.max_depth.max(depth);
         if module.children.is_empty() {
-            *leaf_count += 1;
+            summary.leaf_count += 1;
         }
-        let file = module_page_filename(name)?;
-        if output.join(&file).exists() && !files.iter().any(|item| item == &file) {
-            files.push(file);
+        let mut path = parent_path.to_vec();
+        path.push(name.clone());
+        let page_id = module_page_id(wiki_id, &path)?;
+        let file = page_file_path(output, wiki_id, &page_id)?;
+        let relative_file = output_relative_path(output, &file)?;
+        if file.is_file() && !summary.files.iter().any(|item| item == &relative_file) {
+            summary.files.push(relative_file);
         }
-        collect_metadata(
-            &module.children,
-            output,
-            depth + 1,
-            count,
-            max_depth,
-            leaf_count,
-            files,
-        )?;
+        collect_metadata(wiki_id, &module.children, output, &path, depth + 1, summary)?;
     }
     Ok(())
 }
 
-pub fn collect_expected_pages(tree: &ModuleTree, expected: &mut BTreeSet<String>) -> Result<()> {
-    for (name, module) in tree {
-        expected.insert(module_page_filename(name)?);
-        collect_expected_pages(&module.children, expected)?;
+pub fn collect_expected_pages(
+    wiki_id: &str,
+    tree: &ModuleTree,
+    expected: &mut BTreeSet<String>,
+) -> Result<()> {
+    fn visit(
+        wiki_id: &str,
+        tree: &ModuleTree,
+        parent_path: &[String],
+        expected: &mut BTreeSet<String>,
+    ) -> Result<()> {
+        for (name, module) in tree {
+            let mut path = parent_path.to_vec();
+            path.push(name.clone());
+            expected.insert(module_page_id(wiki_id, &path)?);
+            visit(wiki_id, &module.children, &path, expected)?;
+        }
+        Ok(())
     }
-    Ok(())
+
+    visit(wiki_id, tree, &[], expected)
 }
 
 fn document_path(state: &SessionState, requested: &str) -> Result<PathBuf> {
-    let path = Path::new(requested);
-    if requested.is_empty()
-        || requested.contains('/')
-        || requested.contains('\\')
-        || path.is_absolute()
-        || path.components().count() != 1
-        || path.extension().and_then(|value| value.to_str()) != Some("md")
-    {
-        return Err(anyhow!(
-            "document path must be a flat Markdown filename: {requested}"
-        ));
-    }
     let output = session::output_dir(state);
-    let candidate = output.join(path);
-    let canonical_parent = output.canonicalize()?;
-    let parent = candidate.parent().unwrap_or(&candidate);
-    if parent.exists() {
-        let canonical = parent.canonicalize()?;
-        if !canonical.starts_with(&canonical_parent) {
-            return Err(anyhow!("document path escapes output directory"));
+    let candidate = page_file_path(&output, &state.wiki_id, requested)?;
+    let canonical_root = output.canonicalize()?;
+    let mut parent = candidate.parent().unwrap_or(&candidate);
+    while !parent.exists() {
+        parent = parent
+            .parent()
+            .ok_or_else(|| anyhow!("document path has no existing parent"))?;
+    }
+    if !parent.canonicalize()?.starts_with(&canonical_root) {
+        return Err(anyhow!("document path escapes output directory"));
+    }
+    match fs::symlink_metadata(&candidate) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+            return Err(anyhow!(
+                "document path is not a regular page file: {}",
+                candidate.display()
+            ));
         }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
     }
     Ok(candidate)
 }
 
-fn canonical_module_stem(name: &str) -> Result<String> {
+fn is_canonical_dokuwiki_segment(segment: &str) -> bool {
+    let bytes = segment.as_bytes();
+    !bytes.is_empty()
+        && !matches!(bytes[0], b'_' | b'-')
+        && !matches!(bytes[bytes.len() - 1], b'_' | b'-')
+        && !segment.contains("__")
+        && bytes.iter().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'_' || *byte == b'-'
+        })
+}
+
+fn canonical_module_segment(name: &str) -> Result<String> {
     if name.is_empty()
         || !name
             .chars()
@@ -1595,44 +1638,89 @@ fn canonical_module_stem(name: &str) -> Result<String> {
             "invalid module name '{name}': use a non-empty ASCII name containing only letters, digits, '_' or '-'"
         ));
     }
-    if RESERVED_STEMS.contains(&name) {
-        Ok(format!("{name}_module"))
-    } else {
-        Ok(name.to_string())
+    let segment = name.to_ascii_lowercase();
+    if !is_canonical_dokuwiki_segment(&segment) {
+        return Err(anyhow!(
+            "invalid module name '{name}': DokuWiki canonical IDs cannot start or end with '_' or '-' or contain '__'"
+        ));
     }
+    Ok(segment)
 }
 
-/// Return the canonical Markdown filename used for a module everywhere in the
-/// generation and update workflows.
-pub fn module_page_filename(name: &str) -> Result<String> {
-    Ok(format!("{}.md", canonical_module_stem(name)?))
+fn validate_wiki_id(wiki_id: &str) -> Result<()> {
+    if wiki_id.is_empty() || !wiki_id.split(':').all(is_canonical_dokuwiki_segment) {
+        return Err(anyhow!("invalid DokuWiki namespace ID '{wiki_id}'"));
+    }
+    Ok(())
 }
 
-/// Validate the module-to-page mapping before any page or tree artifacts are
-/// written.  The mapping is flat, so names must be unique across the entire
-/// tree, not merely among siblings.
-pub fn validate_module_page_paths(tree: &ModuleTree) -> Result<()> {
+pub fn module_page_id(wiki_id: &str, path: &[String]) -> Result<String> {
+    validate_wiki_id(wiki_id)?;
+    if path.is_empty() {
+        return Err(anyhow!("module path cannot be empty"));
+    }
+    let segments = path
+        .iter()
+        .map(|name| canonical_module_segment(name))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(format!("{wiki_id}:{}:start", segments.join(":")))
+}
+
+pub fn overview_page_id(wiki_id: &str) -> Result<String> {
+    validate_wiki_id(wiki_id)?;
+    Ok(format!("{wiki_id}:start"))
+}
+
+pub fn page_file_path(output: &Path, wiki_id: &str, page_id: &str) -> Result<PathBuf> {
+    validate_wiki_id(wiki_id)?;
+    let wiki_prefix = format!("{wiki_id}:");
+    let page_suffix = page_id
+        .strip_prefix(&wiki_prefix)
+        .ok_or_else(|| anyhow!("page ID '{page_id}' is outside wiki namespace '{wiki_id}'"))?;
+    let mut path = output.join("dokuwiki").join("data").join("pages");
+    for segment in wiki_id.split(':').chain(page_suffix.split(':')) {
+        if !is_canonical_dokuwiki_segment(segment) {
+            return Err(anyhow!("invalid DokuWiki page ID '{page_id}'"));
+        }
+        path.push(segment);
+    }
+    path.set_extension("txt");
+    Ok(path)
+}
+
+fn output_relative_path(output: &Path, path: &Path) -> Result<String> {
+    Ok(path
+        .strip_prefix(output)
+        .map_err(|_| anyhow!("generated page path is outside output directory"))?
+        .to_string_lossy()
+        .replace('\\', "/"))
+}
+
+/// Validate canonical module page IDs before any tree or page artifacts are written.
+pub fn validate_module_page_paths(wiki_id: &str, tree: &ModuleTree) -> Result<()> {
     fn visit(
+        wiki_id: &str,
         modules: &ModuleTree,
         parent_path: &[String],
         seen: &mut BTreeMap<String, String>,
     ) -> Result<()> {
         for (name, module) in modules {
-            let page = module_page_filename(name)?;
             let mut path = parent_path.to_vec();
             path.push(name.clone());
+            let page_id = module_page_id(wiki_id, &path)?;
             let logical_path = path.join("/");
-            if let Some(previous) = seen.insert(page.clone(), logical_path.clone()) {
+            if let Some(previous) = seen.insert(page_id.clone(), logical_path.clone()) {
                 return Err(anyhow!(
-                    "module page filename collision for '{page}': '{previous}' and '{logical_path}'"
+                    "module page ID collision for '{page_id}': '{previous}' and '{logical_path}'"
                 ));
             }
-            visit(&module.children, &path, seen)?;
+            visit(wiki_id, &module.children, &path, seen)?;
         }
         Ok(())
     }
 
-    visit(tree, &[], &mut BTreeMap::new())
+    validate_wiki_id(wiki_id)?;
+    visit(wiki_id, tree, &[], &mut BTreeMap::new())
 }
 
 fn history_key(path: &Path, timestamp: &str) -> String {
@@ -1730,31 +1818,45 @@ fn write_history_snapshot(history: &Path, path: &Path, content: &str, index: usi
 
 #[cfg(test)]
 mod tests {
-    use super::quality::{
-        assess_page, markdown_prose_word_count, validate_mermaid_with_context,
-        PageAssessmentContext,
-    };
+    use super::quality::{assess_page, PageAssessmentContext};
     use super::*;
 
-    #[test]
-    fn mermaid_report_is_best_effort() {
-        let report = validate_mermaid("```mermaid\ngraph TD\nA-->B\n```\n");
-        assert_eq!(report.blocks, 1);
-        assert!(report.balanced);
+    fn overview_with_diagram(graph: &str) -> String {
+        let prose =
+            "The repository maps application requests through parsing, execution, and storage boundaries. "
+                .repeat(50);
+        format!(
+            "====== Repository Overview ======\n\n===== Purpose ======\n\n{prose}\n\n===== Architecture ======\n\n<mermaid>\n{graph}\n</mermaid>\n\n===== Responsibilities ======\n\n{prose}\n"
+        )
+    }
+
+    fn assess_overview_diagram(content: &str, diagram_labels: &[String]) -> Value {
+        assess_page(
+            "Repository",
+            &Module::default(),
+            content,
+            &BTreeMap::new(),
+            PageAssessmentContext {
+                is_leaf: false,
+                is_overview: true,
+                required_links: &[],
+                actual_links: &[],
+                grounded_labels: &[],
+                diagram_labels,
+            },
+        )
     }
 
     #[test]
-    fn architecture_overview_accepts_grounded_end_to_end_flow() {
-        let content = r#"```mermaid
-graph TD
+    fn native_mermaid_report_accepts_grounded_end_to_end_flow() {
+        let graph = r#"graph TD
     Client[SQL Client] --> Parsers
     Parsers --> AST[Abstract Syntax Tree]
     AST --> Analyzer
     Analyzer --> Planning[Query Planning]
     Planning --> Pipeline[Query Pipeline]
     Pipeline --> Storage[Storage Engine]
-    Storage --> Disk[Local or Remote Storage]
-```"#;
+    Storage --> Disk[Local or Remote Storage]"#;
         let grounded = vec![
             "Parsers".to_string(),
             "Query Planning".to_string(),
@@ -1762,18 +1864,20 @@ graph TD
             "Storage Engine".to_string(),
             "Local or Remote Storage".to_string(),
         ];
-        let report = validate_mermaid_with_context(content, &grounded, true, true);
-        assert_eq!(report.architecture_quality, "pass");
-        assert!(report.node_count >= 7);
-        assert!(report.edge_count >= 6);
-        assert!(report.has_primary_path);
-        assert!(report.grounded_node_count >= 4);
+        let content = overview_with_diagram(graph);
+        let report = assess_overview_diagram(&content, &grounded);
+        let diagram = &report["architecture_diagram"];
+        assert_eq!(diagram["architecture_quality"], json!("pass"));
+        assert_eq!(diagram["blocks"], json!(1));
+        assert!(diagram["node_count"].as_u64().unwrap_or_default() >= 7);
+        assert!(diagram["edge_count"].as_u64().unwrap_or_default() >= 6);
+        assert_eq!(diagram["has_primary_path"], json!(true));
+        assert!(diagram["grounded_node_count"].as_u64().unwrap_or_default() >= 4);
     }
 
     #[test]
-    fn architecture_overview_rejects_generic_runtime_plus_build_graph() {
-        let content = r#"```mermaid
-flowchart LR
+    fn native_mermaid_report_rejects_generic_runtime_plus_build_graph() {
+        let graph = r#"flowchart LR
     Client[CLI, TUI, app-server, SDK clients] --> Entry[Distribution CLI and Rust entry points]
     Entry --> Protocol[App Server and Public Protocol]
     Protocol --> Core[Agent Core and Context]
@@ -1781,8 +1885,7 @@ flowchart LR
     Core --> State[State, History and Files]
     Exec --> Verify[Build and Test Infrastructure]
     State --> Result[Streamed or persisted result]
-    Verify --> Release[Release and Smoke Tooling]
-```"#;
+    Verify --> Release[Release and Smoke Tooling]"#;
         let grounded = vec![
             "Distribution CLI".to_string(),
             "App Server and Public Protocol".to_string(),
@@ -1790,56 +1893,69 @@ flowchart LR
             "Execution and Sandboxing".to_string(),
             "State, History and Files".to_string(),
         ];
-        let report = validate_mermaid_with_context(content, &grounded, true, true);
-        assert_eq!(report.architecture_quality, "fail");
-        assert!(report
-            .quality_issues
+        let content = overview_with_diagram(graph);
+        let report = assess_overview_diagram(&content, &grounded);
+        let diagram = &report["architecture_diagram"];
+        assert_eq!(diagram["architecture_quality"], json!("fail"));
+        assert!(diagram["quality_issues"]
+            .as_array()
+            .unwrap()
             .iter()
-            .any(|issue| issue.contains("build, test, release")));
+            .any(|issue| issue
+                .as_str()
+                .unwrap_or_default()
+                .contains("build, test, release")));
     }
 
     #[test]
-    fn reserved_module_names_are_safe() {
+    fn module_page_ids_preserve_hierarchy_and_normalize_case() {
         assert_eq!(
-            canonical_module_stem("overview").unwrap(),
-            "overview_module"
+            module_page_id("repo", &["System".to_string(), "API".to_string()]).unwrap(),
+            "repo:system:api:start"
         );
-        assert!(canonical_module_stem("Core Services").is_err());
-        assert_eq!(
-            module_page_filename("overview").unwrap(),
-            "overview_module.md"
-        );
-    }
+        assert_eq!(overview_page_id("repo").unwrap(), "repo:start");
+        assert!(module_page_id("repo", &["Core Services".to_string()]).is_err());
 
-    #[test]
-    fn canonical_page_validation_rejects_collisions_and_non_ascii_keys() {
-        assert!(module_page_filename("中文模块").is_err());
+        let mut api_children = ModuleTree::new();
+        api_children.insert("API".to_string(), Module::default());
+        let mut client_children = ModuleTree::new();
+        client_children.insert("API".to_string(), Module::default());
         let mut tree = ModuleTree::new();
-        tree.insert("overview".to_string(), Module::default());
-        tree.insert("overview_module".to_string(), Module::default());
-        let error = validate_module_page_paths(&tree).expect_err("page collision must fail");
-        assert!(error.to_string().contains("collision"));
+        tree.insert(
+            "System".to_string(),
+            Module {
+                children: api_children,
+                ..Module::default()
+            },
+        );
+        tree.insert(
+            "Client".to_string(),
+            Module {
+                children: client_children,
+                ..Module::default()
+            },
+        );
+        validate_module_page_paths("repo", &tree)
+            .expect("same leaf name is valid under distinct parent namespaces");
     }
 
     #[test]
-    fn prose_counter_counts_natural_cjk_and_ignores_code_and_links() {
-        let content = "# 标题\n\n本模块负责读取配置并把请求交给运行时执行。\n\n`inline_code` [实现](Runtime.md)\n\n```rust\nlet ignored = true;\n```\n";
-        let count = markdown_prose_word_count(content);
-        assert!(
-            count >= 20,
-            "natural CJK prose should count by characters: {count}"
-        );
-        assert!(
-            count < 40,
-            "links and code should not inflate prose: {count}"
-        );
+    fn canonical_page_validation_rejects_case_normalization_collisions() {
+        let mut tree = ModuleTree::new();
+        tree.insert("Runtime".to_string(), Module::default());
+        tree.insert("runtime".to_string(), Module::default());
+        let error =
+            validate_module_page_paths("repo", &tree).expect_err("canonical ID collision fails");
+        assert!(error.to_string().contains("collision"));
+        assert!(module_page_id("repo", &["中文模块".to_string()]).is_err());
     }
 
     #[test]
     fn page_assessment_uses_language_aware_content_floors() {
         let repeated_cjk = "该模块负责说明职责边界、接口关系和请求执行流程。".repeat(45);
+        let required_links = vec!["repo:runtime:start".to_string()];
         let cjk_content = format!(
-            "# 运行时\n\n## 目的与职责\n\n{repeated_cjk}\n\n## 架构流程\n\n{repeated_cjk}\n"
+            "====== 运行时 ======\n\n===== 目的与职责 =====\n\n{repeated_cjk}\n\n===== 架构流程 =====\n\n{repeated_cjk}\n\n[[repo:runtime:start|运行时]] 和 <code>inline_code</code>\n"
         );
         let cjk = assess_page(
             "Runtime",
@@ -1849,7 +1965,8 @@ flowchart LR
             PageAssessmentContext {
                 is_leaf: true,
                 is_overview: false,
-                required_links: &[],
+                required_links: &required_links,
+                actual_links: &required_links,
                 grounded_labels: &[],
                 diagram_labels: &[],
             },
@@ -1857,12 +1974,13 @@ flowchart LR
         assert_eq!(cjk["prose_count_mode"], json!("cjk_characters"));
         assert_eq!(cjk["prose_floor"], json!(500));
         assert_eq!(cjk["valid"], json!(true), "{cjk}");
+        assert_eq!(cjk["missing_links"], json!([]));
 
         let repeated_english =
             "The runtime owns request parsing, dispatch, state transitions, and result delivery. "
                 .repeat(24);
         let english_content = format!(
-            "# Runtime\n\n## Purpose\n\n{repeated_english}\n\n## Architecture\n\n{repeated_english}\n"
+            "====== Runtime ======\n\n===== Purpose =====\n\n{repeated_english}\n\n===== Architecture =====\n\n{repeated_english}\n"
         );
         let english = assess_page(
             "Runtime",
@@ -1873,6 +1991,7 @@ flowchart LR
                 is_leaf: true,
                 is_overview: false,
                 required_links: &[],
+                actual_links: &[],
                 grounded_labels: &[],
                 diagram_labels: &[],
             },
@@ -1917,7 +2036,7 @@ flowchart LR
             "The runtime owns request parsing, dispatch, state transitions, and result delivery. "
                 .repeat(24);
         let content = format!(
-            "# Runtime\n\n## Purpose\n\n{prose}\n\n## Architecture\n\n{prose}\n\nRuntime in `src/runtime.rs`.\n"
+            "====== Runtime ======\n\n===== Purpose ======\n\n{prose}\n\n===== Architecture ======\n\n{prose}\n\nRuntime in ''src/runtime.rs''.\n"
         );
         let report = assess_page(
             "Runtime",
@@ -1928,6 +2047,7 @@ flowchart LR
                 is_leaf: true,
                 is_overview: false,
                 required_links: &[],
+                actual_links: &[],
                 grounded_labels: &["Runtime".to_string()],
                 diagram_labels: &["Runtime".to_string()],
             },

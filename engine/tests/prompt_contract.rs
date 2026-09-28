@@ -19,12 +19,15 @@ fn renderable_vars(kind: PromptType) -> BTreeMap<String, Value> {
         PromptType::SuperGroup => string_vars(&[("formatted_modules", "API\nRuntime")]),
         PromptType::FilterFolders => string_vars(&[("project_name", "fixture"), ("files", "src")]),
         PromptType::SystemComplex | PromptType::SystemLeaf => {
-            string_vars(&[("module_name", "Runtime"), ("doc_path", "Runtime.md")])
+            string_vars(&[("module_name", "Runtime"), ("doc_path", "repo:runtime:start")])
         }
         PromptType::User => string_vars(&[
             ("module_name", "Runtime"),
             ("module_tree", "Runtime\n  API"),
-            ("formatted_core_component_codes", "# File: src/lib.rs\n"),
+            (
+                "formatted_core_component_codes",
+                "===== File: src/lib.rs =====\n\n==== Core Components in this file ====\n  - src/lib.rs::run\n\n==== File Content ====\n<code rust>\nfn run() {}\n</code>\n",
+            ),
         ]),
         PromptType::OverviewModule => {
             string_vars(&[("module_name", "Runtime"), ("repo_structure", "Runtime")])
@@ -37,15 +40,18 @@ fn renderable_vars(kind: PromptType) -> BTreeMap<String, Value> {
             ("leaf_name", "Runtime"),
             ("mode", "edit"),
             ("mode_note", "patch"),
-            ("write_set", "Runtime.md"),
+            ("write_set", "repo:runtime:start"),
             ("report", "changed"),
             ("module_tree", "Runtime"),
             ("leaf_components", "src/lib.rs::run"),
-            ("leaf_page", "# Runtime"),
+            ("leaf_page", "====== Runtime ======"),
         ]),
         PromptType::RoutingSystem | PromptType::StaleFixSystem => BTreeMap::new(),
         PromptType::RoutingUser => string_vars(&[("module_tree", "Runtime"), ("orphans", "[]")]),
-        PromptType::StaleFixUser => string_vars(&[("page", "Runtime.md"), ("items", "none")]),
+        PromptType::StaleFixUser => string_vars(&[
+            ("page", "repo:runtime:start"),
+            ("items", "none"),
+        ]),
     }
 }
 
@@ -263,18 +269,23 @@ fn component_listing_and_source_are_grouped_by_file_and_preserve_ids() {
         ),
     ]);
     let listing = prompts::format_component_listing(&ids, &nodes);
-    assert!(listing.contains("# src/api.rs"));
-    assert!(listing.contains("# Makefile (artifact: build)"));
+    assert!(listing.contains("===== File: src/api.rs ====="));
+    assert!(listing.contains("===== File: Makefile (artifact: build) ====="));
     for id in &ids {
-        assert!(listing.contains(id), "listing lost {id}");
+        assert!(
+            listing.contains(&format!("  - {id}")),
+            "listing lost formatted ID {id}"
+        );
     }
 
     let source = prompts::format_component_codes(&ids, &nodes);
-    assert!(source.contains("# File: src/api.rs"));
-    assert!(source.contains("```rust"));
-    assert!(source.contains("struct Api;"));
-    assert!(source.contains("# File: Makefile"));
-    assert!(source.contains("```makefile"));
+    assert!(source.contains("===== File: src/api.rs ====="));
+    assert!(source.contains("==== Core Components in this file ===="));
+    assert!(source.contains("==== File Content ===="));
+    assert!(source.contains("<code rust>"));
+    assert!(source.contains("</code>"));
+    assert!(source.contains("===== File: Makefile ====="));
+    assert!(source.contains("<code makefile>"));
     assert!(source.contains("cargo build"));
     for id in &ids {
         assert!(source.contains(id), "source prompt lost {id}");
@@ -389,7 +400,10 @@ fn component_ids_fill_null_alternates_for_direct_render() {
     cluster.insert("potential_core_components".to_string(), Value::Null);
     cluster.insert("component_ids".to_string(), json!(["src/lib.rs::run"]));
     let cluster = prompts::render(PromptType::Cluster, &cluster).expect("cluster prompt");
-    assert!(cluster.contains("# src/lib.rs"), "{cluster}");
+    assert!(
+        cluster.contains("===== File: src/lib.rs ====="),
+        "{cluster}"
+    );
     assert!(cluster.contains("src/lib.rs::run"), "{cluster}");
     assert!(!cluster.contains("fn run()"), "{cluster}");
 

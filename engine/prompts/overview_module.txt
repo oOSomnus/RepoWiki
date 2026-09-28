@@ -30,10 +30,12 @@ child names.
 Include a Mermaid diagram when the module has a meaningful architecture to
 show. The diagram should connect real child modules, interfaces, state, or
 external dependencies. It must be grounded in the architecture context and
-must not be a generic Caller -> Entry -> Core -> Result chain.
+must not be a generic Caller -> Entry -> Core -> Result chain. Wrap it in
+native DokuWiki `<mermaid>...</mermaid>` tags.
 
-Link to every documented immediate child page, but explain the relationships
-between those pages in prose. Return Markdown only inside:
+Link to every documented immediate child page with its complete canonical
+DokuWiki page ID and `[[page:id|label]]` syntax, then explain the relationships
+between those pages in prose. Return DokuWiki page source only inside:
 <OVERVIEW>
 overview_content
 </OVERVIEW>

@@ -18,6 +18,44 @@ pub const SESSION_TTL_SECONDS: i64 = 2 * 60 * 60;
 pub const MAX_SESSIONS: usize = 10;
 pub const SESSION_LOCK_TIMEOUT_SECONDS: u64 = 120;
 const SESSION_LOCK_RETRY_MILLIS: u64 = 50;
+pub const REPOSITORY_WIKI_ID: &str = "repo";
+
+pub fn change_wiki_id(change_id: &str) -> Result<String> {
+    let Some((base, head)) = change_id.split_once("..") else {
+        return Err(anyhow!("invalid change ID: {change_id}"));
+    };
+    if !matches!(base.len(), 40 | 64)
+        || base.len() != head.len()
+        || !base.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || !head.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(anyhow!("invalid full-SHA change ID: {change_id}"));
+    }
+    let canonical_change_id = change_id.to_ascii_lowercase();
+    let digest = Sha256::digest(canonical_change_id.as_bytes());
+    Ok(format!("change_{digest:x}"))
+}
+
+fn edition_wiki_id(output_dir: &Path) -> Result<String> {
+    let Some(changes) = output_dir.parent() else {
+        return Ok(REPOSITORY_WIKI_ID.to_string());
+    };
+    let is_change_output = changes.file_name().and_then(|name| name.to_str()) == Some("changes")
+        && changes
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            == Some(".repowiki");
+    if is_change_output {
+        let change_id = output_dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| anyhow!("change edition path has no UTF-8 change ID"))?;
+        change_wiki_id(change_id)
+    } else {
+        Ok(REPOSITORY_WIKI_ID.to_string())
+    }
+}
 
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -74,6 +112,7 @@ pub struct SessionState {
     pub session_id: String,
     pub repo_path: String,
     pub output_dir: String,
+    pub wiki_id: String,
     pub analyzed_commit: Option<String>,
     pub created_at: String,
     pub last_accessed: String,
@@ -122,9 +161,12 @@ pub fn create(repo_path: &Path, output_dir: &Path) -> Result<SessionState> {
         repo_path.join(output_dir)
     };
     fs::create_dir_all(&output_dir)?;
+    let output_dir = output_dir
+        .canonicalize()
+        .with_context(|| format!("canonicalize output directory: {}", output_dir.display()))?;
+    let wiki_id = edition_wiki_id(&output_dir)?;
     let root = sessions_root(&repo_path);
     fs::create_dir_all(&root)?;
-    prune(&repo_path)?;
 
     let mut session_id = Uuid::new_v4().simple().to_string()[..12].to_string();
     while session_root(&repo_path, &session_id).exists() {
@@ -140,6 +182,7 @@ pub fn create(repo_path: &Path, output_dir: &Path) -> Result<SessionState> {
         session_id,
         repo_path: repo_path.to_string_lossy().into_owned(),
         output_dir: output_dir.to_string_lossy().into_owned(),
+        wiki_id,
         analyzed_commit: None,
         created_at: now.clone(),
         last_accessed: now,
@@ -405,4 +448,38 @@ pub fn module_tree_path(state: &SessionState) -> PathBuf {
 
 pub fn read_module_tree(state: &SessionState) -> Result<ModuleTree> {
     read_json(&module_tree_path(state))
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn change_namespace_hashes_the_complete_canonical_range() {
+        let id =
+            "0000000000000000000000000000000000000000..1111111111111111111111111111111111111111";
+        assert_eq!(
+            change_wiki_id(id).unwrap(),
+            "change_654789463c0d55ef744ab82809415fad2e9a1a3d07bfd270bacccf7eefb6d3cb"
+        );
+        assert_eq!(
+            change_wiki_id(&id.to_ascii_uppercase()).unwrap(),
+            change_wiki_id(id).unwrap()
+        );
+        assert!(change_wiki_id("base..head").is_err());
+    }
+
+    #[test]
+    fn change_output_paths_receive_a_change_namespace() {
+        let id =
+            "0000000000000000000000000000000000000000..1111111111111111111111111111111111111111";
+        let output = Path::new("/tmp/repo/.repowiki/changes").join(id);
+        assert_eq!(
+            edition_wiki_id(&output).unwrap(),
+            "change_654789463c0d55ef744ab82809415fad2e9a1a3d07bfd270bacccf7eefb6d3cb"
+        );
+        assert_eq!(
+            edition_wiki_id(Path::new("/tmp/repo/.repowiki")).unwrap(),
+            REPOSITORY_WIKI_ID
+        );
+    }
 }

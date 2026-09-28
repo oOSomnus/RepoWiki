@@ -24,9 +24,23 @@ an immutable change edition. Invoke `/change-wiki <base-ref>...<head-ref>` to
 write `.repowiki/changes/<merge-base-full-SHA>..<head-full-SHA>/`; this leaves
 the repository edition unchanged, and the standalone Reader can switch editions.
 
+RepoWiki and Change Wiki keep the existing Agent workflow and CLI actions, but
+generated page IDs and content use native DokuWiki namespaces and syntax, such
+as `repo:system:api:start`, `====== Heading ======`, and
+`[[repo:system:api:start|API]]`. Pages are native `.txt` files under
+`.repowiki/dokuwiki/data/pages/`; each change edition stores its pages
+independently. Existing Markdown bundles are not backward-compatible and must
+be regenerated with the updated Skill.
+
 ## Build and install
 
-Requirements: GNU Make, Rust/Cargo, Python 3, `zip`, and `unzip`.
+Build requirements: GNU Make, Rust/Cargo, Python 3, `zip`, and `unzip`.
+
+PHP 8.2+ with the `mbstring` and `xml` extensions enabled is required at
+runtime for wiki generation/validation and the Reader.
+The RepoWiki and Change Wiki packages bundle pinned DokuWiki
+(`release-2026-07-14c`, “Mort”) and Mermaid plugin (`v11.15b`) source; they do
+not download these components at runtime.
 
 ```bash
 # Build the platform-specific executable and preview package.
@@ -84,9 +98,12 @@ make reader
 .build/cargo-target/release/repowiki-reader /path/to/project/.repowiki
 ```
 
-The reader listens on loopback, opens the default browser, and does not modify
-the wiki. Use `--no-open` to print the URL without launching a browser or
-`--port <port>` to choose a port.
+The Reader interface remains
+`repowiki-reader <.repowiki> [--port ...] [--no-open]`. It requires system PHP
+8.2+ and uses the bundled DokuWiki engine and plugin source without runtime
+downloads. The Reader listens on loopback, opens the default browser, and does
+not modify the wiki. Use `--no-open` to print the URL without launching a browser
+or `--port <port>` to choose a port.
 
 ## Example
 

@@ -21,9 +21,19 @@ Skill 会分析当前工作目录，并将生成的 Wiki 写入 `.repowiki/`。�
 `.repowiki/changes/<merge-base-full-SHA>..<head-full-SHA>/`；仓库版本保持不变，
 可在独立 Reader 中切换版本查看。
 
+RepoWiki 和 Change Wiki 保留原有的 Agent 工作流与 CLI 操作，但生成的页面 ID
+和内容改用原生 DokuWiki 命名空间与语法，例如 `repo:system:api:start`、
+`====== Heading ======` 和 `[[repo:system:api:start|API]]`。页面以原生 `.txt`
+文件存放在 `.repowiki/dokuwiki/data/pages/` 下；每个变更版本独立存储页面。
+旧 Markdown bundle 不向后兼容，必须使用更新后的 Skill 重新生成。
+
 ## 构建与安装
 
-依赖：GNU Make、Rust/Cargo、Python 3，以及 `zip` 和 `unzip`。
+构建依赖：GNU Make、Rust/Cargo、Python 3，以及 `zip` 和 `unzip`。
+
+运行时生成/校验 Wiki 和运行 Reader 需要启用 `mbstring` 与 `xml` 扩展的 PHP
+8.2+。RepoWiki 与 Change Wiki 安装包内包含固定版本的 DokuWiki
+（`release-2026-07-14c`，“Mort”）及 Mermaid 插件（`v11.15b`）源代码；运行时不会下载这些组件。
 
 ```bash
 # 构建当前平台的可执行文件和 preview 包。
@@ -80,7 +90,9 @@ make reader
 .build/cargo-target/release/repowiki-reader /path/to/project/.repowiki
 ```
 
-Reader 只监听本机、自动打开默认浏览器，并不会修改 Wiki。使用
+Reader 接口仍为 `repowiki-reader <.repowiki> [--port ...] [--no-open]`。
+它需要系统 PHP 8.2+，并使用包内的 DokuWiki 引擎和插件源代码，不会在运行时
+下载依赖。Reader 只监听本机、自动打开默认浏览器，并不会修改 Wiki。使用
 `--no-open` 只打印 URL，或使用 `--port <端口>` 指定端口。
 
 ## 示例

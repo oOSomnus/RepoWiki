@@ -21,6 +21,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install PHP runtime
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: mbstring, xml
+          coverage: none
       - name: Run offline verification
         run: make test
       - name: Run install replacement smoke test

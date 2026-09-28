@@ -73,10 +73,20 @@ Use the update prompts only with the reports and write sets produced by the
 update workflow. Preserve component IDs and the required fenced JSON verdict
 markers in Agent responses.
 
-Module keys are page identifiers, not display titles. They must be non-empty
-ASCII names containing only letters, digits, `_`, or `-`. The exact canonical
-Markdown filename is supplied as `doc_path` for architecture page prompts; use
-that value verbatim when calling `doc write`.
+Tree keys are module namespace segments, not standalone page IDs or display
+titles. Every page ID includes the edition namespace, all ancestor segments,
+and final `:start`; for example, `System/API` in the repository edition is
+`repo:system:api:start`, while the overview is `repo:start`. The exact full
+canonical page ID is supplied as `doc_path` for architecture page prompts; use
+it verbatim with `doc write`. Its `.txt` source maps beneath
+`dokuwiki/data/pages/<edition-namespace>/.../start.txt`.
+
+Page bodies use native DokuWiki syntax. Repository-edition examples include
+`====== Heading ======`, `[[repo:system:api:start|API]]`, `<code rust>...</code>`,
+and `<mermaid>...</mermaid>`. Change Wiki page IDs use
+`change_<SHA256(complete base..head ID)>:` instead of `repo:`. Update prompts
+and verdict blocks use the same full canonical page IDs as the write set,
+without filename suffixes.
 
 ## Size and Unicode
 

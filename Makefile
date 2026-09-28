@@ -27,7 +27,8 @@ UNZIP ?= unzip
 SKILL_VALIDATOR ?= $(if $(CODEX_HOME),$(CODEX_HOME),$(HOME)/.codex)/skills/.system/skill-creator/scripts/quick_validate.py
 
 RUNTIME_PATHS := SKILL.md agents references
-PACKAGE_PATHS := SKILL.md agents references scripts
+WIKI_RUNTIME_PATHS := vendor engine/dokuwiki
+PACKAGE_PATHS := SKILL.md agents references scripts $(WIKI_RUNTIME_PATHS)
 
 .PHONY: build preview reader install _install-package test-install clean test test-contract preview-change-wiki build-change-wiki
 
@@ -187,6 +188,9 @@ preview:
 		fi; \
 		cp -a "$(SKILL_DIR)/$$path" "$(PREVIEW_DIR)/$$path"; \
 	done
+	@cp -a "$(PROJECT_ROOT)/vendor" "$(PREVIEW_DIR)/vendor"
+	@mkdir -p "$(PREVIEW_DIR)/engine"
+	@cp -a "$(ENGINE_DIR)/dokuwiki" "$(PREVIEW_DIR)/engine/dokuwiki"
 	@mkdir -p "$(PREVIEW_DIR)/scripts"
 	@binary=""; \
 	if [ -n "$${CARGO_BUILD_TARGET:-}" ] && [ -f "$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/codewiki.exe" ]; then \
@@ -218,6 +222,9 @@ preview-change-wiki:
 		fi; \
 		cp -a "$(CHANGE_SKILL_DIR)/$$path" "$(CHANGE_PREVIEW_DIR)/$$path"; \
 	done
+	@cp -a "$(PROJECT_ROOT)/vendor" "$(CHANGE_PREVIEW_DIR)/vendor"
+	@mkdir -p "$(CHANGE_PREVIEW_DIR)/engine"
+	@cp -a "$(ENGINE_DIR)/dokuwiki" "$(CHANGE_PREVIEW_DIR)/engine/dokuwiki"
 	@mkdir -p "$(CHANGE_PREVIEW_DIR)/scripts"
 	@binary=""; \
 	if [ -n "$${CARGO_BUILD_TARGET:-}" ] && [ -f "$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/codewiki.exe" ]; then \
@@ -240,8 +247,27 @@ preview-change-wiki:
 	@printf 'created preview at %s\n' "$(CHANGE_PREVIEW_DIR)"
 
 reader:
+	@rm -rf "$(BUILD_DIR)/reader"
+	@mkdir -p "$(BUILD_DIR)/reader" "$(BUILD_DIR)/reader/engine"
 	@$(CARGO) build --release --locked --manifest-path "$(ENGINE_DIR)/Cargo.toml" --target-dir "$(CARGO_TARGET_DIR)" --bin repowiki-reader
-	@printf 'created reader at %s\n' "$(CARGO_TARGET_DIR)/release/repowiki-reader"
+	@reader_binary=""; \
+	if [ -n "$${CARGO_BUILD_TARGET:-}" ] && [ -f "$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/repowiki-reader.exe" ]; then \
+		reader_binary="$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/repowiki-reader.exe"; \
+	elif [ -n "$${CARGO_BUILD_TARGET:-}" ] && [ -f "$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/repowiki-reader" ]; then \
+		reader_binary="$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/repowiki-reader"; \
+	elif [ -f "$(CARGO_TARGET_DIR)/release/repowiki-reader.exe" ]; then \
+		reader_binary="$(CARGO_TARGET_DIR)/release/repowiki-reader.exe"; \
+	elif [ -f "$(CARGO_TARGET_DIR)/release/repowiki-reader" ]; then \
+		reader_binary="$(CARGO_TARGET_DIR)/release/repowiki-reader"; \
+	fi; \
+	if [ -z "$$reader_binary" ]; then \
+		echo "Cargo completed but no repowiki-reader executable was found" >&2; exit 1; \
+	fi; \
+	cp -p "$$reader_binary" "$(BUILD_DIR)/reader/repowiki-reader"; \
+	case "$$reader_binary" in *.exe) mv "$(BUILD_DIR)/reader/repowiki-reader" "$(BUILD_DIR)/reader/repowiki-reader.exe" ;; esac
+	@cp -a "$(PROJECT_ROOT)/vendor" "$(BUILD_DIR)/reader/vendor"
+	@cp -a "$(ENGINE_DIR)/dokuwiki" "$(BUILD_DIR)/reader/engine/dokuwiki"
+	@printf 'created reader package at %s\n' "$(BUILD_DIR)/reader"
 
 clean:
 	@rm -rf \
