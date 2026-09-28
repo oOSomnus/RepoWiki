@@ -42,7 +42,7 @@ runtime dependencies.
 3. Run a fresh full analysis, without `--include`, `--focus`, or update mode:
 
    ```text
-   scripts/codewiki --repo-root <original-repo> generate --repo <worktree> --output <change-bundle> --max-depth 2
+   scripts/codewiki --repo-root <original-repo> generate --repo <worktree> --output <change-bundle> --max-depth 4
    ```
 
    Keep the returned session ID. Confirm the analyzed `repo_path` is the

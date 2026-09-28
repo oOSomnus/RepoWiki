@@ -1,7 +1,7 @@
 use crate::analyzer::{self, AnalyzeOptions};
 use crate::docs::{self, EditOperation};
 use crate::html;
-use crate::model::{ModuleTree, Node, UpdateOptions};
+use crate::model::{ModuleTree, Node, UpdateOptions, DEFAULT_MAX_DEPTH};
 use crate::prompts::{self, PromptType};
 use crate::session::{self, SessionState};
 use crate::update;
@@ -90,7 +90,7 @@ struct CommonAnalysisArgs {
     doc_type: Option<String>,
     #[arg(long)]
     instructions: Option<String>,
-    #[arg(long, default_value_t = 2)]
+    #[arg(long, default_value_t = DEFAULT_MAX_DEPTH)]
     max_depth: usize,
     #[arg(long, default_value_t = 36_369)]
     max_token_per_module: usize,
@@ -1038,6 +1038,23 @@ mod tests {
         };
         assert_eq!(UpdateOptions::from(args.update_options).k_hop, 2);
         assert!(Cli::try_parse_from(["codewiki", "generate", "--update", "--rung", "4"]).is_err());
+    }
+
+    #[test]
+    fn analysis_defaults_use_depth_ceiling_four() {
+        let cli =
+            Cli::try_parse_from(["codewiki", "generate"]).expect("default generate arguments");
+        let Some(Command::Generate(args)) = cli.command else {
+            panic!("expected generate command");
+        };
+        assert_eq!(args.common.max_depth, 4);
+        assert_eq!(args.common.max_depth, DEFAULT_MAX_DEPTH);
+
+        let cli = Cli::try_parse_from(["codewiki", "analyze"]).expect("default analyze arguments");
+        let Some(Command::Analyze(args)) = cli.command else {
+            panic!("expected analyze command");
+        };
+        assert_eq!(args.common.max_depth, DEFAULT_MAX_DEPTH);
     }
 
     #[test]

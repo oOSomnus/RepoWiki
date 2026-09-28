@@ -354,6 +354,75 @@ fn recursive_tree_quality_and_metadata_use_documentation_leaf_counts() {
 }
 
 #[test]
+fn depth_gate_allows_two_to_four_level_trees() {
+    fn chain_tree(depth: usize, leaf_id: &str) -> ModuleTree {
+        let names = ["A", "B", "C", "D", "E"];
+        assert!((1..=names.len()).contains(&depth));
+        let mut current = module(&[leaf_id], BTreeMap::new());
+        for name in names[1..depth].iter().rev() {
+            let mut children = BTreeMap::new();
+            children.insert((*name).to_string(), current);
+            current = module(&[], children);
+        }
+        let mut tree = ModuleTree::new();
+        tree.insert(names[0].to_string(), current);
+        tree
+    }
+
+    let (_repo, state) = prepared_session_with_summary(
+        &[("leaf", "python")],
+        &["leaf"],
+        Summary {
+            max_depth: 4,
+            ..Summary::default()
+        },
+    );
+
+    let four_levels = docs::save_module_tree(&state, &chain_tree(4, "leaf"), false)
+        .expect("save four-level tree");
+    assert!(
+        four_levels.quality_valid,
+        "{:?}",
+        four_levels.quality_errors
+    );
+    assert_eq!(four_levels.max_depth, 4);
+    let validation: Value = session::read_json(std::path::Path::new(&four_levels.validation_path))
+        .expect("read four-level validation");
+    assert_eq!(validation["quality_valid"], json!(true));
+    assert_eq!(validation["max_depth"], json!(4));
+    assert_eq!(validation["depth_errors"], json!([]));
+    assert_eq!(
+        validation["quality_limits"]["max_depth"],
+        json!(4),
+        "configured ceiling stays distinct from the measured depth"
+    );
+
+    let five_levels = docs::save_module_tree(&state, &chain_tree(5, "leaf"), false)
+        .expect("save five-level tree");
+    assert!(!five_levels.quality_valid);
+    assert!(five_levels
+        .quality_errors
+        .iter()
+        .any(|error| error.contains("exceeds configured max depth 4")));
+    let validation: Value = session::read_json(std::path::Path::new(&five_levels.validation_path))
+        .expect("read five-level validation");
+    assert_eq!(validation["quality_valid"], json!(false));
+    assert!(validation["depth_errors"]
+        .as_array()
+        .expect("depth errors")
+        .iter()
+        .any(|error| error
+            .as_str()
+            .unwrap_or_default()
+            .contains("exceeds configured max depth 4")));
+
+    let two_levels =
+        docs::save_module_tree(&state, &chain_tree(2, "leaf"), false).expect("save two-level tree");
+    assert!(two_levels.quality_valid, "{:?}", two_levels.quality_errors);
+    assert_eq!(two_levels.max_depth, 2);
+}
+
+#[test]
 fn oversized_leaf_is_reported_and_blocks_documentation_close() {
     let (_repo, mut state) = prepared_session_with_summary(
         &[("a", "python"), ("b", "python")],

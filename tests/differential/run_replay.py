@@ -299,7 +299,7 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
             "--output",
             str(output),
             "--max-depth",
-            "3",
+            "4",
         ],
     )
     session_id = str(analysis["session_id"])
@@ -676,7 +676,7 @@ def run(binary: Path, archive: Path | None, update_golden: bool) -> None:
         install_root = temporary_root / "installed-skill"
         installed_binary = extract_archive(archive, install_root)
         version = run_command(installed_binary, ["version"])
-        if version.get("version") != "0.1.0":
+        if version.get("version") != "0.2.0":
             raise ReplayFailure(f"unexpected installed binary version: {version}")
         installed_result = execute_replay(
             installed_binary, transcript, temporary_root / "installed-run"

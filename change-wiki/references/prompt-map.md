@@ -21,7 +21,7 @@ stale_fix_system, stale_fix_user.
 
 | Type | Required variables | Optional or conditional variables |
 |---|---|---|
-| cluster | one of potential_core_components or component_ids | scope; when scope=module, also module_name and module_tree; custom_instructions |
+| cluster | one of potential_core_components or component_ids | scope; when scope=module, also module_name, module_tree, current_depth, and remaining_depth; custom_instructions |
 | super_group | formatted_modules | none |
 | filter_folders | project_name, files | none |
 | system_complex | module_name, doc_path | custom_instructions, few_shot_examples |
@@ -48,11 +48,20 @@ groups them by file, marks artifact files, inlines readable source, and renders
 the module tree as an indented outline. `artifact_index` adds the artifact
 usage note and index to documentation prompts.
 
-Use `scope=repo` for the first semantic partition and `scope=module` to review
-each first-level module and every broad module below it. Module refinement
+Use `scope=repo` for the first semantic partition and `scope=module` to
+recursively review every module that may earn another level. Module refinement
 receives the current tree and exact parent component IDs; it returns child
 groups while the parent retains its aggregate component list. A module may
 return an empty GROUPED_COMPONENTS object only with a `retain_leaf` review.
+`current_depth` is the reviewed module's level in the published tree
+(top-level modules are level 1) and `remaining_depth` is the number of levels
+that may exist below it, counting the children of this response
+(`max_depth - current_depth`). When `remaining_depth` is zero, the response
+must be `retain_leaf`. Each response creates one child level; deeper levels
+come from reviewing the new children again until the budget is exhausted or
+the module stays a leaf. The published hierarchy is two to four levels deep
+by design: shallow, cohesive branches stop early and only large, loosely
+cohesive subsystems earn a third or fourth level.
 `tree save --require-decomposition-review` requires a review for every final
 tree entry and checks that `split` matches nodes with children and
 `retain_leaf` matches leaves. High-risk retained leaves remain visible as

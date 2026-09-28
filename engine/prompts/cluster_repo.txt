@@ -22,7 +22,10 @@ stages, state/storage areas, or integrations. Use `retain_leaf` only when the
 module is cohesive or no evidence supports a useful split. Set `breadth_risk`
 to `low`, `medium`, or `high`; a broad module that remains a leaf must have a
 concrete explanation. Do not split only to increase page count, and do not
-force a directory-shaped hierarchy.
+force a directory-shaped hierarchy. The published hierarchy is two to four
+levels deep by default: top-level modules may stay leaves or take one child
+level, and a third or fourth level is earned only by large, loosely cohesive
+subsystems.
 
 Module keys are DokuWiki namespace segments, not complete page IDs. Use
 non-empty ASCII keys containing only letters, digits, `_`, or `-`; put

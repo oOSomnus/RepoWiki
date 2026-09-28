@@ -18,6 +18,15 @@ Do not split only because a module has many files or functions. Do not create
 directory buckets, directory-shaped children, test/generated-code pages, or
 synthetic page-count growth.
 
+Depth is earned, not filled. The published hierarchy is two to four levels
+deep: split further only when a submodule is large and loosely cohesive and
+would earn its own page. Prefer stopping at the level where the
+responsibility is already explainable. This module sits at level
+{current_depth} of the published tree. The children returned here would sit
+one level lower, and at most {remaining_depth} level(s) may exist below this
+module in total, counting these children. When remaining depth is zero,
+return an empty child object and review the module as `retain_leaf`.
+
 Child keys are canonical DokuWiki namespace segments. Use non-empty ASCII keys
 containing only letters, digits, `_`, or `-`; use localized wording in page
 headings and prose. The complete page ID includes the edition namespace and all
@@ -27,8 +36,11 @@ edition is `repo:system:api:start`, stored as
 Return representative component IDs only, copied exactly from the candidates.
 
 Return child groups in the first marker. If the module is cohesive, return an
-empty object. Every child must include its own decomposition review. Then
-return a review for the current module in the second marker:
+empty object. Return one child level per response: leave each child's
+`children` object empty and give every child at least one representative
+component ID, copied exactly from the candidates. Every child must include
+its own decomposition review. Then return a review for the current module in
+the second marker:
 <GROUPED_COMPONENTS>
 {
   "Child_Module": {

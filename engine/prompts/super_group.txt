@@ -7,8 +7,11 @@ Here is the flat list of top-level modules of a repository. Each module has a pa
 The module list is flat: conceptually related modules sit next to unrelated ones. Please group these modules into higher-level architectural subsystems so the repository reads as an architecture rather than a directory listing.
 
 This pass creates parent overview modules. Preserve the existing module pages
-as children; do not discard or merge their component lists. The result must be
-followed by a tree save and validation, then leaf-first page generation.
+as children; do not discard or merge their component lists. Each new parent
+adds one level to the published hierarchy, which stays two to four levels
+deep in total; account for this level before any further splitting. The
+result must be followed by a tree save and validation, then leaf-first page
+generation.
 
 Each new parent must include a `decomposition_review` object with
 `decision: "split"`, `breadth_risk` (`low`, `medium`, or `high`), and a

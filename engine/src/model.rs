@@ -21,6 +21,7 @@ pub const SUPPORTED_LANGUAGES: &[&str] = &[
 /// validator, and host-agent workflow.  The engine does not call an LLM, but
 /// it must be able to tell the host when a saved tree still violates the
 /// same limits that drive recursive clustering.
+pub const DEFAULT_MAX_DEPTH: usize = 4;
 pub const DEFAULT_MAX_TOKEN_PER_MODULE: usize = 36_369;
 pub const DEFAULT_MAX_TOKEN_PER_LEAF_MODULE: usize = 16_000;
 pub const DEFAULT_CLUSTER_BATCH_SIZE: usize = 600;

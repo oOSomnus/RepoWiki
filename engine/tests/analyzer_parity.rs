@@ -353,3 +353,18 @@ fn go_and_rust_manifests_are_indexed_as_artifacts() {
     assert_eq!(index.files["Cargo.lock"].class, "packaging");
     session::cleanup(repo.path(), &state.session_id).expect("clean manifest session");
 }
+
+#[test]
+fn zero_max_depth_falls_back_to_default_ceiling() {
+    let repo = tempdir().expect("repo tempdir");
+    let output = tempdir().expect("output tempdir");
+    fs::create_dir_all(repo.path().join("src")).expect("src directory");
+    fs::write(repo.path().join("src/app.py"), "def app():\n    return 1\n").expect("app fixture");
+
+    let mut analyze_options = options();
+    analyze_options.max_depth = 0;
+
+    let (_, result, _) = analyze(repo.path(), output.path(), &analyze_options, None)
+        .expect("analyze repository with zero max depth");
+    assert_eq!(result.summary.max_depth, 4);
+}

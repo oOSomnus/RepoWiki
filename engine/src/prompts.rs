@@ -95,6 +95,8 @@ const CLUSTER_OPTIONAL: &[&str] = &[
     "scope",
     "module_name",
     "module_tree",
+    "current_depth",
+    "remaining_depth",
     "custom_instructions",
 ];
 const SUPER_GROUP_REQUIRED: &[&str] = &["formatted_modules"];
@@ -213,10 +215,23 @@ pub fn validate_variables(kind: PromptType, vars: &BTreeMap<String, Value>) -> R
             None => {}
             Some(Value::String(scope)) if scope == "repo" || scope == "module" => {
                 if scope == "module" {
-                    for key in ["module_name", "module_tree"] {
+                    for key in [
+                        "module_name",
+                        "module_tree",
+                        "current_depth",
+                        "remaining_depth",
+                    ] {
                         if vars.get(key).is_none_or(Value::is_null) {
                             return Err(anyhow!(
                                 "prompt 'cluster' with scope=module requires variable '{}'",
+                                key
+                            ));
+                        }
+                    }
+                    for key in ["current_depth", "remaining_depth"] {
+                        if vars.get(key).is_some_and(|value| value.as_u64().is_none()) {
+                            return Err(anyhow!(
+                                "prompt 'cluster' variable '{}' must be a non-negative integer",
                                 key
                             ));
                         }
@@ -240,7 +255,7 @@ pub fn catalog_specs() -> Vec<Value> {
             let (required, optional) = variable_contract(*kind);
             let conditional_required = if *kind == PromptType::Cluster {
                 json!({
-                    "scope=module": ["module_name", "module_tree"],
+                    "scope=module": ["module_name", "module_tree", "current_depth", "remaining_depth"],
                     "one_of": ["potential_core_components", "component_ids"]
                 })
             } else if *kind == PromptType::User {

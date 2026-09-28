@@ -109,6 +109,8 @@ fn every_prompt_renders_without_known_unresolved_placeholders_or_legacy_tools() 
         "{scope}",
         "{module_name}",
         "{module_tree}",
+        "{current_depth}",
+        "{remaining_depth}",
         "{formatted_modules}",
         "{formatted_core_component_codes}",
         "{repo_name}",
@@ -128,7 +130,21 @@ fn every_prompt_renders_without_known_unresolved_placeholders_or_legacy_tools() 
         "{items}",
     ];
     for kind in PromptType::all() {
-        let prompt = prompts::render(*kind, &renderable_vars(*kind)).expect("prompt renders");
+        let mut renderable = renderable_vars(*kind);
+        if *kind == PromptType::Cluster {
+            renderable.insert("scope".to_string(), Value::String("module".to_string()));
+            renderable.insert(
+                "module_name".to_string(),
+                Value::String("Runtime".to_string()),
+            );
+            renderable.insert(
+                "module_tree".to_string(),
+                json!({"Runtime": {"components": [], "children": {}}}),
+            );
+            renderable.insert("current_depth".to_string(), json!(1));
+            renderable.insert("remaining_depth".to_string(), json!(3));
+        }
+        let prompt = prompts::render(*kind, &renderable).expect("prompt renders");
         for placeholder in placeholders {
             assert!(
                 !prompt.contains(placeholder),
@@ -171,6 +187,8 @@ fn change_instructions_are_optional_for_architecture_prompts() {
                 "module_tree".to_string(),
                 json!({"Runtime": {"components": [], "children": {}}}),
             );
+            vars.insert("current_depth".to_string(), json!(1));
+            vars.insert("remaining_depth".to_string(), json!(3));
         }
         vars.insert(
             "custom_instructions".to_string(),
@@ -231,6 +249,8 @@ fn cluster_scope_selects_repository_or_module_architecture_contract() {
             }
         }),
     );
+    repo.insert("current_depth".to_string(), json!(1));
+    repo.insert("remaining_depth".to_string(), json!(3));
     let module_prompt = prompts::render(PromptType::Cluster, &repo).expect("module prompt");
     assert!(module_prompt.contains("existing architecture module"));
     assert!(module_prompt.contains("representative component IDs"));
@@ -239,6 +259,52 @@ fn cluster_scope_selects_repository_or_module_architecture_contract() {
     assert!(module_prompt.contains("high-risk leaf"));
     assert!(!module_prompt.contains("Keep the tree shallow"));
     assert!(module_prompt.contains("directory-shaped children"));
+    let squashed = module_prompt
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(squashed.contains("Depth is earned"));
+    assert!(squashed.contains("This module sits at level 1 of the published tree"));
+    assert!(squashed.contains("at most 3 level(s) may exist below this module"));
+    assert!(squashed.contains("Return one child level per response"));
+
+    repo.insert("current_depth".to_string(), json!(4));
+    repo.insert("remaining_depth".to_string(), json!(0));
+    let exhausted = prompts::render(PromptType::Cluster, &repo).expect("exhausted budget prompt");
+    let squashed = exhausted.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(squashed.contains("This module sits at level 4 of the published tree"));
+    assert!(squashed.contains("at most 0 level(s) may exist below this module"));
+    assert!(squashed.contains("return an empty child object"));
+}
+
+#[test]
+fn module_scope_requires_depth_budget_variables() {
+    let mut vars = string_vars(&[
+        ("potential_core_components", "src/lib.rs::run"),
+        ("scope", "module"),
+        ("module_name", "Runtime"),
+        (
+            "module_tree",
+            "{\"Runtime\": {\"components\": [], \"children\": {}}}",
+        ),
+    ]);
+    let missing = prompts::render(PromptType::Cluster, &vars)
+        .expect_err("module scope must require depth budget");
+    assert!(missing.to_string().contains("current_depth"));
+
+    vars.insert("current_depth".to_string(), json!(1));
+    let missing_remaining = prompts::render(PromptType::Cluster, &vars)
+        .expect_err("module scope must require remaining_depth");
+    assert!(missing_remaining.to_string().contains("remaining_depth"));
+
+    vars.insert("remaining_depth".to_string(), json!(-1));
+    let negative = prompts::render(PromptType::Cluster, &vars)
+        .expect_err("depth budget must be a non-negative integer");
+    assert!(negative.to_string().contains("non-negative integer"));
+
+    vars.insert("current_depth".to_string(), json!(1));
+    vars.insert("remaining_depth".to_string(), json!(3));
+    prompts::render(PromptType::Cluster, &vars).expect("complete module scope renders");
 }
 
 #[test]
