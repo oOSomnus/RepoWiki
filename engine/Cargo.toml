@@ -3,7 +3,7 @@ name = "codewiki"
 version = "0.1.0"
 edition = "2021"
 description = "Agent-driven repository wiki generation as a standalone Rust skill"
-license = "MIT"
+license = "MIT AND GPL-2.0-or-later"
 
 [dependencies]
 anyhow = "1.0"
