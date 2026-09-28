@@ -462,6 +462,10 @@ Start with the Service module page for its purpose, request flow, and public int
         .path()
         .join("assets/LICENSE-mermaid-js-MIT.txt")
         .is_file());
+    assert!(html.contains("assets/repowiki-viewer.js"));
+    assert!(html.contains("assets/repowiki-viewer.css"));
+    assert!(output.path().join("assets/repowiki-viewer.js").is_file());
+    assert!(output.path().join("assets/repowiki-viewer.css").is_file());
     let closed = run([
         "session",
         "close",

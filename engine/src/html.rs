@@ -83,6 +83,16 @@ pub fn generate(state: &SessionState) -> Result<String> {
         &assets.join("LICENSE-mermaid-js-MIT.txt"),
     )
     .context("copy Mermaid.js license")?;
+    copy_export_asset(
+        &runtime.integration_dir.join("plugins/repowiki/script.js"),
+        &assets.join("repowiki-viewer.js"),
+    )
+    .context("copy RepoWiki diagram viewer script")?;
+    copy_export_asset(
+        &runtime.integration_dir.join("plugins/repowiki/style.css"),
+        &assets.join("repowiki-viewer.css"),
+    )
+    .context("copy RepoWiki diagram viewer styles")?;
 
     let title = Path::new(&state.repo_path)
         .file_name()
@@ -97,8 +107,10 @@ pub fn generate(state: &SessionState) -> Result<String> {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{}</title>
 <link rel="stylesheet" href="assets/mermaid.css">
+<link rel="stylesheet" href="assets/repowiki-viewer.css">
 <style>{}</style>
 <script defer src="assets/mermaid.min.js"></script>
+<script defer src="assets/repowiki-viewer.js"></script>
 <script defer>document.addEventListener('DOMContentLoaded',function(){{if(window.mermaid){{mermaid.initialize({{startOnLoad:false,securityLevel:'strict'}});mermaid.run({{querySelector:'.mermaid'}});}}}});</script>
 </head>
 <body>
