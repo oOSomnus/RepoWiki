@@ -61,8 +61,10 @@ class action_plugin_repowiki extends ActionPlugin
         }
 
         $showingPage = ($ACT ?? null) === 'show';
-        $content = $showingPage ? RepoWikiCatalog::renderPath() : '';
-        if (!($showingPage && RepoWikiCatalog::sidebarAvailable())) {
+        $sidebarVisible = $showingPage && RepoWikiCatalog::sidebarAvailable();
+        $content = $sidebarVisible ? RepoWikiCatalog::renderSidebarToggle() : '';
+        $content .= $showingPage ? RepoWikiCatalog::renderPath() : '';
+        if (!$sidebarVisible) {
             $content .= RepoWikiCatalog::renderNavigation();
         }
         if ($content !== '') $event->data = $content . $event->data;

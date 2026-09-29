@@ -91,6 +91,19 @@ final class RepoWikiCatalog
     }
 
     /**
+     * Render the button that hides and restores the template sidebar.
+     *
+     * It lives in the content area so it stays reachable while the sidebar
+     * itself is collapsed; the script keeps its label and state in sync.
+     */
+    public static function renderSidebarToggle(): string
+    {
+        return '<button type="button" class="repowiki-sidebar-toggle" data-repowiki-sidebar-toggle' .
+            ' aria-expanded="true" aria-controls="dokuwiki__aside"' .
+            ' aria-label="Hide sidebar" title="Hide sidebar">«</button>';
+    }
+
+    /**
      * Render the ancestor path of the current page with human-readable titles.
      *
      * The catalog keeps only canonical page IDs and module keys, so the labels

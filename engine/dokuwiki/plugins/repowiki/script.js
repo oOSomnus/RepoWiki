@@ -426,9 +426,60 @@
         openViewer(svg);
     });
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', injectDiagramActions);
-    } else {
+    /* Hide and restore the template sidebar, remembering the choice. */
+    function initSidebarToggle() {
+        var button = document.querySelector('[data-repowiki-sidebar-toggle]');
+        if (!button) return;
+        var site = document.getElementById('dokuwiki__top') ||
+            document.getElementById('dokuwiki__site') ||
+            document.body;
+        var storageKey = 'repowiki.sidebar.collapsed';
+
+        function readCollapsed() {
+            try {
+                return window.localStorage.getItem(storageKey) === '1';
+            } catch (error) {
+                return false;
+            }
+        }
+
+        function writeCollapsed(collapsed) {
+            try {
+                window.localStorage.setItem(storageKey, collapsed ? '1' : '0');
+            } catch (error) {
+                /* Private browsing: the toggle still works for this page. */
+            }
+        }
+
+        function apply(collapsed) {
+            if (collapsed) {
+                site.classList.add('repowiki-sidebar-collapsed');
+            } else {
+                site.classList.remove('repowiki-sidebar-collapsed');
+            }
+            button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            var label = collapsed ? 'Show sidebar' : 'Hide sidebar';
+            button.setAttribute('aria-label', label);
+            button.title = label;
+            button.textContent = collapsed ? '»' : '«';
+        }
+
+        apply(readCollapsed());
+        button.addEventListener('click', function () {
+            var collapsed = !site.classList.contains('repowiki-sidebar-collapsed');
+            apply(collapsed);
+            writeCollapsed(collapsed);
+        });
+    }
+
+    function init() {
         injectDiagramActions();
+        initSidebarToggle();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
     }
 })();
