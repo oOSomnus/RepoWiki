@@ -60,6 +60,8 @@ static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// cleanup cannot remove it while a command still owns the lock.
 pub struct SessionLock {
     file: File,
+    repo_path: PathBuf,
+    session_id: String,
 }
 
 impl SessionLock {
@@ -78,7 +80,13 @@ impl SessionLock {
         let deadline = Instant::now() + Duration::from_secs(SESSION_LOCK_TIMEOUT_SECONDS);
         loop {
             match file.try_lock() {
-                Ok(()) => return Ok(Self { file }),
+                Ok(()) => {
+                    return Ok(Self {
+                        file,
+                        repo_path: repo_path.to_path_buf(),
+                        session_id: session_id.to_string(),
+                    })
+                }
                 Err(TryLockError::WouldBlock) => {
                     if Instant::now() >= deadline {
                         return Err(anyhow!(
@@ -94,6 +102,20 @@ impl SessionLock {
                 }
             }
         }
+    }
+
+    /// The state of the session this lock serializes access to. An expired
+    /// session is reclaimed and refused rather than handed out; a live one
+    /// comes back marked as accessed, and the caller decides whether to
+    /// persist that.
+    pub fn load(&self) -> Result<SessionState> {
+        let mut state = read_state(&self.repo_path, &self.session_id)?;
+        if is_expired(&state) {
+            cleanup(&self.repo_path, &self.session_id)?;
+            return Err(anyhow!("session expired: {}", self.session_id));
+        }
+        state.touch();
+        Ok(state)
     }
 }
 
@@ -116,8 +138,6 @@ pub struct SessionState {
     pub component_count: usize,
     pub leaf_count: usize,
     pub languages: Vec<String>,
-    #[serde(default)]
-    pub closed: bool,
 }
 
 impl SessionState {
@@ -186,48 +206,58 @@ pub fn create(repo_path: &Path, output_dir: &Path) -> Result<SessionState> {
         component_count: 0,
         leaf_count: 0,
         languages: Vec::new(),
-        closed: false,
     };
     save_state(&state)?;
     Ok(state)
 }
 
-pub fn load(repo_path: &Path, session_id: &str) -> Result<SessionState> {
-    validate_session_id(session_id)?;
-    let state_path = session_root(repo_path, session_id).join("state.json");
-    if !state_path.is_file() {
-        return Err(anyhow!("session not found: {session_id}"));
-    }
-    let _lock = SessionLock::acquire(repo_path, session_id)?;
-    load_unlocked(repo_path, session_id)
-}
-
-pub fn load_unlocked(repo_path: &Path, session_id: &str) -> Result<SessionState> {
+fn read_state(repo_path: &Path, session_id: &str) -> Result<SessionState> {
     validate_session_id(session_id)?;
     let path = session_root(repo_path, session_id).join("state.json");
     let contents =
-        fs::read_to_string(&path).with_context(|| format!("session not found: {}", session_id))?;
-    let mut state: SessionState = serde_json::from_str(&contents)
-        .with_context(|| format!("invalid session state: {}", path.display()))?;
-    if is_expired(&state) {
-        cleanup(repo_path, session_id)?;
-        return Err(anyhow!("session expired: {}", session_id));
-    }
-    state.touch();
-    save_state(&state)?;
-    Ok(state)
+        fs::read_to_string(&path).with_context(|| format!("session not found: {session_id}"))?;
+    serde_json::from_str(&contents)
+        .with_context(|| format!("invalid session state: {}", path.display()))
 }
 
+/// Read a session without taking the lock.
+///
+/// Another operation may replace what this returns the moment it reads it, so
+/// the snapshot is only good for facts a session never changes — which
+/// repository it belongs to. Anything that reads and then mutates goes through
+/// [`with_locked_session`] or [`close_session`] instead.
+pub fn peek(repo_path: &Path, session_id: &str) -> Result<SessionState> {
+    read_state(repo_path, session_id)
+}
+
+/// Run `operation` with exclusive access to the session, then persist the
+/// state it leaves behind. A failing operation writes nothing and leaves the
+/// session exactly as it was.
 pub fn with_locked_session<T, F>(repo_path: &Path, session_id: &str, operation: F) -> Result<T>
 where
     F: FnOnce(&mut SessionState) -> Result<T>,
 {
-    let _lock = SessionLock::acquire(repo_path, session_id)?;
-    let mut state = load_unlocked(repo_path, session_id)?;
-    operation(&mut state)
+    let lock = SessionLock::acquire(repo_path, session_id)?;
+    let mut state = lock.load()?;
+    let value = operation(&mut state)?;
+    save_state(&state)?;
+    Ok(value)
 }
 
-pub fn save_state(state: &SessionState) -> Result<()> {
+/// Like [`with_locked_session`], but discards the session when `operation`
+/// succeeds. Validation failures therefore keep it alive for another attempt.
+pub fn close_session<T, F>(repo_path: &Path, session_id: &str, operation: F) -> Result<T>
+where
+    F: FnOnce(&mut SessionState) -> Result<T>,
+{
+    let lock = SessionLock::acquire(repo_path, session_id)?;
+    let mut state = lock.load()?;
+    let value = operation(&mut state)?;
+    cleanup(repo_path, session_id)?;
+    Ok(value)
+}
+
+fn save_state(state: &SessionState) -> Result<()> {
     let repo_path = Path::new(&state.repo_path);
     let path = session_root(repo_path, &state.session_id).join("state.json");
     write_json(&path, state)

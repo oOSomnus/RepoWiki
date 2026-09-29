@@ -968,13 +968,11 @@ fn session_info(args: SessionArg) -> Result<Value> {
 
 fn close_session(args: CloseSessionArgs) -> Result<Value> {
     let session_id = args.session.clone();
-    with_locked_session(&session_id, |state| {
+    let repo = session_repo()?;
+    session::close_session(&repo, &session_id, |state| {
         docs::validate_documentation(state)?;
         let metadata = Some(docs::finalize_metadata(state, &args.model)?);
-        state.closed = true;
-        session::save_state(state)?;
         let session_path = session::session_root(Path::new(&state.repo_path), &state.session_id);
-        session::cleanup(Path::new(&state.repo_path), &state.session_id)?;
         Ok(json!({
             "ok": true,
             "session_id": state.session_id,
@@ -989,16 +987,15 @@ fn with_locked_session<T, F>(session_id: &str, operation: F) -> Result<T>
 where
     F: FnOnce(&mut SessionState) -> Result<T>,
 {
-    let existing = load_session(session_id)?;
-    let repo = PathBuf::from(&existing.repo_path);
-    session::with_locked_session(&repo, session_id, operation)
+    let repo = session_repo()?;
+    let existing = session::peek(&repo, session_id)?;
+    session::with_locked_session(Path::new(&existing.repo_path), session_id, operation)
 }
 
-fn load_session(session_id: &str) -> Result<SessionState> {
-    let repo = std::env::var_os("REPOWIKI_SESSION_REPO")
+fn session_repo() -> Result<PathBuf> {
+    Ok(std::env::var_os("REPOWIKI_SESSION_REPO")
         .map(PathBuf::from)
-        .unwrap_or(std::env::current_dir()?);
-    session::load(&repo, session_id)
+        .unwrap_or(std::env::current_dir()?))
 }
 
 fn print_json(value: &Value) -> Result<()> {

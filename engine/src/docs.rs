@@ -142,7 +142,6 @@ pub fn write_document_with_policy(
     }
     context.write(requested, content)?;
     state.mark_write();
-    session::save_state(state)?;
     Ok(WriteResult {
         path: requested.to_string(),
         created: true,
@@ -219,7 +218,6 @@ pub fn edit_document(
         write_history_snapshot(&history, &path, &snapshot, index)?;
     }
     state.mark_write();
-    session::save_state(state)?;
     Ok(WriteResult {
         path: requested.to_string(),
         created: false,

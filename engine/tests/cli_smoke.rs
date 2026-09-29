@@ -1424,7 +1424,7 @@ fn invalid_documentation_close_keeps_session_and_report() {
         &fs::read(session_root.join("state.json")).expect("read session state"),
     )
     .expect("session state JSON");
-    assert_eq!(state["closed"], false);
+    assert_eq!(state["docs_written"], 2);
     let persisted_report: Value = serde_json::from_slice(
         &fs::read(session_root.join("documentation_validation.json"))
             .expect("read persisted validation report"),
