@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -375,10 +375,9 @@ fn read_current_output(
     let mut page_ids = BTreeSet::from([start_id]);
     docs::collect_expected_pages(expected_wiki_id, &tree, &mut page_ids)
         .context("collect canonical module page IDs")?;
+    let wiki_id = docs::WikiId::parse(expected_wiki_id)?;
     for page_id in &page_ids {
-        let path = docs::page_file_path(output_dir, expected_wiki_id, page_id)
-            .with_context(|| format!("map canonical page ID '{page_id}'"))?;
-        validate_page_file(output_dir, &path, page_id)
+        docs::require_canonical_page(output_dir, &wiki_id, page_id)
             .with_context(|| format!("read required documentation page '{page_id}'"))?;
     }
 
@@ -393,45 +392,6 @@ fn require_regular_file(path: &Path) -> Result<()> {
             "required path is not a regular file: {}",
             path.display()
         ));
-    }
-    Ok(())
-}
-
-fn validate_page_file(output_dir: &Path, path: &Path, page_id: &str) -> Result<()> {
-    if path.extension().and_then(|value| value.to_str()) != Some("txt") {
-        return Err(anyhow!(
-            "canonical page ID '{page_id}' did not map to a .txt page"
-        ));
-    }
-    let relative = path
-        .strip_prefix(output_dir)
-        .with_context(|| format!("page path for '{page_id}' escaped its edition"))?;
-    let component_count = relative.components().count();
-    let mut current = output_dir.to_path_buf();
-    for (index, component) in relative.components().enumerate() {
-        let Component::Normal(name) = component else {
-            return Err(anyhow!("unsafe page path for canonical ID '{page_id}'"));
-        };
-        current.push(name);
-        let metadata = fs::symlink_metadata(&current).with_context(|| {
-            format!(
-                "required page for canonical ID '{page_id}' is missing: {}",
-                current.display()
-            )
-        })?;
-        if metadata.file_type().is_symlink() {
-            return Err(anyhow!(
-                "page path for canonical ID '{page_id}' contains a symlink: {}",
-                current.display()
-            ));
-        }
-        let is_last = index + 1 == component_count;
-        if (is_last && !metadata.is_file()) || (!is_last && !metadata.is_dir()) {
-            return Err(anyhow!(
-                "page path for canonical ID '{page_id}' has an invalid component: {}",
-                current.display()
-            ));
-        }
     }
     Ok(())
 }
@@ -510,7 +470,7 @@ fn prepare_isolated_runtime(
 fn write_navigation_sidebar(runtime_root: &Path) -> Result<()> {
     const SIDEBAR_PAGE_CONTENT: &str = "~~REPOWIKI_NAV~~\n";
 
-    let page = runtime_root.join("dokuwiki/data/pages/sidebar.txt");
+    let page = docs::pages_root(runtime_root).join("sidebar.txt");
     let parent = page
         .parent()
         .ok_or_else(|| anyhow!("sidebar page has no parent directory"))?;
@@ -557,11 +517,10 @@ fn rebuild_runtime_search_index(context: &dokuwiki::WikiContext) -> Result<()> {
 }
 
 fn merge_edition_namespace(edition: &EditionSource, runtime_root: &Path) -> Result<()> {
-    let wiki_id = &edition.catalog_entry.wiki_id;
+    let wiki_id = docs::WikiId::parse(&edition.catalog_entry.wiki_id)?;
     for page_id in &edition.page_ids {
-        let source = docs::page_file_path(&edition.output_dir, wiki_id, page_id)?;
-        let destination = docs::page_file_path(runtime_root, wiki_id, page_id)?;
-        validate_page_file(&edition.output_dir, &source, page_id)?;
+        let source = docs::require_canonical_page(&edition.output_dir, &wiki_id, page_id)?;
+        let destination = docs::page_file_path(runtime_root, wiki_id.as_str(), page_id)?;
         let parent = destination
             .parent()
             .ok_or_else(|| anyhow!("runtime page has no parent directory"))?;
@@ -577,9 +536,11 @@ fn merge_edition_namespace(edition: &EditionSource, runtime_root: &Path) -> Resu
 }
 
 fn copy_edition_storage(edition: &EditionSource, runtime_root: &Path, storage: &str) -> Result<()> {
-    let wiki_id = &edition.catalog_entry.wiki_id;
+    let wiki_id = docs::WikiId::parse(&edition.catalog_entry.wiki_id)?;
     let mut source = edition.output_dir.clone();
-    for component in ["dokuwiki", "data", storage, wiki_id] {
+    let mut components = vec!["dokuwiki", "data", storage];
+    components.extend(wiki_id.segments());
+    for component in components {
         source.push(component);
         let metadata = match fs::symlink_metadata(&source) {
             Ok(metadata) => metadata,
@@ -602,10 +563,8 @@ fn copy_edition_storage(edition: &EditionSource, runtime_root: &Path, storage: &
         }
     }
 
-    let destination = runtime_root
-        .join("dokuwiki/data")
-        .join(storage)
-        .join(wiki_id);
+    let storage_root = runtime_root.join("dokuwiki").join("data").join(storage);
+    let destination = wiki_id.dir_under(&storage_root);
     copy_regular_tree(&source, &destination).with_context(|| {
         format!(
             "copy {storage} data for edition '{}'",

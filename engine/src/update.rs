@@ -7,7 +7,7 @@ use chrono::Utc;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 pub const VALID_RUNGS: &[&str] = &["0", "1", "2", "3", "3b"];
@@ -348,7 +348,7 @@ pub fn stale_scan(state: &SessionState) -> Result<Value> {
     let mut expected = BTreeSet::from([docs::overview_page_id(&state.wiki_id)?]);
     docs::collect_expected_pages(&state.wiki_id, &tree, &mut expected)?;
 
-    let pages = list_page_ids(state)?;
+    let pages = canonical_page_ids(state)?;
     let present = pages.iter().cloned().collect::<BTreeSet<_>>();
     let missing_pages = expected.difference(&present).cloned().collect::<Vec<_>>();
     let extra_pages = present.difference(&expected).cloned().collect::<Vec<_>>();
@@ -399,7 +399,7 @@ pub fn finalize(state: &SessionState, model: &str, verdicts_path: Option<&Path>)
     record.reports = list_report_files(&session::session_file(state, files::REPORTS)?)?;
     record.stale_scan = stale_scan(state)?;
     record.finished_at = Utc::now().to_rfc3339();
-    record.pages_written = list_page_ids(state)?;
+    record.pages_written = canonical_page_ids(state)?;
     record.wall_seconds = record
         .started_at
         .parse::<chrono::DateTime<chrono::FixedOffset>>()
@@ -434,7 +434,7 @@ fn read_verdicts(path: &Path, wiki_id: &str) -> Result<BTreeMap<String, String>>
         .ok_or_else(|| anyhow!("verdicts file must contain a JSON object"))?;
     let mut verdicts = BTreeMap::new();
     for (page, value) in object {
-        docs::page_file_path(Path::new(""), wiki_id, page)?;
+        docs::validate_page_id(wiki_id, page)?;
         let verdict = match value {
             Value::String(verdict) => verdict.trim().to_ascii_lowercase(),
             Value::Object(fields) => {
@@ -942,98 +942,14 @@ fn truncate_text(text: &str, max_tokens: usize) -> String {
     format!("{head}{marker}{tail}")
 }
 
-fn list_page_ids(state: &SessionState) -> Result<Vec<String>> {
-    fn path_segments(path: &Path) -> Option<Vec<String>> {
-        path.components()
-            .map(|component| match component {
-                Component::Normal(segment) => segment.to_str().map(str::to_string),
-                _ => None,
-            })
-            .collect()
-    }
-
-    fn visit(
-        directory: &Path,
-        pages_root: &Path,
-        output: &Path,
-        wiki_id: &str,
-        namespace: &[&str],
-        pages: &mut BTreeSet<String>,
-    ) -> Result<()> {
-        for entry in fs::read_dir(directory)? {
-            let entry = entry?;
-            let path = entry.path();
-            let file_type = entry.file_type()?;
-            if file_type.is_dir() {
-                visit(&path, pages_root, output, wiki_id, namespace, pages)?;
-            } else if file_type.is_file()
-                && path.extension().and_then(|extension| extension.to_str()) == Some("txt")
-            {
-                let Some(relative) = path.strip_prefix(pages_root).ok() else {
-                    continue;
-                };
-                let mut segments = relative
-                    .parent()
-                    .and_then(path_segments)
-                    .unwrap_or_default();
-                let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
-                    continue;
-                };
-                segments.push(stem.to_string());
-                if segments.len() <= namespace.len()
-                    || !segments
-                        .iter()
-                        .take(namespace.len())
-                        .map(String::as_str)
-                        .eq(namespace.iter().copied())
-                {
-                    continue;
-                }
-                let page_id = segments.join(":");
-                if let Ok(mapped_path) = docs::page_file_path(output, wiki_id, &page_id) {
-                    if mapped_path == path {
-                        pages.insert(page_id);
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
+fn canonical_page_ids(state: &SessionState) -> Result<Vec<String>> {
     let output = session::output_dir(state);
-    let canonical_output = output.canonicalize()?;
-    let pages_root = output.join("dokuwiki").join("data").join("pages");
-    let canonical_pages_root = match pages_root.canonicalize() {
-        Ok(path) if path.starts_with(&canonical_output) => path,
-        Ok(_) => return Ok(Vec::new()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(error.into()),
-    };
-    let namespace = state.wiki_id.split(':').collect::<Vec<_>>();
-    let namespace_root = namespace
-        .iter()
-        .fold(pages_root.clone(), |path, segment| path.join(*segment));
-    let canonical_namespace_root = match namespace_root.canonicalize() {
-        Ok(path) if path.starts_with(&canonical_pages_root) => path,
-        Ok(_) => return Ok(Vec::new()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(error.into()),
-    };
-    if !fs::symlink_metadata(&namespace_root)?.file_type().is_dir()
-        || !canonical_namespace_root.is_dir()
-    {
-        return Ok(Vec::new());
-    }
-
-    let mut pages = BTreeSet::new();
-    visit(
-        &namespace_root,
-        &pages_root,
-        &output,
-        &state.wiki_id,
-        &namespace,
-        &mut pages,
-    )?;
+    let wiki_id = docs::WikiId::parse(&state.wiki_id)?;
+    let pages = docs::enumerate_pages(&output, &wiki_id, docs::PageScope::Edition)?
+        .into_iter()
+        .filter(|page| page.canonical)
+        .map(|page| page.page_id)
+        .collect::<BTreeSet<_>>();
     Ok(pages.into_iter().collect())
 }
 

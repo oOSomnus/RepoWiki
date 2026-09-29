@@ -1,6 +1,6 @@
 use super::{
-    collect_expected_pages, module_page_id, overview_page_id, page_file_path,
-    validate_module_page_paths,
+    collect_expected_pages, enumerate_pages, module_page_id, overview_page_id, page_file_path,
+    validate_module_page_paths, PageScope, WikiId,
 };
 use crate::dokuwiki;
 use crate::model::{Module, ModuleTree, Node};
@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MermaidReport {
     pub blocks: usize,
@@ -145,7 +145,7 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
     let overview_id = overview_page_id(&state.wiki_id)?;
     expected.insert(overview_id);
 
-    let actual_files = collect_dokuwiki_pages(&output, &state.wiki_id)?;
+    let actual_files = enumerate_pages(&output, &WikiId::parse(&state.wiki_id)?, PageScope::All)?;
     let mut actual_page_ids = BTreeSet::new();
     let mut actual_paths_by_id = BTreeMap::<String, Vec<PathBuf>>::new();
     let mut actual_ids_canonical = true;
@@ -205,7 +205,7 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
     let mut broken_dokuwiki_links = Vec::new();
     let context = dokuwiki::session_context(state)?;
     for file in &actual_files {
-        if !file.safe_to_read {
+        if !file.readable {
             let message = format!(
                 "refusing to read DokuWiki page ID {} through a symlink",
                 file.page_id
@@ -1262,83 +1262,6 @@ fn is_dokuwiki_heading(line: &str) -> bool {
     let leading = line.bytes().take_while(|byte| *byte == b'=').count();
     let trailing = line.bytes().rev().take_while(|byte| *byte == b'=').count();
     leading >= 2 && leading == trailing && leading * 2 < line.len()
-}
-
-struct DokuwikiPageFile {
-    page_id: String,
-    path: PathBuf,
-    canonical: bool,
-    safe_to_read: bool,
-}
-
-fn collect_dokuwiki_pages(output: &Path, wiki_id: &str) -> Result<Vec<DokuwikiPageFile>> {
-    fn visit(directory: &Path, files: &mut Vec<(PathBuf, bool)>) -> Result<()> {
-        if !directory.exists() {
-            return Ok(());
-        }
-        for entry in fs::read_dir(directory)? {
-            let entry = entry?;
-            let path = entry.path();
-            let file_type = entry.file_type()?;
-            if file_type.is_dir() {
-                visit(&path, files)?;
-            } else if path.extension().and_then(|value| value.to_str()) == Some("txt")
-                && (file_type.is_file() || file_type.is_symlink())
-            {
-                files.push((path, file_type.is_file()));
-            }
-        }
-        Ok(())
-    }
-
-    let page_root = output.join("dokuwiki/data/pages");
-    if page_root.exists() {
-        let canonical_output = output.canonicalize()?;
-        if !page_root.canonicalize()?.starts_with(&canonical_output) {
-            return Err(anyhow!(
-                "DokuWiki pages directory escapes edition output: {}",
-                page_root.display()
-            ));
-        }
-    }
-    let mut paths = Vec::new();
-    visit(&page_root, &mut paths)?;
-    paths.sort_by(|left, right| left.0.cmp(&right.0));
-    paths
-        .into_iter()
-        .map(|(path, safe_to_read)| {
-            let page_id = page_id_from_file(&page_root, &path)?;
-            let canonical = safe_to_read
-                && page_file_path(output, wiki_id, &page_id)
-                    .is_ok_and(|expected_path| expected_path == path);
-            Ok(DokuwikiPageFile {
-                page_id,
-                path,
-                canonical,
-                safe_to_read,
-            })
-        })
-        .collect()
-}
-
-fn page_id_from_file(page_root: &Path, path: &Path) -> Result<String> {
-    let relative = path.strip_prefix(page_root)?;
-    let mut segments = relative
-        .parent()
-        .into_iter()
-        .flat_map(|parent| parent.components())
-        .filter_map(|component| match component {
-            std::path::Component::Normal(segment) => Some(segment.to_string_lossy().into_owned()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    let page_name = path
-        .file_stem()
-        .ok_or_else(|| anyhow!("DokuWiki page file has no name: {}", path.display()))?
-        .to_string_lossy()
-        .into_owned();
-    segments.push(page_name);
-    Ok(segments.join(":"))
 }
 
 fn opaque_dokuwiki_ranges(content: &str) -> Vec<(usize, usize)> {

@@ -13,6 +13,11 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+mod pages;
+pub use pages::{
+    enumerate_pages, module_page_id, overview_page_id, page_file_path, pages_root,
+    require_canonical_page, validate_page_id, PageFileOnDisk, PageScope, WikiId,
+};
 mod quality;
 pub use quality::{validate_documentation, validate_documentation_report};
 
@@ -1632,77 +1637,6 @@ fn document_path(state: &SessionState, requested: &str) -> Result<PathBuf> {
     Ok(candidate)
 }
 
-fn is_canonical_dokuwiki_segment(segment: &str) -> bool {
-    let bytes = segment.as_bytes();
-    !bytes.is_empty()
-        && !matches!(bytes[0], b'_' | b'-')
-        && !matches!(bytes[bytes.len() - 1], b'_' | b'-')
-        && !segment.contains("__")
-        && bytes.iter().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'_' || *byte == b'-'
-        })
-}
-
-fn canonical_module_segment(name: &str) -> Result<String> {
-    if name.is_empty()
-        || !name
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
-    {
-        return Err(anyhow!(
-            "invalid module name '{name}': use a non-empty ASCII name containing only letters, digits, '_' or '-'"
-        ));
-    }
-    let segment = name.to_ascii_lowercase();
-    if !is_canonical_dokuwiki_segment(&segment) {
-        return Err(anyhow!(
-            "invalid module name '{name}': DokuWiki canonical IDs cannot start or end with '_' or '-' or contain '__'"
-        ));
-    }
-    Ok(segment)
-}
-
-fn validate_wiki_id(wiki_id: &str) -> Result<()> {
-    if wiki_id.is_empty() || !wiki_id.split(':').all(is_canonical_dokuwiki_segment) {
-        return Err(anyhow!("invalid DokuWiki namespace ID '{wiki_id}'"));
-    }
-    Ok(())
-}
-
-pub fn module_page_id(wiki_id: &str, path: &[String]) -> Result<String> {
-    validate_wiki_id(wiki_id)?;
-    if path.is_empty() {
-        return Err(anyhow!("module path cannot be empty"));
-    }
-    let segments = path
-        .iter()
-        .map(|name| canonical_module_segment(name))
-        .collect::<Result<Vec<_>>>()?;
-    Ok(format!("{wiki_id}:{}:start", segments.join(":")))
-}
-
-pub fn overview_page_id(wiki_id: &str) -> Result<String> {
-    validate_wiki_id(wiki_id)?;
-    Ok(format!("{wiki_id}:start"))
-}
-
-pub fn page_file_path(output: &Path, wiki_id: &str, page_id: &str) -> Result<PathBuf> {
-    validate_wiki_id(wiki_id)?;
-    let wiki_prefix = format!("{wiki_id}:");
-    let page_suffix = page_id
-        .strip_prefix(&wiki_prefix)
-        .ok_or_else(|| anyhow!("page ID '{page_id}' is outside wiki namespace '{wiki_id}'"))?;
-    let mut path = output.join("dokuwiki").join("data").join("pages");
-    for segment in wiki_id.split(':').chain(page_suffix.split(':')) {
-        if !is_canonical_dokuwiki_segment(segment) {
-            return Err(anyhow!("invalid DokuWiki page ID '{page_id}'"));
-        }
-        path.push(segment);
-    }
-    path.set_extension("txt");
-    Ok(path)
-}
-
 fn output_relative_path(output: &Path, path: &Path) -> Result<String> {
     Ok(path
         .strip_prefix(output)
@@ -1734,7 +1668,7 @@ pub fn validate_module_page_paths(wiki_id: &str, tree: &ModuleTree) -> Result<()
         Ok(())
     }
 
-    validate_wiki_id(wiki_id)?;
+    WikiId::parse(wiki_id)?;
     visit(wiki_id, tree, &[], &mut BTreeMap::new())
 }
 
