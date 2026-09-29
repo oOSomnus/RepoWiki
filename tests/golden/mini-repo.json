@@ -872,7 +872,7 @@
     "dokuwiki/data/attic/repo/start.<timestamp>.txt.gz",
     "dokuwiki/data/cache/purgefile",
     "dokuwiki/data/index/page.idx",
-    "dokuwiki/data/log/deprecated/2026-09-28.log",
+    "dokuwiki/data/log/deprecated/<date>.log",
     "dokuwiki/data/meta/_dokuwiki.changes",
     "dokuwiki/data/meta/repo/platform/native/rust/start.changes",
     "dokuwiki/data/meta/repo/platform/native/rust/start.meta",

@@ -84,6 +84,10 @@ def canonical_output_path(path: Path, output: Path) -> str:
     relative = path.relative_to(output).as_posix()
     if "/data/attic/" in relative:
         return re.sub(r"\.\d+(\.txt\.gz)$", r".<timestamp>\1", relative)
+    if "/data/log/" in relative:
+        # DokuWiki names its log files after the day they were written, so the
+        # date is a run-local value just like the attic revision stamps.
+        return re.sub(r"\d{4}-\d{2}-\d{2}\.log$", "<date>.log", relative)
     return relative
 
 
@@ -593,9 +597,11 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
             for path in pages_dir.rglob("*.txt")
         }
         output_files = sorted(
-            canonical_output_path(path, output)
-            for path in output.rglob("*")
-            if path.is_file()
+            {
+                canonical_output_path(path, output)
+                for path in output.rglob("*")
+                if path.is_file()
+            }
         )
         replay = {
             "analysis": analysis_contract,
