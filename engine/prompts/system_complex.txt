@@ -39,7 +39,7 @@ do not use a generic placeholder graph.
 The complete reference article below models depth and source specificity; do
 not reuse its repository-specific facts or sentences.
 
-The host writes native DokuWiki source through codewiki doc write, using the
+The host writes native DokuWiki source through repowiki doc write, using the
 exact canonical page ID `{doc_path}`. Do not create files or spawn untracked
 sub-modules.
 </GUIDANCE>

@@ -7,6 +7,51 @@
  * option) any later version. See LICENSE for the full text.
  */
 
+/* Sidebar visibility toggle, injected above the page content. */
+.repowiki-sidebar-toggle {
+    float: right;
+    margin: 0 0 .5rem .75rem;
+    padding: .15rem .55rem;
+    border: 1px solid #c8ccd2;
+    border-radius: .25rem;
+    background: #f5f7fa;
+    color: #17202a;
+    font: inherit;
+    font-size: .95rem;
+    line-height: 1.3;
+    cursor: pointer;
+}
+
+.repowiki-sidebar-toggle:hover,
+.repowiki-sidebar-toggle:focus {
+    background: #eef1f5;
+}
+
+.repowiki-sidebar-toggle:focus-visible {
+    outline: 2px solid #0645ad;
+    outline-offset: 1px;
+}
+
+/* Collapsed state: hide the aside and undo the template's content offset so
+   the page spans the full width (including its RTL mirror). The doubled class
+   lifts these above the template's `.showSidebar #dokuwiki__content` rules,
+   which css.php serves after plugin styles. */
+.repowiki-sidebar-collapsed.repowiki-sidebar-collapsed #dokuwiki__aside {
+    display: none;
+}
+
+.repowiki-sidebar-collapsed.repowiki-sidebar-collapsed #dokuwiki__content {
+    float: none;
+    margin-left: 0;
+    margin-right: 0;
+    width: 100%;
+}
+
+.repowiki-sidebar-collapsed.repowiki-sidebar-collapsed #dokuwiki__content > .pad {
+    margin-left: 0;
+    margin-right: 0;
+}
+
 /* Inline diagrams stay fitted to the page; clicking opens the viewer. */
 .mermaid {
     display: block;

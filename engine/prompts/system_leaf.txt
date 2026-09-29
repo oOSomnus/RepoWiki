@@ -35,7 +35,7 @@ diagram. Write diagrams in native `<mermaid>...</mermaid>` tags.
 The complete reference article below is a model for information density and
 source-backed explanation. Do not reuse its project facts or sentences.
 
-The host writes the returned native DokuWiki source through codewiki doc write
+The host writes the returned native DokuWiki source through repowiki doc write
 to the exact canonical page ID `{doc_path}`. It includes the edition namespace
 and full module ancestry (for example `repo:system:api:start`), not just a
 leaf name. Do not create files, invent child modules, or invent a different ID.

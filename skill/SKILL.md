@@ -28,8 +28,8 @@ runtime dependencies.
 
 Resolve the directory containing this file and invoke the bundled executable:
 
-- POSIX: `scripts/codewiki`
-- Windows: `scripts/codewiki.exe`
+- POSIX: `scripts/repowiki`
+- Windows: `scripts/repowiki.exe`
 
 Every normal command result is JSON on stdout. A failure has
 `{"ok":false,"error":"...","chain":["..."]}` and a non-zero exit code.
@@ -38,18 +38,18 @@ Keep large values in session files instead of copying them into chat.
 The generation workflow uses these CLI subcommands:
 
 ```text
-codewiki generate
-codewiki components read
-codewiki prompt get
-codewiki tree save
-codewiki tree apply-cluster
-codewiki tree apply-super-group
-codewiki tree overview-context
-codewiki tree order
-codewiki doc write
-codewiki doc edit
-codewiki doc validate
-codewiki session close
+repowiki generate
+repowiki components read
+repowiki prompt get
+repowiki tree save
+repowiki tree apply-cluster
+repowiki tree apply-super-group
+repowiki tree overview-context
+repowiki tree order
+repowiki doc write
+repowiki doc edit
+repowiki doc validate
+repowiki session close
 ```
 
 Always pass `--repo-root <repo>` to session commands when the analyzed
@@ -87,7 +87,7 @@ Print only paths, hashes, sizes, and small summaries in the host trace.
 1. Start analysis with the architecture-oriented depth ceiling:
 
    ```text
-   codewiki generate --repo <repo> --output <repo>/.repowiki --max-depth 4
+   repowiki generate --repo <repo> --output <repo>/.repowiki --max-depth 4
    ```
 
    Confirm that the session contains the component graph, source index,
@@ -173,9 +173,9 @@ Print only paths, hashes, sizes, and small summaries in the host trace.
 6. Save the architecture tree in two phases:
 
    ```text
-   codewiki tree save --repo-root <repo> --session <session_id> --tree-file <root-tree.json> --first
-   codewiki tree save --repo-root <repo> --session <session_id> --tree-file <final-tree.json> --require-decomposition-review
-   codewiki tree order --repo-root <repo> --session <session_id>
+   repowiki tree save --repo-root <repo> --session <session_id> --tree-file <root-tree.json> --first
+   repowiki tree save --repo-root <repo> --session <session_id> --tree-file <final-tree.json> --require-decomposition-review
+   repowiki tree order --repo-root <repo> --session <session_id>
    ```
 
    The final tree is intentionally lossy with respect to low-level analysis
@@ -200,7 +200,7 @@ Print only paths, hashes, sizes, and small summaries in the host trace.
 7. Before each overview prompt, run:
 
    ```text
-   codewiki tree overview-context --repo-root <repo> --session <session_id>
+   repowiki tree overview-context --repo-root <repo> --session <session_id>
    ```
 
    The returned context includes the target tree, canonical child page IDs,
@@ -281,8 +281,8 @@ prompt transcripts, and validation reports for generation and diagnosis.
 Before close, run:
 
 ```text
-codewiki doc validate --repo-root <repo> --session <session_id>
-codewiki session close --repo-root <repo> --session <session_id>
+repowiki doc validate --repo-root <repo> --session <session_id>
+repowiki session close --repo-root <repo> --session <session_id>
 ```
 
 If validation is structurally valid but reports fewer explanatory pages than
@@ -298,7 +298,7 @@ require a page for every parsed component. Validation runs through the real
 DokuWiki parser and plugins, checks native internal links against the current
 `repo:` edition, and validates Mermaid plugin blocks.
 
-`codewiki html --repo-root <repo> --session <session_id>` may be run after
+`repowiki html --repo-root <repo> --session <session_id>` may be run after
 validation to render the same native DokuWiki source.
 
 The Reader opens the generated bundle with `repowiki-reader <.repowiki>`.

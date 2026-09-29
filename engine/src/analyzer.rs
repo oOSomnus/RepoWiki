@@ -104,7 +104,7 @@ pub fn analyze(
         let entry = match result {
             Ok(entry) => entry,
             Err(error) => {
-                eprintln!("codewiki: skipped walk entry: {error}");
+                eprintln!("repowiki: skipped walk entry: {error}");
                 continue;
             }
         };
@@ -185,7 +185,7 @@ pub fn analyze(
                     relationships.extend(fragment.relationships);
                 }
                 Err(error) => {
-                    eprintln!("codewiki: skipped {relative}: {error:#}");
+                    eprintln!("repowiki: skipped {relative}: {error:#}");
                 }
             }
         }
@@ -352,7 +352,7 @@ fn extension_map() -> HashMap<&'static str, &'static str> {
 fn default_excluded_dirs() -> Vec<&'static str> {
     vec![
         ".git",
-        ".codewiki",
+        ".state",
         ".repowiki",
         "target",
         "node_modules",

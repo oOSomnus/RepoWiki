@@ -872,7 +872,7 @@
     "dokuwiki/data/attic/repo/start.<timestamp>.txt.gz",
     "dokuwiki/data/cache/purgefile",
     "dokuwiki/data/index/page.idx",
-    "dokuwiki/data/log/deprecated/2026-09-28.log",
+    "dokuwiki/data/log/deprecated/<date>.log",
     "dokuwiki/data/meta/_dokuwiki.changes",
     "dokuwiki/data/meta/repo/platform/native/rust/start.changes",
     "dokuwiki/data/meta/repo/platform/native/rust/start.meta",
@@ -989,8 +989,8 @@
       "16d9f1d505b474339f16c35e933da22ceade02b83b64ab54e89aef090d05d165"
     ],
     "system_leaf": [
-      "4f73fb6a0311783fdfd53179ac7a017cd9963bb72f8eecb1abd1799186c8a6f7",
-      "e1544e98537f501fdad03328266edeb1ff812d3f59a94305e395d5bf26472938"
+      "aae11f81dfecdd855af7edd8b7c316fc0a7d667fd2952b55f753f3128cc198d2",
+      "aab8bed9a6139436ea69258833b0d11bfb85430bbe8f439de84fe7d589cd93eb"
     ],
     "user": [
       "8a98cf0fb9602e2514d85d0d9db3aa7798718391284282a0b11c2b867db83cd3",

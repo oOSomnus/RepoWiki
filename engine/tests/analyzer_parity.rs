@@ -1,6 +1,6 @@
-use codewiki::analyzer::{analyze, AnalyzeOptions};
-use codewiki::model::ArtifactIndex;
-use codewiki::session;
+use repowiki::analyzer::{analyze, AnalyzeOptions};
+use repowiki::model::ArtifactIndex;
+use repowiki::session;
 use std::fs;
 use tempfile::tempdir;
 

@@ -32,7 +32,7 @@ FILES_BY_PROFILE = {
     "repo-wiki": REPO_WIKI_FILES,
     "change-wiki": CHANGE_WIKI_FILES,
 }
-EXECUTABLE_FILES = {"scripts/codewiki", "scripts/codewiki.exe"}
+EXECUTABLE_FILES = {"scripts/repowiki", "scripts/repowiki.exe"}
 ALLOWED_TOP_LEVEL = {"SKILL.md", "agents", "references", "scripts", "vendor", "engine"}
 WIKI_RUNTIME_PREFIXES = ("vendor/dokuwiki/", "engine/dokuwiki/")
 WIKI_RUNTIME_REQUIRED_FILES = {
@@ -61,7 +61,8 @@ WIKI_RUNTIME_REQUIRED_FILES = {
 EXPECTED_DOKUWIKI_VERSION = b'2026-07-14c "Mort"'
 FORBIDDEN_TOP_LEVEL = {
     ".git",
-    ".codewiki",
+    ".state",
+    ".repowiki",
     "target",
     "reference",
     "tests",
@@ -162,7 +163,7 @@ def validate_package(package: LoadedPackage, label: str, profile: str) -> None:
         fail(f"{label} is missing required files: {', '.join(missing)}")
 
     binaries = sorted(files & EXECUTABLE_FILES)
-    if binaries != ["scripts/codewiki"] and binaries != ["scripts/codewiki.exe"]:
+    if binaries != ["scripts/repowiki"] and binaries != ["scripts/repowiki.exe"]:
         fail(
             f"{label} must contain exactly one platform binary under scripts/: "
             f"found {binaries}"
@@ -202,7 +203,7 @@ def validate_package(package: LoadedPackage, label: str, profile: str) -> None:
     if extra:
         fail(f"{label} contains non-runtime files: {', '.join(extra)}")
 
-    if binaries == ["scripts/codewiki"] and "scripts/codewiki" not in package.executable_files:
+    if binaries == ["scripts/repowiki"] and "scripts/repowiki" not in package.executable_files:
         fail(f"{label} POSIX binary is not executable")
 
     skill = package.files["SKILL.md"].decode("utf-8")
@@ -214,7 +215,7 @@ def validate_package(package: LoadedPackage, label: str, profile: str) -> None:
         or expected_name not in frontmatter[1].splitlines()
     ):
         fail(f"{label} has invalid or missing {profile} SKILL.md frontmatter")
-    if "scripts/codewiki" not in skill:
+    if "scripts/repowiki" not in skill:
         fail(f"{label} SKILL.md does not describe the bundled executable")
     if profile == "change-wiki":
         agent = package.files["agents/openai.yaml"].decode("utf-8")

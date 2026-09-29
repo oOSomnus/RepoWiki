@@ -147,7 +147,7 @@ test-install:
 			"$(PYTHON)" tools/validate-skill-package.py "$$root/$$skill_name"; \
 		fi; \
 		test ! -e "$$root/$$skill_name/stale.txt"; \
-		installed_binary="$$root/$$skill_name/scripts/codewiki"; \
+		installed_binary="$$root/$$skill_name/scripts/repowiki"; \
 		if [ -f "$$installed_binary.exe" ]; then installed_binary="$$installed_binary.exe"; fi; \
 		test -f "$$installed_binary"; \
 		case "$$installed_binary" in *.exe) ;; *) test -x "$$installed_binary" ;; esac; \
@@ -181,7 +181,7 @@ test-install:
 preview:
 	@rm -rf "$(PREVIEW_DIR)"
 	@mkdir -p "$(PREVIEW_DIR)"
-	@$(CARGO) build --release --locked --manifest-path "$(ENGINE_DIR)/Cargo.toml" --target-dir "$(CARGO_TARGET_DIR)" --bin codewiki
+	@$(CARGO) build --release --locked --manifest-path "$(ENGINE_DIR)/Cargo.toml" --target-dir "$(CARGO_TARGET_DIR)" --bin repowiki
 	@for path in $(RUNTIME_PATHS); do \
 		if [ ! -e "$(SKILL_DIR)/$$path" ]; then \
 			echo "missing runtime Skill source: skill/$$path" >&2; exit 2; \
@@ -193,21 +193,21 @@ preview:
 	@cp -a "$(ENGINE_DIR)/dokuwiki" "$(PREVIEW_DIR)/engine/dokuwiki"
 	@mkdir -p "$(PREVIEW_DIR)/scripts"
 	@binary=""; \
-	if [ -n "$${CARGO_BUILD_TARGET:-}" ] && [ -f "$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/codewiki.exe" ]; then \
-		binary="$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/codewiki.exe"; \
-	elif [ -n "$${CARGO_BUILD_TARGET:-}" ] && [ -f "$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/codewiki" ]; then \
-		binary="$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/codewiki"; \
-	elif [ -f "$(CARGO_TARGET_DIR)/release/codewiki.exe" ]; then \
-		binary="$(CARGO_TARGET_DIR)/release/codewiki.exe"; \
-	elif [ -f "$(CARGO_TARGET_DIR)/release/codewiki" ]; then \
-		binary="$(CARGO_TARGET_DIR)/release/codewiki"; \
+	if [ -n "$${CARGO_BUILD_TARGET:-}" ] && [ -f "$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/repowiki.exe" ]; then \
+		binary="$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/repowiki.exe"; \
+	elif [ -n "$${CARGO_BUILD_TARGET:-}" ] && [ -f "$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/repowiki" ]; then \
+		binary="$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/repowiki"; \
+	elif [ -f "$(CARGO_TARGET_DIR)/release/repowiki.exe" ]; then \
+		binary="$(CARGO_TARGET_DIR)/release/repowiki.exe"; \
+	elif [ -f "$(CARGO_TARGET_DIR)/release/repowiki" ]; then \
+		binary="$(CARGO_TARGET_DIR)/release/repowiki"; \
 	fi; \
 	if [ -z "$$binary" ]; then \
-		echo "Cargo completed but no codewiki executable was found" >&2; exit 1; \
+		echo "Cargo completed but no repowiki executable was found" >&2; exit 1; \
 	fi; \
 	case "$$binary" in \
-		*.exe) cp -p "$$binary" "$(PREVIEW_DIR)/scripts/codewiki.exe" ;; \
-		*) cp -p "$$binary" "$(PREVIEW_DIR)/scripts/codewiki"; chmod +x "$(PREVIEW_DIR)/scripts/codewiki" ;; \
+		*.exe) cp -p "$$binary" "$(PREVIEW_DIR)/scripts/repowiki.exe" ;; \
+		*) cp -p "$$binary" "$(PREVIEW_DIR)/scripts/repowiki"; chmod +x "$(PREVIEW_DIR)/scripts/repowiki" ;; \
 	esac
 	@$(PYTHON) tools/validate-skill-package.py "$(PREVIEW_DIR)"
 	@printf 'created preview at %s\n' "$(PREVIEW_DIR)"
@@ -215,7 +215,7 @@ preview:
 preview-change-wiki:
 	@rm -rf "$(CHANGE_PREVIEW_DIR)"
 	@mkdir -p "$(CHANGE_PREVIEW_DIR)"
-	@$(CARGO) build --release --locked --manifest-path "$(ENGINE_DIR)/Cargo.toml" --target-dir "$(CARGO_TARGET_DIR)" --bin codewiki
+	@$(CARGO) build --release --locked --manifest-path "$(ENGINE_DIR)/Cargo.toml" --target-dir "$(CARGO_TARGET_DIR)" --bin repowiki
 	@for path in $(RUNTIME_PATHS); do \
 		if [ ! -e "$(CHANGE_SKILL_DIR)/$$path" ]; then \
 			echo "missing runtime Skill source: change-wiki/$$path" >&2; exit 2; \
@@ -227,21 +227,21 @@ preview-change-wiki:
 	@cp -a "$(ENGINE_DIR)/dokuwiki" "$(CHANGE_PREVIEW_DIR)/engine/dokuwiki"
 	@mkdir -p "$(CHANGE_PREVIEW_DIR)/scripts"
 	@binary=""; \
-	if [ -n "$${CARGO_BUILD_TARGET:-}" ] && [ -f "$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/codewiki.exe" ]; then \
-		binary="$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/codewiki.exe"; \
-	elif [ -n "$${CARGO_BUILD_TARGET:-}" ] && [ -f "$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/codewiki" ]; then \
-		binary="$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/codewiki"; \
-	elif [ -f "$(CARGO_TARGET_DIR)/release/codewiki.exe" ]; then \
-		binary="$(CARGO_TARGET_DIR)/release/codewiki.exe"; \
-	elif [ -f "$(CARGO_TARGET_DIR)/release/codewiki" ]; then \
-		binary="$(CARGO_TARGET_DIR)/release/codewiki"; \
+	if [ -n "$${CARGO_BUILD_TARGET:-}" ] && [ -f "$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/repowiki.exe" ]; then \
+		binary="$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/repowiki.exe"; \
+	elif [ -n "$${CARGO_BUILD_TARGET:-}" ] && [ -f "$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/repowiki" ]; then \
+		binary="$(CARGO_TARGET_DIR)/$${CARGO_BUILD_TARGET}/release/repowiki"; \
+	elif [ -f "$(CARGO_TARGET_DIR)/release/repowiki.exe" ]; then \
+		binary="$(CARGO_TARGET_DIR)/release/repowiki.exe"; \
+	elif [ -f "$(CARGO_TARGET_DIR)/release/repowiki" ]; then \
+		binary="$(CARGO_TARGET_DIR)/release/repowiki"; \
 	fi; \
 	if [ -z "$$binary" ]; then \
-		echo "Cargo completed but no codewiki executable was found" >&2; exit 1; \
+		echo "Cargo completed but no repowiki executable was found" >&2; exit 1; \
 	fi; \
 	case "$$binary" in \
-		*.exe) cp -p "$$binary" "$(CHANGE_PREVIEW_DIR)/scripts/codewiki.exe" ;; \
-		*) cp -p "$$binary" "$(CHANGE_PREVIEW_DIR)/scripts/codewiki"; chmod +x "$(CHANGE_PREVIEW_DIR)/scripts/codewiki" ;; \
+		*.exe) cp -p "$$binary" "$(CHANGE_PREVIEW_DIR)/scripts/repowiki.exe" ;; \
+		*) cp -p "$$binary" "$(CHANGE_PREVIEW_DIR)/scripts/repowiki"; chmod +x "$(CHANGE_PREVIEW_DIR)/scripts/repowiki" ;; \
 	esac
 	@$(PYTHON) tools/validate-skill-package.py --profile change-wiki "$(CHANGE_PREVIEW_DIR)"
 	@printf 'created preview at %s\n' "$(CHANGE_PREVIEW_DIR)"
@@ -276,7 +276,7 @@ clean:
 		"$(DIST_DIR)" \
 		"$(PROJECT_ROOT)/target" \
 		"$(ENGINE_DIR)/target" \
-		"$(SKILL_DIR)/.codewiki-build" \
+		"$(SKILL_DIR)/.repowiki-build" \
 		"$(PROJECT_ROOT)/tools/__pycache__" \
 		"$(ENGINE_DIR)/__pycache__" \
 		"$(PROJECT_ROOT)/packaging"

@@ -1,5 +1,5 @@
-use codewiki::reader::{load_manifest, ReaderCatalog};
-use codewiki::session::change_wiki_id;
+use repowiki::reader::{load_manifest, ReaderCatalog};
+use repowiki::session::change_wiki_id;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::fs;
@@ -193,8 +193,8 @@ fn catalog_uses_native_shape_and_canonical_hierarchical_page_ids() {
     );
 }
 
-fn page_ids(edition: &codewiki::reader::ReaderEdition) -> BTreeSet<String> {
-    fn collect(tree: &[codewiki::reader::NavigationNode], ids: &mut BTreeSet<String>) {
+fn page_ids(edition: &repowiki::reader::ReaderEdition) -> BTreeSet<String> {
+    fn collect(tree: &[repowiki::reader::NavigationNode], ids: &mut BTreeSet<String>) {
         for node in tree {
             ids.insert(node.page_id.clone());
             collect(&node.children, ids);
@@ -636,6 +636,11 @@ fn binary_serves_native_dokuwiki_catalog_and_canonical_edition_pages() {
     );
     assert!(repository_html.contains("data-repowiki-path"));
     assert!(
+        repository_html.contains("data-repowiki-sidebar-toggle")
+            && repository_html.contains("aria-controls=\"dokuwiki__aside\""),
+        "page views must carry the sidebar toggle bound to the template sidebar: {repository_html}"
+    );
+    assert!(
         !repository_html.contains("<div class=\"trace\">"),
         "the visit-history trace must be replaced by the ancestor path"
     );
@@ -663,6 +668,11 @@ fn binary_serves_native_dokuwiki_catalog_and_canonical_edition_pages() {
         viewer_js.contains("repowiki-diagram-actions") && viewer_js.contains("open-tab"),
         "the aggregated script must carry the diagram corner actions and the new-tab opener"
     );
+    assert!(
+        viewer_js.contains("repowiki.sidebar.collapsed")
+            && viewer_js.contains("repowiki-sidebar-collapsed"),
+        "the aggregated script must carry the sidebar toggle and its persisted state key"
+    );
     let (status, viewer_css) = http_request(address, "/lib/exe/css.php");
     assert_eq!(status, 200);
     let viewer_css = String::from_utf8_lossy(&viewer_css);
@@ -673,6 +683,11 @@ fn binary_serves_native_dokuwiki_catalog_and_canonical_edition_pages() {
     assert!(
         viewer_css.contains("repowiki-diagram-actions"),
         "the aggregated styles must carry the diagram corner actions"
+    );
+    assert!(
+        viewer_css.contains(".repowiki-sidebar-collapsed")
+            && viewer_css.contains("#dokuwiki__aside"),
+        "the aggregated styles must carry the collapsed-sidebar layout override"
     );
 
     let repo_search = "/doku.php?id=repo:start&do=search&q=RepoEditionSearchMarker";
@@ -687,6 +702,10 @@ fn binary_serves_native_dokuwiki_catalog_and_canonical_edition_pages() {
     assert!(
         !repo_search_html.contains("data-repowiki-path"),
         "the ancestor path belongs to page views, not search results"
+    );
+    assert!(
+        !repo_search_html.contains("data-repowiki-sidebar-toggle"),
+        "the sidebar toggle only belongs to page views that host a template sidebar"
     );
     assert!(
         !repo_search_html.contains(&format!("{first_wiki_id}%3Aplatform%3Aapi%3Astart"))

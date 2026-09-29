@@ -136,11 +136,11 @@ impl SessionState {
 }
 
 fn session_storage_root(repo_path: &Path) -> PathBuf {
-    std::env::var_os("CODEWIKI_SESSION_REPO")
+    std::env::var_os("REPOWIKI_SESSION_REPO")
         .map(PathBuf::from)
         .unwrap_or_else(|| repo_path.to_path_buf())
         .join(".repowiki")
-        .join(".codewiki")
+        .join(".state")
 }
 
 pub fn sessions_root(repo_path: &Path) -> PathBuf {
@@ -237,63 +237,105 @@ pub fn save_state(state: &SessionState) -> Result<()> {
     write_json(&path, state)
 }
 
+fn session_lock_path(repo_path: &Path, session_id: &str) -> PathBuf {
+    session_storage_root(repo_path)
+        .join("session-locks")
+        .join(format!("{session_id}.lock"))
+}
+
+/// Remove `dir` when it holds no entries; returns whether it is gone.
+fn remove_if_empty(dir: &Path) -> bool {
+    if dir.is_dir()
+        && fs::read_dir(dir)
+            .map(|mut entries| entries.next().is_none())
+            .unwrap_or(false)
+    {
+        let _ = fs::remove_dir(dir);
+    }
+    !dir.exists()
+}
+
+/// Drop a session's directory, its lock file, and any storage directories
+/// that became empty, so nothing lingers after the session is gone.
+fn remove_session_leftovers(repo_path: &Path, session_id: &str) {
+    let _ = fs::remove_dir_all(session_root(repo_path, session_id));
+    // May fail on platforms that refuse to unlink an open handle; the next
+    // prune sweep collects whatever is left behind.
+    let _ = fs::remove_file(session_lock_path(repo_path, session_id));
+    let storage = session_storage_root(repo_path);
+    remove_if_empty(&storage.join("sessions"));
+    remove_if_empty(&storage.join("session-locks"));
+    remove_if_empty(&storage);
+}
+
 pub fn cleanup(repo_path: &Path, session_id: &str) -> Result<()> {
     validate_session_id(session_id)?;
     let root = session_root(repo_path, session_id);
     if root.exists() {
         fs::remove_dir_all(&root).with_context(|| format!("remove {}", root.display()))?;
     }
-    let sessions_dir = root.parent().map(Path::to_path_buf);
-    if let Some(sessions_dir) = sessions_dir {
-        if sessions_dir.exists()
-            && fs::read_dir(&sessions_dir)
-                .map(|mut entries| entries.next().is_none())
-                .unwrap_or(false)
-        {
-            let _ = fs::remove_dir(&sessions_dir);
-            if let Some(base_dir) = sessions_dir.parent() {
-                if base_dir.exists()
-                    && fs::read_dir(base_dir)
-                        .map(|mut entries| entries.next().is_none())
-                        .unwrap_or(false)
-                {
-                    let _ = fs::remove_dir(base_dir);
-                }
-            }
-        }
-    }
+    // The lock file may still be open on platforms that cannot unlink an
+    // open handle; prune() sweeps whatever is left behind.
+    let _ = fs::remove_file(session_lock_path(repo_path, session_id));
+    let storage = session_storage_root(repo_path);
+    remove_if_empty(&storage.join("sessions"));
+    remove_if_empty(&storage.join("session-locks"));
+    remove_if_empty(&storage);
     Ok(())
 }
 
 pub fn prune(repo_path: &Path) -> Result<()> {
     let root = sessions_root(repo_path);
-    if !root.exists() {
-        return Ok(());
-    }
-    let mut sessions = Vec::new();
-    for entry in fs::read_dir(&root)? {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() {
-            continue;
-        }
-        let path = entry.path().join("state.json");
-        if let Ok(contents) = fs::read_to_string(&path) {
-            if let Ok(state) = serde_json::from_str::<SessionState>(&contents) {
-                if is_expired(&state) {
-                    let _ = fs::remove_dir_all(entry.path());
-                } else {
-                    sessions.push(state);
+    if root.exists() {
+        let mut sessions = Vec::new();
+        for entry in fs::read_dir(&root)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            let path = entry.path().join("state.json");
+            if let Ok(contents) = fs::read_to_string(&path) {
+                if let Ok(state) = serde_json::from_str::<SessionState>(&contents) {
+                    if is_expired(&state) {
+                        remove_session_leftovers(repo_path, &state.session_id);
+                    } else {
+                        sessions.push(state);
+                    }
                 }
             }
         }
-    }
-    sessions.sort_by(|a, b| a.last_accessed.cmp(&b.last_accessed));
-    if sessions.len() > MAX_SESSIONS {
-        let remove_count = sessions.len() - MAX_SESSIONS;
-        for state in sessions.into_iter().take(remove_count) {
-            let _ = fs::remove_dir_all(session_root(repo_path, &state.session_id));
+        sessions.sort_by(|a, b| a.last_accessed.cmp(&b.last_accessed));
+        if sessions.len() > MAX_SESSIONS {
+            let remove_count = sessions.len() - MAX_SESSIONS;
+            for state in sessions.into_iter().take(remove_count) {
+                remove_session_leftovers(repo_path, &state.session_id);
+            }
         }
     }
+    sweep_orphan_locks(repo_path)?;
+    Ok(())
+}
+
+/// Delete lock files whose session no longer exists.
+fn sweep_orphan_locks(repo_path: &Path) -> Result<()> {
+    let lock_root = session_storage_root(repo_path).join("session-locks");
+    if !lock_root.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(&lock_root)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Some(session_id) = name.strip_suffix(".lock") else {
+            continue;
+        };
+        if !session_root(repo_path, session_id).exists() {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+    let storage = session_storage_root(repo_path);
+    remove_if_empty(&lock_root);
+    remove_if_empty(&storage);
     Ok(())
 }
 

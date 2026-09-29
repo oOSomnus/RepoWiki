@@ -1,7 +1,7 @@
-use codewiki::docs;
-use codewiki::model::{ArtifactIndex, ChangeSet, Module, ModuleTree, Node, Summary, UpdateRecord};
-use codewiki::session;
-use codewiki::update;
+use repowiki::docs;
+use repowiki::model::{ArtifactIndex, ChangeSet, Module, ModuleTree, Node, Summary, UpdateRecord};
+use repowiki::session;
+use repowiki::update;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -25,7 +25,7 @@ fn node(id: &str, path: &str, source: &str, depends_on: &[&str]) -> Node {
 fn prepared_session(
     nodes: &[Node],
     leaf_nodes: &[&str],
-) -> (tempfile::TempDir, codewiki::session::SessionState) {
+) -> (tempfile::TempDir, repowiki::session::SessionState) {
     let repo = tempdir().expect("repository tempdir");
     let output = repo.path().join("docs");
     let mut state = session::create(repo.path(), &output).expect("create session");
@@ -450,7 +450,7 @@ fn context_contains_upstream_referrers_and_orphan_context() {
     )
     .expect("write changes");
     let options = UpdateRecord {
-        options: codewiki::model::UpdateOptions {
+        options: repowiki::model::UpdateOptions {
             k_hop: 1,
             ..Default::default()
         },

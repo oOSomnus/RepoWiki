@@ -1,10 +1,10 @@
-use codewiki::docs::{self, EditOperation};
-use codewiki::model::{
+use repowiki::docs::{self, EditOperation};
+use repowiki::model::{
     ArtifactIndex, BreadthRisk, ChangeSet, DecompositionDecision, DecompositionReview, Module,
     ModuleTree, Node, Summary,
 };
-use codewiki::session;
-use codewiki::update;
+use repowiki::session;
+use repowiki::update;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -21,7 +21,7 @@ fn node(id: &str, language: &str) -> Node {
 fn prepared_session(
     nodes: &[(&str, &str)],
     leaf_nodes: &[&str],
-) -> (tempfile::TempDir, codewiki::session::SessionState) {
+) -> (tempfile::TempDir, repowiki::session::SessionState) {
     prepared_session_with_summary(nodes, leaf_nodes, Summary::default())
 }
 
@@ -29,7 +29,7 @@ fn prepared_session_with_summary(
     nodes: &[(&str, &str)],
     leaf_nodes: &[&str],
     summary: Summary,
-) -> (tempfile::TempDir, codewiki::session::SessionState) {
+) -> (tempfile::TempDir, repowiki::session::SessionState) {
     let repo = tempdir().expect("repository tempdir");
     let output = repo.path().join("docs");
     let mut state = session::create(repo.path(), &output).expect("create session");
