@@ -1,14 +1,16 @@
+#[path = "common/mod.rs"]
+mod common;
+
 use repowiki::docs::{self, EditOperation};
 use repowiki::model::{
-    ArtifactIndex, BreadthRisk, ChangeSet, DecompositionDecision, DecompositionReview, Module,
-    ModuleTree, Node, Summary,
+    BreadthRisk, ChangeSet, DecompositionDecision, DecompositionReview, Module, ModuleTree, Node,
+    Summary,
 };
 use repowiki::session;
 use repowiki::update;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use tempfile::tempdir;
 
 fn node(id: &str, language: &str) -> Node {
     Node {
@@ -30,26 +32,14 @@ fn prepared_session_with_summary(
     leaf_nodes: &[&str],
     summary: Summary,
 ) -> (tempfile::TempDir, repowiki::session::SessionState) {
-    let repo = tempdir().expect("repository tempdir");
-    let output = repo.path().join("docs");
-    let mut state = session::create(repo.path(), &output).expect("create session");
-    let nodes = nodes
-        .iter()
-        .map(|(id, language)| ((*id).to_string(), node(id, language)))
-        .collect::<BTreeMap<_, _>>();
-    let leaves = leaf_nodes
-        .iter()
-        .map(|id| (*id).to_string())
-        .collect::<Vec<_>>();
-    session::write_analysis_files(
-        &mut state,
-        &nodes,
-        &leaves,
-        &summary,
-        &ArtifactIndex::default(),
+    common::prepared_session(
+        nodes
+            .iter()
+            .map(|(id, language)| node(id, language))
+            .collect(),
+        leaf_nodes,
+        summary,
     )
-    .expect("write analysis files");
-    (repo, state)
 }
 
 fn source_node(id: &str, language: &str, source_code: &str) -> Node {

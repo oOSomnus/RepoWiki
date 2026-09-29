@@ -1,3 +1,6 @@
+#[path = "common/mod.rs"]
+mod common;
+
 use repowiki::docs;
 use repowiki::model::{ArtifactIndex, ChangeSet, Module, ModuleTree, Node, Summary, UpdateRecord};
 use repowiki::session;
@@ -26,26 +29,7 @@ fn prepared_session(
     nodes: &[Node],
     leaf_nodes: &[&str],
 ) -> (tempfile::TempDir, repowiki::session::SessionState) {
-    let repo = tempdir().expect("repository tempdir");
-    let output = repo.path().join("docs");
-    let mut state = session::create(repo.path(), &output).expect("create session");
-    let components = nodes
-        .iter()
-        .cloned()
-        .map(|node| (node.id.clone(), node))
-        .collect::<BTreeMap<_, _>>();
-    session::write_analysis_files(
-        &mut state,
-        &components,
-        &leaf_nodes
-            .iter()
-            .map(|id| (*id).to_string())
-            .collect::<Vec<_>>(),
-        &Summary::default(),
-        &ArtifactIndex::default(),
-    )
-    .expect("write analysis files");
-    (repo, state)
+    common::prepared_session(nodes.to_vec(), leaf_nodes, Summary::default())
 }
 
 fn nested_tree() -> ModuleTree {
