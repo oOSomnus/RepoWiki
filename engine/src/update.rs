@@ -351,10 +351,11 @@ pub fn stale_scan(state: &SessionState) -> Result<Value> {
     let missing_pages = expected.difference(&present).cloned().collect::<Vec<_>>();
     let extra_pages = present.difference(&expected).cloned().collect::<Vec<_>>();
     let mut broken_links = Vec::new();
+    let context = dokuwiki::session_context(state)?;
     for page_id in &pages {
         let path = docs::page_file_path(&output, &state.wiki_id, page_id)?;
         let content = fs::read_to_string(path)?;
-        let parsed = dokuwiki::parse_page(state, page_id, &content)?;
+        let parsed = context.parse(page_id, &content)?;
         for target in parsed.links {
             if !present.contains(&target) {
                 broken_links.push(json!({"page": page_id, "target": target}));

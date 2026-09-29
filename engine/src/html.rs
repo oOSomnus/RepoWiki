@@ -48,7 +48,8 @@ pub fn generate(state: &SessionState) -> Result<String> {
         }
         let path = docs::page_file_path(&output, &state.wiki_id, &page.page_id)?;
         ensure_regular_page(&path)?;
-        let rendered = dokuwiki::render_page_in_context(&render_context, &page.page_id)
+        let rendered = render_context
+            .render(&page.page_id)
             .with_context(|| format!("render DokuWiki page {}", page.page_id))?;
         sections.push_str("<section class=\"wiki-page\" id=\"");
         sections.push_str(&page_anchor(&page.page_id));

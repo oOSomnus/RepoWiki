@@ -121,9 +121,10 @@ pub fn write_document_with_policy(
     reuse_if_same: bool,
 ) -> Result<WriteResult> {
     let path = document_path(state, requested)?;
-    let parsed = dokuwiki::parse_page(state, requested, content)?;
+    let context = dokuwiki::session_context(state)?;
+    let parsed = context.parse(requested, content)?;
     if path.exists() {
-        if reuse_if_same && dokuwiki::read_page(state, requested)? == content {
+        if reuse_if_same && context.read(requested)? == content {
             return Ok(WriteResult {
                 path: requested.to_string(),
                 created: false,
@@ -139,7 +140,7 @@ pub fn write_document_with_policy(
         }
         return Err(anyhow!("document already exists: {}", path.display()));
     }
-    dokuwiki::write_page(state, requested, content)?;
+    context.write(requested, content)?;
     state.mark_write();
     session::save_state(state)?;
     Ok(WriteResult {
@@ -159,7 +160,8 @@ pub fn edit_document(
     if !path.is_file() {
         return Err(anyhow!("document page does not exist: {requested}"));
     }
-    let mut content = dokuwiki::read_page(state, requested)?;
+    let context = dokuwiki::session_context(state)?;
+    let mut content = context.read(requested)?;
     let history =
         session::session_root(Path::new(&state.repo_path), &state.session_id).join("history");
     let mut history_stack = load_history(&history, &path)?;
@@ -201,8 +203,8 @@ pub fn edit_document(
             }
         }
     }
-    let parsed = dokuwiki::parse_page(state, requested, &content)?;
-    dokuwiki::write_page(state, requested, &content)?;
+    let parsed = context.parse(requested, &content)?;
+    context.write(requested, &content)?;
     for history_path in consumed_history {
         if history_path.exists() {
             fs::remove_file(&history_path).map_err(|error| {
@@ -231,8 +233,9 @@ pub fn view_document(state: &SessionState, requested: &str) -> Result<Value> {
     if !path.is_file() {
         return Err(anyhow!("document page does not exist: {requested}"));
     }
-    let content = dokuwiki::read_page(state, requested)?;
-    let parsed = dokuwiki::parse_page(state, requested, &content)?;
+    let context = dokuwiki::session_context(state)?;
+    let content = context.read(requested)?;
+    let parsed = context.parse(requested, &content)?;
     Ok(json!({
         "path": requested,
         "file": path,

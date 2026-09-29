@@ -203,6 +203,7 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
     let mut parsed_page_ids = BTreeSet::new();
     let mut dokuwiki_links = Vec::new();
     let mut broken_dokuwiki_links = Vec::new();
+    let context = dokuwiki::session_context(state)?;
     for file in &actual_files {
         if !file.safe_to_read {
             let message = format!(
@@ -236,7 +237,7 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
                 continue;
             }
         };
-        match dokuwiki::parse_page(state, &file.page_id, &content) {
+        match context.parse(&file.page_id, &content) {
             Ok(parsed) => {
                 parsed_page_ids.insert(file.page_id.clone());
                 for target_page_id in &parsed.links {

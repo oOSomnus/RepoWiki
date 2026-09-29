@@ -260,34 +260,6 @@ impl WikiContext {
     }
 }
 
-pub fn read_page(state: &SessionState, page_id: &str) -> Result<String> {
-    session_context(state)?.read(page_id)
-}
-
-pub fn write_page(state: &SessionState, page_id: &str, content: &str) -> Result<()> {
-    session_context(state)?.write(page_id, content)
-}
-
-pub fn parse_page(state: &SessionState, page_id: &str, content: &str) -> Result<ParsedPage> {
-    session_context(state)?.parse(page_id, content)
-}
-
-pub fn parse_page_in_context(
-    context: &WikiContext,
-    page_id: &str,
-    content: &str,
-) -> Result<ParsedPage> {
-    context.parse(page_id, content)
-}
-
-pub fn render_page(state: &SessionState, page_id: &str) -> Result<String> {
-    session_context(state)?.render(page_id)
-}
-
-pub fn render_page_in_context(context: &WikiContext, page_id: &str) -> Result<String> {
-    context.render(page_id)
-}
-
 fn invoke_plugin(
     context: &WikiContext,
     op: &str,
