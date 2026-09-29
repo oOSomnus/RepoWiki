@@ -1780,6 +1780,16 @@ mod tests {
     }
 
     fn assess_overview_diagram(content: &str, diagram_labels: &[String]) -> Value {
+        let structure = lexed(
+            content,
+            &[
+                "====== Repository Overview ======",
+                "===== Purpose ======",
+                "===== Architecture ======",
+                "===== Responsibilities ======",
+            ],
+            &[],
+        );
         assess_page(
             "Repository",
             &Module::default(),
@@ -1792,8 +1802,52 @@ mod tests {
                 actual_links: &[],
                 grounded_labels: &[],
                 diagram_labels,
+                structure: &structure,
             },
         )
+    }
+
+    /// Stand in for DokuWiki's lexer with the structure it would report for
+    /// `content`, so one page can be assessed without a PHP runtime. Every
+    /// entry must sit in the fixture verbatim and exactly once: headings as
+    /// their whole source line, spans as the delimiter-inclusive run.
+    fn lexed(
+        content: &str,
+        headings: &[&str],
+        spans: &[(&str, dokuwiki::SpanKind)],
+    ) -> dokuwiki::PageStructure {
+        let located = |needle: &str| {
+            let start = content
+                .find(needle)
+                .unwrap_or_else(|| panic!("{needle} is not part of the fixture"));
+            (start, start + needle.len())
+        };
+        dokuwiki::PageStructure {
+            headings: headings
+                .iter()
+                .map(|line| {
+                    let (start, end) = located(line);
+                    let equals = line.chars().take_while(|ch| *ch == '=').count();
+                    dokuwiki::Heading {
+                        level: (7 - equals).max(1) as u8,
+                        text: line.trim().trim_matches('=').trim().to_string(),
+                        start,
+                        end,
+                    }
+                })
+                .collect(),
+            spans: spans
+                .iter()
+                .map(|(run, kind)| {
+                    let (start, end) = located(run);
+                    dokuwiki::Span {
+                        kind: *kind,
+                        start,
+                        end,
+                    }
+                })
+                .collect(),
+        }
     }
 
     #[test]
@@ -1918,6 +1972,15 @@ mod tests {
                 actual_links: &required_links,
                 grounded_labels: &[],
                 diagram_labels: &[],
+                structure: &lexed(
+                    &cjk_content,
+                    &[
+                        "====== 运行时 ======",
+                        "===== 目的与职责 =====",
+                        "===== 架构流程 =====",
+                    ],
+                    &[("<code>inline_code</code>", dokuwiki::SpanKind::Code)],
+                ),
             },
         );
         assert_eq!(cjk["prose_count_mode"], json!("cjk_characters"));
@@ -1943,6 +2006,15 @@ mod tests {
                 actual_links: &[],
                 grounded_labels: &[],
                 diagram_labels: &[],
+                structure: &lexed(
+                    &english_content,
+                    &[
+                        "====== Runtime ======",
+                        "===== Purpose =====",
+                        "===== Architecture =====",
+                    ],
+                    &[],
+                ),
             },
         );
         assert_eq!(english["prose_count_mode"], json!("english_words"));
@@ -1999,6 +2071,15 @@ mod tests {
                 actual_links: &[],
                 grounded_labels: &["Runtime".to_string()],
                 diagram_labels: &["Runtime".to_string()],
+                structure: &lexed(
+                    &content,
+                    &[
+                        "====== Runtime ======",
+                        "===== Purpose ======",
+                        "===== Architecture ======",
+                    ],
+                    &[],
+                ),
             },
         );
         assert_eq!(report["grounded_components"], json!(1));
@@ -2011,5 +2092,80 @@ mod tests {
                 .as_str()
                 .unwrap_or_default()
                 .contains("expected at least 2")));
+    }
+
+    #[test]
+    fn lexer_structure_decides_which_lines_are_headings_and_prose() {
+        let filler = "The runtime owns request parsing and dispatch. ".repeat(6);
+        let code = "<code java>\n===== Purpose =====\nint x = 1;\n</code>";
+        let content = format!(
+            "====== Runtime ======\n\n{filler}\n\n{code}\n\nIt names ''src/runtime.rs'' as the owner.\n"
+        );
+        let structure = lexed(
+            &content,
+            &["====== Runtime ======"],
+            &[(code, dokuwiki::SpanKind::Code)],
+        );
+        let report = assess_page(
+            "Runtime",
+            &Module::default(),
+            &content,
+            &BTreeMap::new(),
+            PageAssessmentContext {
+                is_leaf: true,
+                is_overview: false,
+                required_links: &[],
+                actual_links: &[],
+                grounded_labels: &[],
+                diagram_labels: &[],
+                structure: &structure,
+            },
+        );
+        // 42 words of filler, then the closing line's five spoken words plus
+        // the three that ''src/runtime.rs'' spells out: DokuWiki renders an
+        // inline code run, so its text is explanation the reader sees.
+        assert_eq!(report["prose_words"], json!(50));
+        // Only the real heading counts. The ===== Purpose ===== that sits inside
+        // the code block is program text, which a line scanner cannot know.
+        assert_eq!(report["semantic_sections"], json!(0));
+    }
+
+    #[test]
+    fn offsets_that_split_a_multibyte_character_are_clamped_wide() {
+        let content = "===== 目的 =====\n\n该模块负责说明边界与流程。\n";
+        let boundary = content.find("边界").expect("fixture keeps the target word");
+        let structure = dokuwiki::PageStructure {
+            headings: vec![dokuwiki::Heading {
+                level: 2,
+                text: "目的".to_string(),
+                start: 0,
+                end: content.find('\n').expect("fixture has a heading line"),
+            }],
+            // One byte into 边 is the shape a parser that counts differently
+            // from this crate could hand back.
+            spans: vec![dokuwiki::Span {
+                kind: dokuwiki::SpanKind::Unformatted,
+                start: boundary + 1,
+                end: boundary + 2,
+            }],
+        };
+        let report = assess_page(
+            "Runtime",
+            &Module::default(),
+            content,
+            &BTreeMap::new(),
+            PageAssessmentContext {
+                is_leaf: true,
+                is_overview: false,
+                required_links: &[],
+                actual_links: &[],
+                grounded_labels: &[],
+                diagram_labels: &[],
+                structure: &structure,
+            },
+        );
+        // The whole character is widened out of the scan rather than sliced in
+        // two, leaving the other twelve characters less 边.
+        assert_eq!(report["prose_words"], json!(11));
     }
 }

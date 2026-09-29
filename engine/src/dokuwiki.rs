@@ -59,9 +59,9 @@ pub struct ParsedPage {
 ///
 /// Every offset is a **byte** offset into the page source with CRLF folded to LF,
 /// which is what DokuWiki's lexer reports; they are not character indices. Slice
-/// Rust text at them only after folding line endings the same way and rounding to
-/// a character boundary with [`str::floor_char_boundary`], or a page containing
-/// multibyte text will panic mid-slice.
+/// Rust text at them only after folding line endings the same way and rounding
+/// each one out to a character boundary, or a page containing multibyte text
+/// will panic mid-slice.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct PageStructure {
     pub headings: Vec<Heading>,
