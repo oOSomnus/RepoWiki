@@ -47,6 +47,57 @@ pub struct WikiContextConfig {
 pub struct ParsedPage {
     pub links: Vec<String>,
     pub html: String,
+    /// How DokuWiki's own parser read the page.
+    ///
+    /// Defaulted because the field is additive on the wire: a binary from either
+    /// side of an upgrade must still decode the other's response.
+    #[serde(default)]
+    pub structure: PageStructure,
+}
+
+/// The parts of a page that carry meaning about its source rather than its text.
+///
+/// Every offset is a **byte** offset into the page source with CRLF folded to LF,
+/// which is what DokuWiki's lexer reports; they are not character indices. Slice
+/// Rust text at them only after folding line endings the same way and rounding to
+/// a character boundary with [`str::floor_char_boundary`], or a page containing
+/// multibyte text will panic mid-slice.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PageStructure {
+    pub headings: Vec<Heading>,
+    pub spans: Vec<Span>,
+}
+
+/// A heading line, from its first byte to the end of that line.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Heading {
+    /// DokuWiki's heading level, derived from the length of the `=` runs.
+    pub level: u8,
+    /// Title as the lexer reports it: `=` delimiters removed, inline markup kept.
+    pub text: String,
+    pub start: usize,
+    pub end: usize,
+}
+
+/// A run of source DokuWiki renders without parsing it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Span {
+    pub kind: SpanKind,
+    /// Delimiter-inclusive: points at `<code`, `<file`, `<nowiki>` or `%%`.
+    pub start: usize,
+    /// One past the closing delimiter.
+    pub end: usize,
+}
+
+/// Which construct a [`Span`] was produced by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SpanKind {
+    Code,
+    File,
+    Nowiki,
+    /// The `%%…%%` spelling of DokuWiki's unformatted mode.
+    Unformatted,
 }
 
 #[derive(Serialize)]
