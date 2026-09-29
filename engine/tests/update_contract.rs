@@ -473,6 +473,9 @@ fn context_contains_upstream_referrers_and_orphan_context() {
 
 #[test]
 fn stale_scan_reports_missing_pages_broken_links_and_extra_pages() {
+    if !common::dokuwiki_runtime_available() {
+        return;
+    }
     let leaf = node("src/api.rs::Api", "src/api.rs", "fn api() {}", &[]);
     let (repo, state) = prepared_session(&[leaf], &["src/api.rs::Api"]);
     let tree = ModuleTree::from([(
@@ -524,6 +527,9 @@ fn stale_scan_reports_missing_pages_broken_links_and_extra_pages() {
 
 #[test]
 fn finalize_records_verdicts_reports_stale_scan_and_metadata() {
+    if !common::dokuwiki_runtime_available() {
+        return;
+    }
     let leaf = node("src/api.rs::Api", "src/api.rs", "fn api() {}", &[]);
     let (repo, state) = prepared_session(&[leaf], &["src/api.rs::Api"]);
     let tree = ModuleTree::from([(

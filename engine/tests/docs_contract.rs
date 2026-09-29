@@ -210,6 +210,9 @@ fn processing_order_rejects_legacy_item_names() {
 
 #[test]
 fn document_paths_require_canonical_dokuwiki_page_ids() {
+    if !common::dokuwiki_runtime_available() {
+        return;
+    }
     let (_repo, mut state) = prepared_session(&[], &[]);
     for page_id in [
         ".repowiki:guide:start",
@@ -238,6 +241,9 @@ fn document_paths_require_canonical_dokuwiki_page_ids() {
 
 #[test]
 fn edit_insert_is_multiline_and_undo_pops_each_saved_version() {
+    if !common::dokuwiki_runtime_available() {
+        return;
+    }
     let (_repo, mut state) = prepared_session(&[], &[]);
     let page_id = "repo:guide:start";
     docs::write_document(&mut state, page_id, "zero\none\n").expect("write document");
@@ -414,6 +420,9 @@ fn depth_gate_allows_two_to_four_level_trees() {
 
 #[test]
 fn oversized_leaf_is_reported_and_blocks_documentation_close() {
+    if !common::dokuwiki_runtime_available() {
+        return;
+    }
     let (_repo, mut state) = prepared_session_with_summary(
         &[("a", "python"), ("b", "python")],
         &["a", "b"],
@@ -500,6 +509,9 @@ fn oversized_singleton_is_a_warning_but_remains_documentable() {
 
 #[test]
 fn documentation_quality_rejects_component_list_templates() {
+    if !common::dokuwiki_runtime_available() {
+        return;
+    }
     let (_repo, mut state) = prepared_session(&[("src/lib.rs::run", "rust")], &["src/lib.rs::run"]);
     let mut tree = BTreeMap::new();
     tree.insert(
