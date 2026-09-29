@@ -231,24 +231,45 @@ pub fn configure_process(command: &mut Command, context: &WikiContext) {
         );
 }
 
+impl WikiContext {
+    pub fn read(&self, page_id: &str) -> Result<String> {
+        let value = invoke_plugin(self, "read", page_id, None)?;
+        value["content"]
+            .as_str()
+            .map(str::to_string)
+            .ok_or_else(|| anyhow!("DokuWiki read returned no page content for {page_id}"))
+    }
+
+    pub fn write(&self, page_id: &str, content: &str) -> Result<()> {
+        invoke_plugin(self, "write", page_id, Some(content))?;
+        Ok(())
+    }
+
+    pub fn parse(&self, page_id: &str, content: &str) -> Result<ParsedPage> {
+        let value = invoke_plugin(self, "parse", page_id, Some(content))?;
+        serde_json::from_value(value)
+            .with_context(|| format!("invalid DokuWiki parse response for {page_id}"))
+    }
+
+    pub fn render(&self, page_id: &str) -> Result<String> {
+        let value = invoke_plugin(self, "render", page_id, None)?;
+        value["html"]
+            .as_str()
+            .map(str::to_string)
+            .ok_or_else(|| anyhow!("DokuWiki render returned no HTML for {page_id}"))
+    }
+}
+
 pub fn read_page(state: &SessionState, page_id: &str) -> Result<String> {
-    let context = session_context(state)?;
-    let value = invoke_plugin(&context, "read", page_id, None)?;
-    value["content"]
-        .as_str()
-        .map(str::to_string)
-        .ok_or_else(|| anyhow!("DokuWiki read returned no page content for {page_id}"))
+    session_context(state)?.read(page_id)
 }
 
 pub fn write_page(state: &SessionState, page_id: &str, content: &str) -> Result<()> {
-    let context = session_context(state)?;
-    invoke_plugin(&context, "write", page_id, Some(content))?;
-    Ok(())
+    session_context(state)?.write(page_id, content)
 }
 
 pub fn parse_page(state: &SessionState, page_id: &str, content: &str) -> Result<ParsedPage> {
-    let context = session_context(state)?;
-    parse_page_in_context(&context, page_id, content)
+    session_context(state)?.parse(page_id, content)
 }
 
 pub fn parse_page_in_context(
@@ -256,22 +277,15 @@ pub fn parse_page_in_context(
     page_id: &str,
     content: &str,
 ) -> Result<ParsedPage> {
-    let value = invoke_plugin(context, "parse", page_id, Some(content))?;
-    serde_json::from_value(value)
-        .with_context(|| format!("invalid DokuWiki parse response for {page_id}"))
+    context.parse(page_id, content)
 }
 
 pub fn render_page(state: &SessionState, page_id: &str) -> Result<String> {
-    let context = session_context(state)?;
-    render_page_in_context(&context, page_id)
+    session_context(state)?.render(page_id)
 }
 
 pub fn render_page_in_context(context: &WikiContext, page_id: &str) -> Result<String> {
-    let value = invoke_plugin(context, "render", page_id, None)?;
-    value["html"]
-        .as_str()
-        .map(str::to_string)
-        .ok_or_else(|| anyhow!("DokuWiki render returned no HTML for {page_id}"))
+    context.render(page_id)
 }
 
 fn invoke_plugin(
