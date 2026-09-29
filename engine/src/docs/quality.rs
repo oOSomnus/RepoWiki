@@ -71,7 +71,7 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
         }
     }
 
-    let validation_path = session::session_value_path(state, "module_tree_validation.json");
+    let validation_path = session::session_file(state, "module_tree_validation.json")?;
     let validation: Value = session::read_json(&validation_path).with_context(|| {
         format!(
             "incomplete documentation: missing {}",
@@ -198,7 +198,7 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
     }
 
     let nodes: BTreeMap<String, Node> =
-        session::read_json(&session::session_value_path(state, "components.json"))?;
+        session::read_json(&session::session_file(state, "components.json")?)?;
     let mut page_sources = BTreeMap::new();
     let mut parsed_page_ids = BTreeSet::new();
     let mut dokuwiki_links = Vec::new();
@@ -364,7 +364,7 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
         },
     });
     session::write_json(
-        &session::session_value_path(state, "documentation_validation.json"),
+        &session::session_file(state, "documentation_validation.json")?,
         &report,
     )?;
     Ok(report)

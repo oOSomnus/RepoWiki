@@ -295,14 +295,14 @@ pub fn save_module_tree_with_review(
     };
 
     let nodes: BTreeMap<String, Node> =
-        session::read_json(&session::session_value_path(state, "components.json"))?;
+        session::read_json(&session::session_file(state, "components.json")?)?;
     let mut processing = ProcessingSummary::default();
     for (name, module) in tree {
         collect_processing(&state.wiki_id, name, module, &[], &mut processing)?;
     }
     let known_ids = nodes.keys().cloned().collect::<BTreeSet<_>>();
     let candidate_ids =
-        session::read_json::<Vec<String>>(&session::session_value_path(state, "leaf_nodes.json"))?
+        session::read_json::<Vec<String>>(&session::session_file(state, "leaf_nodes.json")?)?
             .into_iter()
             .collect::<BTreeSet<_>>();
     let unmatched = processing
@@ -410,7 +410,7 @@ pub fn apply_cluster_response(
         ));
     }
     let nodes: BTreeMap<String, Node> =
-        session::read_json(&session::session_value_path(state, "components.json"))?;
+        session::read_json(&session::session_file(state, "components.json")?)?;
     let requested = input_ids.iter().cloned().collect::<BTreeSet<_>>();
     let unknown_input = requested
         .difference(&nodes.keys().cloned().collect())
@@ -719,7 +719,7 @@ pub fn overview_context_for_session(
 ) -> Result<Value> {
     let structure = overview_context(&state.wiki_id, tree, target_path, output_dir)?;
     let nodes: BTreeMap<String, Node> =
-        session::read_json(&session::session_value_path(state, "components.json"))?;
+        session::read_json(&session::session_file(state, "components.json")?)?;
     Ok(json!({
         "repo_structure": structure,
         "architecture_context": build_architecture_context(tree, target_path, &nodes),
@@ -1242,7 +1242,7 @@ fn assess_decomposition_reviews(tree: &ModuleTree, required: bool) -> Value {
 
 pub fn read_processing_order(state: &SessionState) -> Result<Vec<ProcessingItem>> {
     let order: Vec<ProcessingItem> =
-        session::read_json(&session::session_value_path(state, "processing_order.json"))?;
+        session::read_json(&session::session_file(state, "processing_order.json")?)?;
     for item in &order {
         if item.doc_path != module_page_id(&state.wiki_id, &item.path)? {
             return Err(anyhow!(
@@ -1305,10 +1305,10 @@ pub fn finalize_metadata(state: &SessionState, model: &str) -> Result<Metadata> 
         },
         files_generated,
         documentation_profile: "architecture".to_string(),
-        documentation_quality: session::read_json(&session::session_value_path(
+        documentation_quality: session::read_json(&session::session_file(
             state,
             "documentation_validation.json",
-        ))
+        )?)
         .ok(),
         last_update: output
             .join("update_record.json")
@@ -1373,8 +1373,10 @@ fn assess_tree_quality(
     nodes: &BTreeMap<String, Node>,
     candidate_ids: &BTreeSet<String>,
 ) -> Value {
-    let summary: Summary =
-        session::read_json(&session::session_value_path(state, "summary.json")).unwrap_or_default();
+    let summary: Summary = session::session_file(state, "summary.json")
+        .ok()
+        .and_then(|path| session::read_json(&path).ok())
+        .unwrap_or_default();
     let module_limit = nonzero_or(summary.max_token_per_module, DEFAULT_MAX_TOKEN_PER_MODULE);
     let leaf_limit = nonzero_or(
         summary.max_token_per_leaf_module,

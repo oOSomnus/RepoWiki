@@ -437,8 +437,9 @@ pub fn safe_source_filename(component_id: &str) -> String {
     format!("{}_{}.src", sanitized, &digest[..8])
 }
 
-pub fn safe_session_path(repo_path: &Path, session_id: &str, relative: &Path) -> Result<PathBuf> {
-    validate_session_id(session_id)?;
+pub fn session_file(state: &SessionState, relative: &str) -> Result<PathBuf> {
+    validate_session_id(&state.session_id)?;
+    let relative = Path::new(relative);
     if relative.is_absolute()
         || relative.components().any(|component| {
             matches!(
@@ -449,7 +450,7 @@ pub fn safe_session_path(repo_path: &Path, session_id: &str, relative: &Path) ->
     {
         return Err(anyhow!("unsafe session path: {}", relative.display()));
     }
-    Ok(session_root(repo_path, session_id).join(relative))
+    Ok(session_root(Path::new(&state.repo_path), &state.session_id).join(relative))
 }
 
 pub fn validate_session_id(session_id: &str) -> Result<()> {
@@ -472,16 +473,12 @@ pub fn repo_path(state: &SessionState) -> PathBuf {
     PathBuf::from(&state.repo_path)
 }
 
-pub fn session_value_path(state: &SessionState, name: &str) -> PathBuf {
-    session_root(Path::new(&state.repo_path), &state.session_id).join(name)
-}
-
 pub fn read_value(state: &SessionState, name: &str) -> Result<Value> {
-    read_json(&session_value_path(state, name))
+    read_json(&session_file(state, name)?)
 }
 
 pub fn write_value(state: &SessionState, name: &str, value: &Value) -> Result<()> {
-    write_json(&session_value_path(state, name), value)
+    write_json(&session_file(state, name)?, value)
 }
 
 pub fn module_tree_path(state: &SessionState) -> PathBuf {

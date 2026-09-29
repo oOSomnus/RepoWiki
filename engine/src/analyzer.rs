@@ -252,10 +252,10 @@ pub fn analyze(
         session_id: state.session_id.clone(),
         summary,
         graph_path: graph_path.to_string_lossy().into_owned(),
-        component_index_path: session::session_value_path(&state, "component_index.json")
+        component_index_path: session::session_file(&state, "component_index.json")?
             .to_string_lossy()
             .into_owned(),
-        leaf_nodes_path: session::session_value_path(&state, "leaf_nodes.json")
+        leaf_nodes_path: session::session_file(&state, "leaf_nodes.json")?
             .to_string_lossy()
             .into_owned(),
         artifact_index_path: artifact_path.to_string_lossy().into_owned(),

@@ -362,7 +362,7 @@ pub fn stale_scan(state: &SessionState) -> Result<Value> {
             }
         }
     }
-    let validation = session::session_value_path(state, "module_tree_validation.json");
+    let validation = session::session_file(state, "module_tree_validation.json")?;
     let validation_value: Value = if validation.is_file() {
         session::read_json(&validation)?
     } else {

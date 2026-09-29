@@ -183,16 +183,15 @@ fn languages_are_written_as_stable_component_counts() {
         &[("z", "python"), ("a", "python"), ("m", "javascript")],
         &["z", "a", "m"],
     );
-    let languages: Value =
-        session::read_json(&session::session_value_path(&state, "languages.json"))
-            .expect("read language counts");
+    let languages: Value = session::read_json(&common::session_file(&state, "languages.json"))
+        .expect("read language counts");
     assert_eq!(languages, json!({"javascript": 1, "python": 2}));
 }
 
 #[test]
 fn processing_order_rejects_legacy_item_names() {
     let (_repo, state) = prepared_session(&[("leaf", "python")], &["leaf"]);
-    let path = session::session_value_path(&state, "processing_order.json");
+    let path = common::session_file(&state, "processing_order.json");
     session::write_json(
         &path,
         &json!([{
@@ -296,9 +295,8 @@ fn edit_insert_is_multiline_and_undo_pops_each_saved_version() {
 #[test]
 fn component_and_candidate_order_is_deterministic() {
     let (_repo, state) = prepared_session(&[("b", "python"), ("a", "python")], &["b", "a"]);
-    let components: Value =
-        session::read_json(&session::session_value_path(&state, "components.json"))
-            .expect("read components");
+    let components: Value = session::read_json(&common::session_file(&state, "components.json"))
+        .expect("read components");
     let keys = components
         .as_object()
         .expect("component map")
@@ -434,7 +432,7 @@ fn oversized_leaf_is_reported_and_blocks_documentation_close() {
         },
     );
     let components: BTreeMap<String, Node> =
-        session::read_json(&session::session_value_path(&state, "components.json"))
+        session::read_json(&common::session_file(&state, "components.json"))
             .expect("read fixture components");
     let mut components = components;
     components.insert(
@@ -446,7 +444,7 @@ fn oversized_leaf_is_reported_and_blocks_documentation_close() {
         source_node("b", "python", "def b(): return gamma + delta"),
     );
     session::write_json(
-        &session::session_value_path(&state, "components.json"),
+        &common::session_file(&state, "components.json"),
         &components,
     )
     .expect("write fixture sources");
@@ -480,17 +478,14 @@ fn oversized_singleton_is_a_warning_but_remains_documentable() {
         },
     );
     let mut nodes: BTreeMap<String, Node> =
-        session::read_json(&session::session_value_path(&state, "components.json"))
+        session::read_json(&common::session_file(&state, "components.json"))
             .expect("read singleton");
     nodes.insert(
         "only".to_string(),
         source_node("only", "rust", &"fn only() { return_value(); }".repeat(20)),
     );
-    session::write_json(
-        &session::session_value_path(&state, "components.json"),
-        &nodes,
-    )
-    .expect("write singleton source");
+    session::write_json(&common::session_file(&state, "components.json"), &nodes)
+        .expect("write singleton source");
     let mut tree = BTreeMap::new();
     tree.insert("Only".to_string(), module(&["only"], BTreeMap::new()));
     let saved = docs::save_module_tree(&state, &tree, true).expect("save singleton");
@@ -671,18 +666,15 @@ fn overview_context_aggregates_full_dependency_graph_into_architecture_modules()
         &["api"],
     );
     let mut nodes: BTreeMap<String, Node> =
-        session::read_json(&session::session_value_path(&state, "components.json"))
+        session::read_json(&common::session_file(&state, "components.json"))
             .expect("read graph nodes");
     nodes.get_mut("api").unwrap().relative_path = "src/api.rs".to_string();
     nodes.get_mut("api").unwrap().depends_on = vec!["runtime".to_string()];
     nodes.get_mut("runtime").unwrap().relative_path = "src/runtime.rs".to_string();
     nodes.get_mut("runtime").unwrap().depends_on = vec!["storage".to_string()];
     nodes.get_mut("storage").unwrap().relative_path = "src/storage.rs".to_string();
-    session::write_json(
-        &session::session_value_path(&state, "components.json"),
-        &nodes,
-    )
-    .expect("write dependency graph");
+    session::write_json(&common::session_file(&state, "components.json"), &nodes)
+        .expect("write dependency graph");
 
     let tree = ModuleTree::from([
         (

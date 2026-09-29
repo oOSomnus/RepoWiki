@@ -19,6 +19,10 @@ pub fn dokuwiki_runtime_available() -> bool {
     available
 }
 
+pub fn session_file(state: &SessionState, relative: &str) -> std::path::PathBuf {
+    session::session_file(state, relative).expect("session-relative path")
+}
+
 pub fn prepared_session(
     nodes: Vec<Node>,
     leaf_nodes: &[&str],
