@@ -106,12 +106,14 @@ pub fn discover_runtime() -> Result<RuntimePaths> {
         ));
     }
     let php = std::env::var_os("REPOWIKI_PHP_BIN").unwrap_or_else(|| OsString::from("php"));
-    Ok(RuntimePaths {
+    let runtime = RuntimePaths {
         core_dir,
         package_root,
         integration_dir,
         php,
-    })
+    };
+    ensure_php_82(&runtime)?;
+    Ok(runtime)
 }
 
 fn resolve_core_dir(path: &Path) -> Option<PathBuf> {
@@ -122,7 +124,7 @@ fn resolve_core_dir(path: &Path) -> Option<PathBuf> {
     nested.join("VERSION").is_file().then_some(nested)
 }
 
-pub fn ensure_php_82(runtime: &RuntimePaths) -> Result<()> {
+fn ensure_php_82(runtime: &RuntimePaths) -> Result<()> {
     let output = Command::new(&runtime.php)
         .args(["-n", "-r", "echo PHP_VERSION_ID;"])
         .output()
@@ -278,7 +280,6 @@ fn invoke_plugin(
     page_id: &str,
     content: Option<&str>,
 ) -> Result<Value> {
-    ensure_php_82(&context.runtime)?;
     let request_path = context
         .workspace
         .join(format!("request-{}.json", Uuid::new_v4().simple()));

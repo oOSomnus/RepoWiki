@@ -219,7 +219,6 @@ pub fn run(config: ReaderConfig) -> Result<()> {
     let loaded = LoadedCatalog::open(&config.wiki_dir)?;
     let _signals = SignalGuard::install()?;
     let runtime = dokuwiki::discover_runtime()?;
-    dokuwiki::ensure_php_82(&runtime)?;
     if shutdown_requested() {
         return Ok(());
     }
