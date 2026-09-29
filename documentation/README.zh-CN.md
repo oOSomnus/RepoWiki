@@ -30,7 +30,7 @@ Wiki 生成和 Reader 需要启用 `mbstring` 与 `xml` 扩展的 PHP 8.2+。
 
 下面是通过独立 Reader 打开的 Wiki 示例。
 
-![通过独立 Reader 打开的 RepoWiki 示例](examples/codex_overview.png)
+![通过独立 Reader 打开的 RepoWiki 示例](examples/kafka_consumer.png)
 
 ## 相关文档
 

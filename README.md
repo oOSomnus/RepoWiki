@@ -32,7 +32,7 @@ for its command options and behavior.
 
 This screenshot shows an example wiki opened in the standalone Reader.
 
-![RepoWiki opened in the standalone reader](documentation/examples/codex_overview.png)
+![RepoWiki opened in the standalone reader](documentation/examples/kafka_consumer.png)
 
 ## Documentation
 
