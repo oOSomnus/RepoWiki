@@ -1,4 +1,4 @@
-use crate::session::{self, SessionState};
+use crate::session::{self, files, SessionState};
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -201,8 +201,7 @@ fn prepare_data_directories(savedir: &Path) -> Result<()> {
 
 pub fn session_context(state: &SessionState) -> Result<WikiContext> {
     let runtime = discover_runtime()?;
-    let workspace = session::session_root(Path::new(&state.repo_path), &state.session_id)
-        .join("dokuwiki-runtime");
+    let workspace = session::session_file(state, files::DOKUWIKI_RUNTIME)?;
     let savedir = Path::new(&state.output_dir).join("dokuwiki/data");
     prepare_context(WikiContextConfig {
         runtime,

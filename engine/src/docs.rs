@@ -4,7 +4,7 @@ use crate::model::{
     Summary, DEFAULT_CLUSTER_BATCH_SIZE, DEFAULT_MAX_TOKEN_PER_LEAF_MODULE,
     DEFAULT_MAX_TOKEN_PER_MODULE,
 };
-use crate::session::{self, SessionState};
+use crate::session::{self, files, SessionState};
 use anyhow::{anyhow, Context, Result};
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
@@ -161,8 +161,7 @@ pub fn edit_document(
     }
     let context = dokuwiki::session_context(state)?;
     let mut content = context.read(requested)?;
-    let history =
-        session::session_root(Path::new(&state.repo_path), &state.session_id).join("history");
+    let history = session::session_file(state, files::HISTORY)?;
     let mut history_stack = load_history(&history, &path)?;
     let mut pending_history = Vec::new();
     let mut consumed_history = Vec::new();
@@ -293,14 +292,14 @@ pub fn save_module_tree_with_review(
     };
 
     let nodes: BTreeMap<String, Node> =
-        session::read_json(&session::session_file(state, "components.json")?)?;
+        session::read_json(&session::session_file(state, files::COMPONENTS)?)?;
     let mut processing = ProcessingSummary::default();
     for (name, module) in tree {
         collect_processing(&state.wiki_id, name, module, &[], &mut processing)?;
     }
     let known_ids = nodes.keys().cloned().collect::<BTreeSet<_>>();
     let candidate_ids =
-        session::read_json::<Vec<String>>(&session::session_file(state, "leaf_nodes.json")?)?
+        session::read_json::<Vec<String>>(&session::session_file(state, files::LEAF_NODES)?)?
             .into_iter()
             .collect::<BTreeSet<_>>();
     let unmatched = processing
@@ -345,9 +344,8 @@ pub fn save_module_tree_with_review(
         "depth_errors": quality["depth_errors"],
         "quality_limits": quality["limits"],
     });
-    let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
-    let order_path = root.join("processing_order.json");
-    let validation_path = root.join("module_tree_validation.json");
+    let order_path = session::session_file(state, files::PROCESSING_ORDER)?;
+    let validation_path = session::session_file(state, files::MODULE_TREE_VALIDATION)?;
     session::write_json(&order_path, &processing.order)?;
     session::write_json(&validation_path, &validation)?;
     Ok(TreeSaveResult {
@@ -408,7 +406,7 @@ pub fn apply_cluster_response(
         ));
     }
     let nodes: BTreeMap<String, Node> =
-        session::read_json(&session::session_file(state, "components.json")?)?;
+        session::read_json(&session::session_file(state, files::COMPONENTS)?)?;
     let requested = input_ids.iter().cloned().collect::<BTreeSet<_>>();
     let unknown_input = requested
         .difference(&nodes.keys().cloned().collect())
@@ -717,7 +715,7 @@ pub fn overview_context_for_session(
 ) -> Result<Value> {
     let structure = overview_context(&state.wiki_id, tree, target_path, output_dir)?;
     let nodes: BTreeMap<String, Node> =
-        session::read_json(&session::session_file(state, "components.json")?)?;
+        session::read_json(&session::session_file(state, files::COMPONENTS)?)?;
     Ok(json!({
         "repo_structure": structure,
         "architecture_context": build_architecture_context(tree, target_path, &nodes),
@@ -1240,7 +1238,7 @@ fn assess_decomposition_reviews(tree: &ModuleTree, required: bool) -> Value {
 
 pub fn read_processing_order(state: &SessionState) -> Result<Vec<ProcessingItem>> {
     let order: Vec<ProcessingItem> =
-        session::read_json(&session::session_file(state, "processing_order.json")?)?;
+        session::read_json(&session::session_file(state, files::PROCESSING_ORDER)?)?;
     for item in &order {
         if item.doc_path != module_page_id(&state.wiki_id, &item.path)? {
             return Err(anyhow!(
@@ -1305,7 +1303,7 @@ pub fn finalize_metadata(state: &SessionState, model: &str) -> Result<Metadata> 
         documentation_profile: "architecture".to_string(),
         documentation_quality: session::read_json(&session::session_file(
             state,
-            "documentation_validation.json",
+            files::DOCUMENTATION_VALIDATION,
         )?)
         .ok(),
         last_update: output
@@ -1371,7 +1369,7 @@ fn assess_tree_quality(
     nodes: &BTreeMap<String, Node>,
     candidate_ids: &BTreeSet<String>,
 ) -> Value {
-    let summary: Summary = session::session_file(state, "summary.json")
+    let summary: Summary = session::session_file(state, files::SUMMARY)
         .ok()
         .and_then(|path| session::read_json(&path).ok())
         .unwrap_or_default();

@@ -141,6 +141,11 @@ pub struct SessionState {
 }
 
 impl SessionState {
+    /// The workspace directory this session owns every intermediate file in.
+    pub fn session_dir(&self) -> PathBuf {
+        session_root(Path::new(&self.repo_path), &self.session_id)
+    }
+
     pub fn touch(&mut self) {
         self.last_accessed = Utc::now().to_rfc3339();
     }
@@ -148,6 +153,44 @@ impl SessionState {
     pub fn mark_write(&mut self) {
         self.docs_written += 1;
         self.touch();
+    }
+}
+
+/// Every entry a session keeps in its workspace directory.
+///
+/// The skill contract documents the host-facing subset
+/// (`skill/references/cli-contract.md`); the rest are engine intermediates.
+/// Both live here so the on-disk schema has one owner rather than one literal
+/// per consumer.
+pub mod files {
+    pub const STATE: &str = "state.json";
+    pub const SUMMARY: &str = "summary.json";
+    pub const COMPONENTS: &str = "components.json";
+    pub const COMPONENT_INDEX: &str = "component_index.json";
+    pub const LEAF_NODES: &str = "leaf_nodes.json";
+    pub const LANGUAGES: &str = "languages.json";
+    pub const ARTIFACT_INDEX: &str = "artifact_index.json";
+    pub const CANDIDATE_MODULE_TREE: &str = "candidate_module_tree.json";
+    pub const PROCESSING_ORDER: &str = "processing_order.json";
+    pub const MODULE_TREE_VALIDATION: &str = "module_tree_validation.json";
+    pub const DOCUMENTATION_VALIDATION: &str = "documentation_validation.json";
+    pub const WORKFLOW: &str = "workflow.json";
+    pub const CHANGES: &str = "changes.json";
+    pub const ROUTES: &str = "routes.json";
+    pub const ROUTES_APPLIED: &str = "routes_applied.json";
+    pub const ROUTING_CONTEXT: &str = "routing_context.json";
+    pub const STALE_SCAN: &str = "stale_scan.json";
+    pub const UPDATE_RECORD_DRAFT: &str = "update_record_draft.json";
+    pub const ORPHAN_CONTEXT: &str = "orphan_context.json";
+
+    pub const SOURCES: &str = "sources";
+    pub const PROMPTS: &str = "prompts";
+    pub const HISTORY: &str = "history";
+    pub const REPORTS: &str = "reports";
+    pub const DOKUWIKI_RUNTIME: &str = "dokuwiki-runtime";
+
+    pub fn overview_context(branch: &str) -> String {
+        format!("overview_context_{branch}.json")
     }
 }
 
@@ -189,9 +232,9 @@ pub fn create(repo_path: &Path, output_dir: &Path) -> Result<SessionState> {
         session_id = Uuid::new_v4().simple().to_string()[..12].to_string();
     }
     let workspace = session_root(&repo_path, &session_id);
-    fs::create_dir_all(workspace.join("sources"))?;
-    fs::create_dir_all(workspace.join("prompts"))?;
-    fs::create_dir_all(workspace.join("history"))?;
+    fs::create_dir_all(workspace.join(files::SOURCES))?;
+    fs::create_dir_all(workspace.join(files::PROMPTS))?;
+    fs::create_dir_all(workspace.join(files::HISTORY))?;
 
     let now = Utc::now().to_rfc3339();
     let state = SessionState {
@@ -213,7 +256,7 @@ pub fn create(repo_path: &Path, output_dir: &Path) -> Result<SessionState> {
 
 fn read_state(repo_path: &Path, session_id: &str) -> Result<SessionState> {
     validate_session_id(session_id)?;
-    let path = session_root(repo_path, session_id).join("state.json");
+    let path = session_root(repo_path, session_id).join(files::STATE);
     let contents =
         fs::read_to_string(&path).with_context(|| format!("session not found: {session_id}"))?;
     serde_json::from_str(&contents)
@@ -258,9 +301,7 @@ where
 }
 
 fn save_state(state: &SessionState) -> Result<()> {
-    let repo_path = Path::new(&state.repo_path);
-    let path = session_root(repo_path, &state.session_id).join("state.json");
-    write_json(&path, state)
+    write_json(&session_file(state, files::STATE)?, state)
 }
 
 fn session_lock_path(repo_path: &Path, session_id: &str) -> PathBuf {
@@ -311,7 +352,6 @@ pub fn write_analysis_files(
     summary: &Summary,
     artifact_index: &ArtifactIndex,
 ) -> Result<()> {
-    let root = session_root(Path::new(&state.repo_path), &state.session_id);
     let entries: Vec<ComponentIndexEntry> = nodes
         .values()
         .map(|node| ComponentIndexEntry {
@@ -325,8 +365,8 @@ pub fn write_analysis_files(
             end_line: node.end_line,
         })
         .collect();
-    write_json(&root.join("component_index.json"), &entries)?;
-    write_json(&root.join("leaf_nodes.json"), leaf_nodes)?;
+    write_json(&session_file(state, files::COMPONENT_INDEX)?, &entries)?;
+    write_json(&session_file(state, files::LEAF_NODES)?, leaf_nodes)?;
     let mut language_counts = BTreeMap::new();
     for node in nodes.values() {
         if SUPPORTED_LANGUAGES.contains(&node.language.as_str()) {
@@ -335,12 +375,13 @@ pub fn write_analysis_files(
                 .or_insert(0usize) += 1;
         }
     }
-    write_json(&root.join("languages.json"), &language_counts)?;
-    write_json(&root.join("summary.json"), summary)?;
-    write_json(&root.join("artifact_index.json"), artifact_index)?;
-    write_json(&root.join("components.json"), nodes)?;
+    write_json(&session_file(state, files::LANGUAGES)?, &language_counts)?;
+    write_json(&session_file(state, files::SUMMARY)?, summary)?;
+    write_json(&session_file(state, files::ARTIFACT_INDEX)?, artifact_index)?;
+    write_json(&session_file(state, files::COMPONENTS)?, nodes)?;
     for node in nodes.values() {
-        let source_path = root.join("sources").join(safe_source_filename(&node.id));
+        let relative = format!("{}/{}", files::SOURCES, safe_source_filename(&node.id));
+        let source_path = session_file(state, &relative)?;
         let header = format!(
             "// Component: {}\n// Language: {}\n",
             node.id, node.language
@@ -405,7 +446,7 @@ pub fn session_file(state: &SessionState, relative: &str) -> Result<PathBuf> {
     {
         return Err(anyhow!("unsafe session path: {}", relative.display()));
     }
-    Ok(session_root(Path::new(&state.repo_path), &state.session_id).join(relative))
+    Ok(state.session_dir().join(relative))
 }
 
 pub fn validate_session_id(session_id: &str) -> Result<()> {

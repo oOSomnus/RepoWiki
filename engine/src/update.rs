@@ -1,7 +1,7 @@
 use crate::docs;
 use crate::dokuwiki;
 use crate::model::{ChangeSet, ModuleTree, Node, UpdateOptions, UpdateRecord};
-use crate::session::{self, SessionState};
+use crate::session::{self, files, SessionState};
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use serde_json::{json, Value};
@@ -119,13 +119,14 @@ pub fn plan(state: &SessionState, options: &UpdateOptions) -> Result<Value> {
         errors: Vec::new(),
         wall_seconds: started.elapsed().as_secs_f64(),
     };
-    let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
-    session::write_json(&root.join("changes.json"), &diff)?;
-    session::write_json(&root.join("update_record_draft.json"), &record)?;
+    let changes_path = session::session_file(state, files::CHANGES)?;
+    let record_path = session::session_file(state, files::UPDATE_RECORD_DRAFT)?;
+    session::write_json(&changes_path, &diff)?;
+    session::write_json(&record_path, &record)?;
     Ok(json!({
         "session_id": state.session_id,
-        "changes_path": root.join("changes.json"),
-        "record_path": root.join("update_record_draft.json"),
+        "changes_path": changes_path,
+        "record_path": record_path,
         "outcome": outcome,
         "active": active,
         "fallback": fallback,
@@ -137,9 +138,9 @@ pub fn plan(state: &SessionState, options: &UpdateOptions) -> Result<Value> {
 }
 
 pub fn route(state: &SessionState) -> Result<Value> {
-    let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
-    let diff: ChangeSet = session::read_json(&root.join("changes.json"))?;
-    let nodes: BTreeMap<String, Node> = session::read_json(&root.join("components.json"))?;
+    let diff: ChangeSet = session::read_json(&session::session_file(state, files::CHANGES)?)?;
+    let nodes: BTreeMap<String, Node> =
+        session::read_json(&session::session_file(state, files::COMPONENTS)?)?;
     let options = load_update_options(state)?;
     let module_index = module_index(state)?;
     let fallback_page = module_index
@@ -159,8 +160,8 @@ pub fn route(state: &SessionState) -> Result<Value> {
             .unwrap_or_else(|| fallback_page.clone());
         routes.insert(id.clone(), route);
     }
-    let path = root.join("routes.json");
-    session::write_json(&path, &routes)?;
+    let routes_path = session::session_file(state, files::ROUTES)?;
+    session::write_json(&routes_path, &routes)?;
     let orphans = routes
         .iter()
         .filter_map(|(id, route)| {
@@ -175,13 +176,13 @@ pub fn route(state: &SessionState) -> Result<Value> {
             })
         })
         .collect::<Vec<_>>();
-    let routing_context_path = root.join("routing_context.json");
+    let routing_context_path = session::session_file(state, files::ROUTING_CONTEXT)?;
     session::write_json(
         &routing_context_path,
         &json!({"module_tree": load_tree_value(state), "orphans": orphans}),
     )?;
     Ok(json!({
-        "routes_path": path,
+        "routes_path": routes_path,
         "routes": routes,
         "orphans": orphans,
         "routing_context_path": routing_context_path,
@@ -193,16 +194,16 @@ pub fn route(state: &SessionState) -> Result<Value> {
 /// not decide prose or call an LLM; it only enforces the routing decision
 /// schema and updates aggregate IDs consistently for every ancestor.
 pub fn apply_routes(state: &SessionState, decisions_path: &Path) -> Result<Value> {
-    let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
     let value: Value = session::read_json(decisions_path)?;
     let decisions = value
         .get("decisions")
         .and_then(Value::as_array)
         .ok_or_else(|| anyhow!("routing decisions must contain a 'decisions' array"))?;
     let mut tree = docs::read_tree_file(&session::module_tree_path(state))?;
-    let diff: ChangeSet = session::read_json(&root.join("changes.json"))?;
+    let diff: ChangeSet = session::read_json(&session::session_file(state, files::CHANGES)?)?;
     remove_deleted_and_renamed(&mut tree, &diff);
-    let nodes: BTreeMap<String, Node> = session::read_json(&root.join("components.json"))?;
+    let nodes: BTreeMap<String, Node> =
+        session::read_json(&session::session_file(state, files::COMPONENTS)?)?;
     let mut applied = Vec::new();
     let mut rejected = Vec::new();
     let mut untracked = Vec::new();
@@ -267,14 +268,15 @@ pub fn apply_routes(state: &SessionState, decisions_path: &Path) -> Result<Value
         "rejected": rejected,
         "validation_path": saved.validation_path,
     });
-    session::write_json(&root.join("routes_applied.json"), &output)?;
+    let applied_path = session::session_file(state, files::ROUTES_APPLIED)?;
+    session::write_json(&applied_path, &output)?;
     Ok(output)
 }
 
 pub fn context(state: &SessionState) -> Result<Value> {
-    let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
-    let diff: ChangeSet = session::read_json(&root.join("changes.json"))?;
-    let nodes: BTreeMap<String, Node> = session::read_json(&root.join("components.json"))?;
+    let diff: ChangeSet = session::read_json(&session::session_file(state, files::CHANGES)?)?;
+    let nodes: BTreeMap<String, Node> =
+        session::read_json(&session::session_file(state, files::COMPONENTS)?)?;
     let options = load_update_options(state)?;
     let active = active_ids(&diff);
     let tree = load_tree_value(state);
@@ -292,7 +294,7 @@ pub fn context(state: &SessionState) -> Result<Value> {
             })
         })
         .collect::<Vec<_>>();
-    let reports_dir = root.join("reports");
+    let reports_dir = session::session_file(state, files::REPORTS)?;
     fs::create_dir_all(&reports_dir)?;
     let mut reports = Vec::new();
     for id in active {
@@ -322,7 +324,7 @@ pub fn context(state: &SessionState) -> Result<Value> {
         }
     }
     let stale = stale_scan(state)?;
-    let orphan_context_path = reports_dir.join("orphan_context.json");
+    let orphan_context_path = reports_dir.join(files::ORPHAN_CONTEXT);
     session::write_json(
         &orphan_context_path,
         &json!({"module_tree": tree, "orphans": orphan_context}),
@@ -362,7 +364,7 @@ pub fn stale_scan(state: &SessionState) -> Result<Value> {
             }
         }
     }
-    let validation = session::session_file(state, "module_tree_validation.json")?;
+    let validation = session::session_file(state, files::MODULE_TREE_VALIDATION)?;
     let validation_value: Value = if validation.is_file() {
         session::read_json(&validation)?
     } else {
@@ -379,22 +381,22 @@ pub fn stale_scan(state: &SessionState) -> Result<Value> {
             .cloned()
             .unwrap_or_else(|| json!([])),
     });
-    let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
-    session::write_json(&root.join("stale_scan.json"), &result)?;
+    let stale_scan_path = session::session_file(state, files::STALE_SCAN)?;
+    session::write_json(&stale_scan_path, &result)?;
     Ok(result)
 }
 
 pub fn finalize(state: &SessionState, model: &str, verdicts_path: Option<&Path>) -> Result<Value> {
-    let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
-    let mut record: UpdateRecord = if root.join("update_record_draft.json").exists() {
-        session::read_json(&root.join("update_record_draft.json"))?
+    let draft_path = session::session_file(state, files::UPDATE_RECORD_DRAFT)?;
+    let mut record: UpdateRecord = if draft_path.exists() {
+        session::read_json(&draft_path)?
     } else {
         UpdateRecord::default()
     };
     if let Some(path) = verdicts_path {
         record.verdicts = read_verdicts(path, &state.wiki_id)?;
     }
-    record.reports = list_report_files(&root.join("reports"))?;
+    record.reports = list_report_files(&session::session_file(state, files::REPORTS)?)?;
     record.stale_scan = stale_scan(state)?;
     record.finished_at = Utc::now().to_rfc3339();
     record.pages_written = list_page_ids(state)?;
@@ -793,8 +795,7 @@ fn deepest_module_page(wiki_id: &str, tree: &ModuleTree, id: &str) -> Result<Opt
 }
 
 fn load_update_options(state: &SessionState) -> Result<UpdateOptions> {
-    let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
-    let path = root.join("update_record_draft.json");
+    let path = session::session_file(state, files::UPDATE_RECORD_DRAFT)?;
     let options = if path.exists() {
         let record: UpdateRecord = session::read_json(&path)?;
         record.options
@@ -1037,18 +1038,18 @@ fn list_page_ids(state: &SessionState) -> Result<Vec<String>> {
 }
 
 fn list_report_files(reports: &Path) -> Result<Vec<String>> {
-    let mut files = Vec::new();
+    let mut names = Vec::new();
     if !reports.exists() {
-        return Ok(files);
+        return Ok(names);
     }
     for entry in fs::read_dir(reports)? {
         let entry = entry?;
         if entry.path().extension().and_then(|ext| ext.to_str()) == Some("json") {
-            files.push(entry.file_name().to_string_lossy().into_owned());
+            names.push(entry.file_name().to_string_lossy().into_owned());
         }
     }
-    files.sort();
-    Ok(files)
+    names.sort();
+    Ok(names)
 }
 
 fn safe_id(value: &str) -> String {

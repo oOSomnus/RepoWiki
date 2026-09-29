@@ -2,7 +2,7 @@
 mod common;
 
 use repowiki::model::Summary;
-use repowiki::session::{self, SessionState};
+use repowiki::session::{self, files, SessionState};
 use std::path::{Path, PathBuf};
 
 fn session_handles(state: &SessionState) -> (PathBuf, String) {
@@ -15,7 +15,7 @@ fn session_handles(state: &SessionState) -> (PathBuf, String) {
 #[test]
 fn session_files_reject_paths_that_escape_the_session() {
     let (_repo, state) = common::prepared_session(Vec::new(), &[], Summary::default());
-    let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
+    let root = state.session_dir();
 
     for unsafe_relative in ["../escape", "/absolute", "..", "../../outside/x.json"] {
         let error = session::session_file(&state, unsafe_relative)
@@ -27,7 +27,23 @@ fn session_files_reject_paths_that_escape_the_session() {
     }
 
     let nested = session::session_file(&state, "reports/x.json").expect("nested session path");
-    assert_eq!(nested, root.join("reports/x.json"));
+    assert_eq!(nested, root.join(files::REPORTS).join("x.json"));
+}
+
+#[test]
+fn a_session_holds_the_directories_its_schema_declares() {
+    let (_repo, state) = common::prepared_session(Vec::new(), &[], Summary::default());
+
+    for directory in [files::SOURCES, files::PROMPTS, files::HISTORY] {
+        let path = session::session_file(&state, directory).expect(directory);
+        assert_eq!(path, state.session_dir().join(directory));
+        assert!(path.is_dir(), "{directory} was never created");
+    }
+
+    assert_eq!(
+        session::session_file(&state, files::STATE).expect("state name"),
+        state.session_dir().join(files::STATE)
+    );
 }
 
 #[test]

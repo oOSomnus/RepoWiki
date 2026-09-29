@@ -332,7 +332,8 @@ fn update_plan_write_sets_use_canonical_page_ids() {
 
     update::plan(&state, &Default::default()).expect("plan update");
     let record: UpdateRecord = session::read_json(
-        &session::session_root(repo.path(), &state.session_id).join("update_record_draft.json"),
+        &session::session_root(repo.path(), &state.session_id)
+            .join(session::files::UPDATE_RECORD_DRAFT),
     )
     .expect("read update plan");
     assert_eq!(
@@ -381,7 +382,8 @@ fn update_plan_write_sets_stay_in_change_wiki_namespace() {
 
     update::plan(&state, &Default::default()).expect("plan change update");
     let record: UpdateRecord = session::read_json(
-        &session::session_root(repo.path(), &state.session_id).join("update_record_draft.json"),
+        &session::session_root(repo.path(), &state.session_id)
+            .join(session::files::UPDATE_RECORD_DRAFT),
     )
     .expect("read update plan");
     let wiki_id = session::change_wiki_id(&change_id).expect("change wiki ID");
