@@ -453,6 +453,20 @@ pub fn apply_cluster_response(
             }
             if !module.components.is_empty() {
                 groups.push((name, module));
+            } else {
+                // A group without retained components is dropped entirely.
+                // Surface that decision so nested children do not vanish
+                // silently during recursive depth review.
+                if !module.children.is_empty() {
+                    diagnostics.push(format!(
+                        "group '{name}' was dropped with {} nested child group(s) because no component from its input remained",
+                        module.children.len()
+                    ));
+                } else {
+                    diagnostics.push(format!(
+                        "group '{name}' was dropped because no component from its input remained"
+                    ));
+                }
             }
         }
     }

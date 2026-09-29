@@ -100,6 +100,7 @@ def main() -> int:
             "directory classification task",
             "decomposition_review",
             "breadth_risk",
+            "two to four",
             "<GROUPED_COMPONENTS>",
             "DokuWiki namespace segments",
             "repo:system:api:start",
@@ -112,6 +113,10 @@ def main() -> int:
             "retain_leaf",
             "high-risk leaf",
             "directory-shaped child",
+            "Depth is earned",
+            "Return one child level per response",
+            "{current_depth}",
+            "{remaining_depth}",
             "<GROUPED_COMPONENTS>",
             "DokuWiki namespace segments",
             "repo:system:api:start",
@@ -120,6 +125,7 @@ def main() -> int:
             "<MODULES>",
             "<GROUPED_MODULES>",
             "Preserve the existing module pages",
+            "adds one level",
         ],
         "user.txt": [
             "<MODULE_TREE>",
@@ -266,7 +272,9 @@ def main() -> int:
     require(
         skill_text,
         [
-            "Audit every first-level module",
+            "Recursively review modules",
+            "current_depth",
+            "remaining_depth",
             "--require-decomposition-review",
             "one new worker with isolated context per DokuWiki page",
             "at most four workers",

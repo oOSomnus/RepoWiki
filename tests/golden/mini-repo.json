@@ -402,7 +402,7 @@
         "typescript"
       ],
       "leaf_nodes": 13,
-      "max_depth": 3,
+      "max_depth": 4,
       "max_token_per_leaf_module": 16000,
       "max_token_per_module": 36369,
       "supported_files": 13,
@@ -803,7 +803,7 @@
     ],
     "generation_info": {
       "commit_id": null,
-      "generator_version": "0.1.0",
+      "generator_version": "0.2.0",
       "main_model": "replay-model",
       "repo_path": "<repo>"
     },
@@ -978,7 +978,7 @@
   ],
   "prompt_hashes": {
     "cluster": [
-      "536c9a300a45d9c088f4700740f80566b4911b7b6897f769c6a9b30b604fcf2e"
+      "6af7e2d15815e3d1967bd85b0d6148db773cd65f7ac8a48d8c200e7adf1691c3"
     ],
     "overview_module": [
       "4aaff010c87c8b41889c6e467be025e2648bd76ba3269c3f595d14f4cdcb659c",

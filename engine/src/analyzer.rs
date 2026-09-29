@@ -1,7 +1,8 @@
 use crate::language;
 use crate::model::{
     ArtifactFile, ArtifactIndex, CallRelationship, Node, Summary, DEFAULT_CLUSTER_BATCH_SIZE,
-    DEFAULT_MAX_TOKEN_PER_LEAF_MODULE, DEFAULT_MAX_TOKEN_PER_MODULE, SUPPORTED_LANGUAGES,
+    DEFAULT_MAX_DEPTH, DEFAULT_MAX_TOKEN_PER_LEAF_MODULE, DEFAULT_MAX_TOKEN_PER_MODULE,
+    SUPPORTED_LANGUAGES,
 };
 use crate::session::{self, SessionState};
 use anyhow::{Context, Result};
@@ -29,7 +30,8 @@ pub struct AnalyzeOptions {
     pub artifact_token_budget: usize,
     pub artifact_exclude: Vec<String>,
     /// Analysis does not build the LLM tree, but this remains part of the
-    /// summary contract and is passed through to the analyzer.
+    /// summary contract and is passed through to the analyzer. Zero means use
+    /// the engine default ceiling.
     pub max_depth: usize,
     /// Clustering limits are recorded in the analysis summary for the host
     /// agent and tree quality gate. Zero means use the engine defaults.
@@ -196,7 +198,7 @@ pub fn analyze(
     let leaf_nodes = select_leaf_nodes(&nodes);
     let commit = git_head(&repo_path);
     let max_depth = if options.max_depth == 0 {
-        2
+        DEFAULT_MAX_DEPTH
     } else {
         options.max_depth
     };

@@ -84,10 +84,10 @@ Print only paths, hashes, sizes, and small summaries in the host trace.
 
 ## Fresh architecture wiki
 
-1. Start analysis with the architecture-oriented depth:
+1. Start analysis with the architecture-oriented depth ceiling:
 
    ```text
-   codewiki generate --repo <repo> --output <repo>/.repowiki --max-depth 2
+   codewiki generate --repo <repo> --output <repo>/.repowiki --max-depth 4
    ```
 
    Confirm that the session contains the component graph, source index,
@@ -124,7 +124,9 @@ Print only paths, hashes, sizes, and small summaries in the host trace.
    groups. Do not create pages for tests, generated protocol types, isolated
    helpers, or directory buckets unless they form a genuine system boundary.
    Every module entry must contain a `decomposition_review` with decision,
-   breadth risk, and a source-backed reason.
+   breadth risk, and a source-backed reason. A top-level module may stay a
+   leaf or take one child level; deeper levels are reserved for large, loosely
+   cohesive subsystems.
 
    The response must be model-generated. If it is empty, malformed, or
    contains no valid architecture anchors, retry the same request and report
@@ -137,14 +139,36 @@ Print only paths, hashes, sizes, and small summaries in the host trace.
    the host should fail earlier with `components read` so malformed IDs are
    diagnosed before tree mutation.
 
-5. Audit every first-level module with `scope=module`, using its candidate
-   components and dependency context. Refine modules with distinct
+5. Recursively review modules with `scope=module`, starting from every
+   top-level module and continuing into the children that earn another level.
+   Keep a frontier of modules to review. Each entry carries the module key,
+   its full path as a JSON string array, its candidate component IDs,
+   `current_depth` (the path length; top-level modules are level 1), and
+   `remaining_depth` (how many levels may exist below this module, counting
+   the children of this response). A module whose remaining depth is zero
+   becomes a leaf without another review.
+
+   For each frontier module, assemble `<name>.vars.json` with `scope=module`,
+   `module_name`, the reviewed module's own subtree as `module_tree`,
+   `current_depth`, and `remaining_depth`, then request the cluster prompt,
+   verify the input IDs with `components read`, and apply the response with
+   `tree apply-cluster --parent-path-file`. Each response creates one child
+   level only: every returned child keeps an empty `children` object, carries
+   at least one representative component ID, and includes its own
+   decomposition review. Feed a child back into the frontier when its
+   evidence shows a large, loosely cohesive submodule that would earn its own
+   page; otherwise close it with `retain_leaf`. Refine modules with distinct
    responsibilities, interfaces, execution stages, state/storage areas, or
-   integrations. Use the configured maximum depth of 2 as a ceiling, not a
-   reason to leave broad modules flat. A cohesive module may remain a leaf, but
-   the review must explain why a useful split is unsupported. Do not split a
-   cohesive subsystem merely because it has many functions or files. A module
-   review may return no child groups only with a `retain_leaf` decision.
+   integrations. Do not split a cohesive subsystem merely because it has many
+   functions or files. A module review may return no child groups only with a
+   `retain_leaf` decision, and a retained leaf must explain why a useful
+   split is unsupported.
+
+   The published hierarchy is two to four levels deep as needed: shallow,
+   cohesive branches stop early, and a third or fourth level is earned only
+   by large, loosely cohesive subsystems. Super-grouping, when used, adds one
+   level to the whole tree; count it against the same budget before any
+   further splitting.
 
 6. Save the architecture tree in two phases:
 

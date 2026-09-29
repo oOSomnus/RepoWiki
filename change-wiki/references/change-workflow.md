@@ -69,7 +69,7 @@ Run a fresh, full dependency analysis, with no `--include`, `--focus`, or
 `generate --update`:
 
 ```text
-scripts/codewiki --repo-root <original-repo> generate --repo <worktree> --output <change-bundle> --max-depth 2
+scripts/codewiki --repo-root <original-repo> generate --repo <worktree> --output <change-bundle> --max-depth 4
 ```
 
 `--repo` identifies source at the head worktree; `--output` identifies the
@@ -108,8 +108,12 @@ changed IDs. Keep unchanged neighbors in `architecture_context` or explicitly
 scoped supporting source, not in the input ID file. Apply the host response
 with `tree apply-cluster`, then recursively audit broad modules using
 `scope=module`, exact parent component IDs, a parent-path JSON string array,
-and `decomposition_review` for every response. Apply each response through the
-CLI. Save the first tree, refine it, then save the final tree with
+`current_depth`/`remaining_depth` budget variables, and a
+`decomposition_review` for every response. Apply each response through the
+CLI, one child level per response, and review new children again until they
+stay `retain_leaf` or the depth budget is exhausted. The published hierarchy
+stays two to four levels deep; changed responsibilities are usually small
+enough that one child level is plenty. Save the first tree, refine it, then save the final tree with
 `--require-decomposition-review`; run `tree order` and use only its full
 canonical `doc_path` page IDs. Each ID includes
 `change_<SHA256(complete base..head ID)>:` plus every ancestor segment and

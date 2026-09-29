@@ -105,7 +105,12 @@ discarding their pages or IDs. Both commands write the transformed tree to
 `--output-tree-file` (or replace `--tree-file`) and return diagnostics. A
 module-scope response includes `<DECOMPOSITION_REVIEW>` for the current
 parent; it may return an empty `<GROUPED_COMPONENTS>{}</GROUPED_COMPONENTS>`
-only when that review says `retain_leaf`.
+only when that review says `retain_leaf`. A module-scope response creates one
+child level only: each returned child keeps an empty `children` object and at
+least one representative component ID. Deeper levels are produced by
+reviewing the new children again with `scope=module`, passing the child's
+path as `--parent-path-file`, until the depth budget is exhausted or the
+module remains a leaf.
 
 `tree overview-context` renders a target's structure with components removed,
 immediate child `docs_path` values as full canonical DokuWiki page IDs, and a
@@ -133,6 +138,9 @@ descendants. `tree save` additionally records these architecture quality fields 
 `module_tree_validation.json`:
 
 - `module_count`, `leaf_count`, and `max_depth` describe the saved tree;
+  `max_depth` is the measured depth of the saved tree, while
+  `quality_limits.max_depth` is the configured ceiling from `generate
+  --max-depth` (default 4);
 - `omitted_analysis_candidate_ids` lists analysis candidates that were not
   selected as architecture anchors;
 - `oversized_leaf_modules` reports multi-component leaves whose source-token
@@ -145,8 +153,9 @@ descendants. `tree save` additionally records these architecture quality fields 
   high-risk leaves that were retained; warnings remain visible in the
   documentation validation report and do not silently disappear;
 - `quality_valid` is false for invalid selected IDs, invalid relationships,
-  excessive depth, or oversized architecture pages; `complete` means the
-  selected architecture tree is valid.
+  excessive depth (a module deeper than `quality_limits.max_depth`), or
+  oversized architecture pages; `complete` means the selected architecture
+  tree is valid.
 
 The engine does not invoke an LLM. The host must perform root clustering,
 optional super-grouping, and recursive `scope=module` clustering, then save the
@@ -202,7 +211,7 @@ Incremental runs additionally write `update_record.json`.
 Metadata statistics distinguish `analysis_leaf_candidates` from generated
 `leaf_nodes`; the latter is the number of final module-tree leaves. `module_count`
 and `max_depth` describe the documentation tree rather than the analyzer's
-candidate selection.
+candidate selection; `max_depth` is the measured tree depth.
 
 ## Documentation quality
 

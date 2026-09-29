@@ -1,6 +1,6 @@
 [package]
 name = "codewiki"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Agent-driven repository wiki generation as a standalone Rust skill"
 license = "MIT AND GPL-2.0-or-later"
