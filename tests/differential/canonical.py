@@ -1,4 +1,4 @@
-"""Canonical output helpers for the offline CodeWiki replay tests.
+"""Canonical output helpers for the offline RepoWiki replay tests.
 
 The runtime deliberately emits session IDs, absolute paths, timestamps, and
 other run-local values.  This module removes only those documented volatile

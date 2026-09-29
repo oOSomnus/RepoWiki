@@ -42,12 +42,12 @@ runtime dependencies.
 3. Run a fresh full analysis, without `--include`, `--focus`, or update mode:
 
    ```text
-   scripts/codewiki --repo-root <original-repo> generate --repo <worktree> --output <change-bundle> --max-depth 4
+   scripts/repowiki --repo-root <original-repo> generate --repo <worktree> --output <change-bundle> --max-depth 4
    ```
 
    Keep the returned session ID. Confirm the analyzed `repo_path` is the
    worktree and the session lives at
-   `<original-repo>/.repowiki/.codewiki/sessions/<session_id>/`. Prefix every
+   `<original-repo>/.repowiki/.state/sessions/<session_id>/`. Prefix every
    later session command with the same `--repo-root <original-repo>`.
 4. Map new-side diff hunk lines to exact component IDs using the session's
    `component_index.json` `start_line`/`end_line` spans. Keep the complete head
@@ -99,6 +99,6 @@ with the RepoWiki and Change Wiki workflows.
 On any failure after creation, keep the session directory for diagnosis and
 report its session ID. Remove only the change bundle and worktree created by
 this invocation. Never remove the repository bundle, another range, old
-`.codewiki` data, or caller-selected paths. See the reference workflow for the
+existing session data, or caller-selected paths. See the reference workflow for the
 exact rollback rules. The Reader can open the enclosing `.repowiki/` directory
 to switch between its repository edition and change editions.

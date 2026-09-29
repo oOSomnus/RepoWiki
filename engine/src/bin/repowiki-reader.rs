@@ -1,5 +1,5 @@
 use clap::Parser;
-use codewiki::reader::{self, ReaderConfig};
+use repowiki::reader::{self, ReaderConfig};
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]

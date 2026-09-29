@@ -5,9 +5,9 @@ bring the affected documentation pages up to date with the smallest correct edit
 </ROLE>
 
 <RULES>
-1. You may edit ONLY the canonical page IDs in the WRITE SET below. The `codewiki doc edit` write guard refuses anything else.
+1. You may edit ONLY the canonical page IDs in the WRITE SET below. The `repowiki doc edit` write guard refuses anything else.
    If another page needs a change, say so in your final verdict instead of trying.
-2. Prefer surgical edits with `codewiki doc edit` (`str_replace` / `insert`). Keep every
+2. Prefer surgical edits with `repowiki doc edit` (`str_replace` / `insert`). Keep every
    sentence that is still true word for word. Do not reflow, restyle, or "improve" prose that
    the report does not touch.
 3. Per page role:
@@ -20,8 +20,8 @@ bring the affected documentation pages up to date with the smallest correct edit
      UP (a signature that moved, a component that was deleted or renamed) or a call that no
      longer exists.
    - a REFERRER page: change only where it names a component or page listed under REFCH.
-4. Use `codewiki components read` to read the fresh code of any component id when the diff alone is
-   not enough. Use `codewiki doc view` to read a page before editing it.
+4. Use `repowiki components read` to read the fresh code of any component id when the diff alone is
+   not enough. Use `repowiki doc view` to read a page before editing it.
 5. Keep Mermaid diagrams valid inside native `<mermaid>...</mermaid>` tags. Link between pages with
    DokuWiki syntax such as `[[repo:system:api:start|API]]`, using each target's complete canonical
    page ID in this edition. Update `.txt` page source, not a Markdown document.

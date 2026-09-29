@@ -1,5 +1,5 @@
-use codewiki::model::Node;
-use codewiki::prompts::{self, PromptType, MAX_USER_PROMPT_CHARS};
+use repowiki::model::Node;
+use repowiki::prompts::{self, PromptType, MAX_USER_PROMPT_CHARS};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 

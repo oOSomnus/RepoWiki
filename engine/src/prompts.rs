@@ -85,7 +85,7 @@ impl PromptType {
 
 pub const MAX_USER_PROMPT_CHARS: usize = 900_000;
 const MODULE_TREE_TRIMMED_NOTE: &str =
-    "[CodeWiki: module tree component lists were trimmed; module names and hierarchy are complete. Read the referenced sources or pages when component detail is needed.]";
+    "[RepoWiki: module tree component lists were trimmed; module names and hierarchy are complete. Read the referenced sources or pages when component detail is needed.]";
 
 const NO_VARIABLES: &[&str] = &[];
 const CLUSTER_REQUIRED: &[&str] = &[];
@@ -665,7 +665,7 @@ fn truncate_to_char_limit(text: &str, limit: usize) -> String {
     if text.chars().count() <= limit {
         return text.to_string();
     }
-    let note = "\n\n[CodeWiki: prompt content truncated at the configured limit.]\n";
+    let note = "\n\n[RepoWiki: prompt content truncated at the configured limit.]\n";
     if limit <= note.chars().count() {
         return text.chars().take(limit).collect();
     }

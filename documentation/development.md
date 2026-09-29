@@ -26,7 +26,7 @@ Build requirements are GNU Make, Rust/Cargo, Python 3, `zip`, and `unzip`.
 Runtime wiki generation and the Reader require PHP 8.2+ with `mbstring` and
 `xml` enabled.
 
-`make preview` builds the release `codewiki` executable and copies the runtime
+`make preview` builds the release `repowiki` executable and copies the runtime
 Skill source into `preview/`. The binary is platform-specific, so build the
 package on the platform where it will be installed.
 
@@ -40,7 +40,7 @@ SKILL.md
 agents/openai.yaml
 references/cli-contract.md
 references/prompt-map.md
-scripts/codewiki                  # or scripts/codewiki.exe
+scripts/repowiki                  # or scripts/repowiki.exe
 vendor/dokuwiki/                  # pinned DokuWiki and plugin sources/notices
 engine/dokuwiki/                  # RepoWiki DokuWiki adapter, plugins, and router
 ```

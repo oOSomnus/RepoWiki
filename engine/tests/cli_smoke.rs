@@ -9,10 +9,10 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    let output = Command::new(env!("CARGO_BIN_EXE_codewiki"))
+    let output = Command::new(env!("CARGO_BIN_EXE_repowiki"))
         .args(args)
         .output()
-        .expect("run codewiki");
+        .expect("run repowiki");
     assert!(
         output.status.success(),
         "stdout: {}\nstderr: {}",
@@ -27,11 +27,11 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    let output = Command::new(env!("CARGO_BIN_EXE_codewiki"))
+    let output = Command::new(env!("CARGO_BIN_EXE_repowiki"))
         .current_dir(directory)
         .args(args)
         .output()
-        .expect("run codewiki");
+        .expect("run repowiki");
     assert!(
         output.status.success(),
         "stdout: {}\nstderr: {}",
@@ -46,10 +46,10 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    let output = Command::new(env!("CARGO_BIN_EXE_codewiki"))
+    let output = Command::new(env!("CARGO_BIN_EXE_repowiki"))
         .args(args)
         .output()
-        .expect("run codewiki");
+        .expect("run repowiki");
     let value = serde_json::from_slice(&output.stdout).expect("JSON error stdout");
     (output.status.success(), value)
 }
@@ -59,12 +59,12 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    Command::new(env!("CARGO_BIN_EXE_codewiki"))
+    Command::new(env!("CARGO_BIN_EXE_repowiki"))
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("spawn codewiki")
+        .expect("spawn repowiki")
 }
 
 #[test]
@@ -172,7 +172,7 @@ fn worktree_sessions_are_stored_under_repo_root() {
     let session = analysis["session_id"].as_str().expect("session id");
     let session_root = original
         .join(".repowiki")
-        .join(".codewiki")
+        .join(".state")
         .join("sessions")
         .join(session);
     let expected_session_root = session_root.to_string_lossy().into_owned();
@@ -212,15 +212,15 @@ fn worktree_sessions_are_stored_under_repo_root() {
     assert_eq!(info["repo_path"], state["repo_path"]);
     assert!(original
         .join(".repowiki")
-        .join(".codewiki")
+        .join(".state")
         .join("session-locks")
         .join(format!("{session}.lock"))
         .is_file());
-    assert!(!original.join(".codewiki").exists());
-    assert!(!worktree.join(".codewiki").exists());
+    assert!(!original.join(".state").exists());
+    assert!(!worktree.join(".state").exists());
     assert!(!worktree
         .join(".repowiki")
-        .join(".codewiki")
+        .join(".state")
         .join("sessions")
         .join(session)
         .exists());
@@ -497,6 +497,18 @@ Start with the Service module page for its purpose, request flow, and public int
         session,
     ]);
     assert_eq!(closed["cleaned"], true);
+    let session_state_root = repo.path().join(".repowiki").join(".state");
+    assert!(
+        !session_state_root
+            .join("session-locks")
+            .join(format!("{session}.lock"))
+            .exists(),
+        "the session lock must not linger after close"
+    );
+    assert!(
+        !session_state_root.exists(),
+        "the session storage root must be reclaimed once no session remains"
+    );
     assert!(output.path().join("metadata.json").exists());
     let metadata: Value =
         serde_json::from_slice(&fs::read(output.path().join("metadata.json")).expect("metadata"))
@@ -1388,10 +1400,7 @@ fn invalid_documentation_close_keeps_session_and_report() {
         .unwrap_or_default()
         .contains("incomplete documentation"));
 
-    let session_root = repo
-        .path()
-        .join(".repowiki/.codewiki/sessions")
-        .join(session);
+    let session_root = repo.path().join(".repowiki/.state/sessions").join(session);
     assert!(session_root.is_dir());
     let state: Value = serde_json::from_slice(
         &fs::read(session_root.join("state.json")).expect("read session state"),

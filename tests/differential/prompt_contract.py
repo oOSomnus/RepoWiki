@@ -61,7 +61,7 @@ def change_skill_contract() -> None:
             "diff --find-renames --name-status -z",
             "diff --find-renames --unified=0",
             "Do not fetch",
-            ".repowiki/.codewiki/sessions/",
+            ".repowiki/.state/sessions/",
             "components: []",
             "change_<SHA256(complete base..head ID)>:",
             "<mermaid>...</mermaid>",
@@ -155,7 +155,7 @@ def main() -> int:
         ],
         "system_leaf.txt": [
             "architecture documentation writer",
-            "codewiki doc write",
+            "repowiki doc write",
             "Mermaid",
             "substantive article",
             "two distinct source anchors",
@@ -167,7 +167,7 @@ def main() -> int:
         "system_complex.txt": [
             "architecture documentation writer",
             "already-selected architecture module",
-            "codewiki doc write",
+            "repowiki doc write",
             "selected components form one module",
             "two distinct anchors",
             "complete reference article",
@@ -201,8 +201,8 @@ def main() -> int:
         ],
         "stale_fix_user.txt": [
             "<STALE_ITEMS>",
-            "codewiki doc view",
-            "codewiki doc edit",
+            "repowiki doc view",
+            "repowiki doc edit",
             "complete canonical DokuWiki page ID",
         ],
     }

@@ -122,7 +122,7 @@ def run_command(binary: Path, args: list[str], *, cwd: Path | None = None) -> di
 def resolve_binary(location: Path) -> Path:
     if location.is_file():
         return location.resolve()
-    for name in ("codewiki", "codewiki.exe"):
+    for name in ("repowiki", "repowiki.exe"):
         candidate = location / "scripts" / name
         if candidate.is_file():
             return candidate.resolve()
@@ -656,7 +656,7 @@ def execute_replay(binary: Path, transcript: dict[str, Any], root: Path) -> dict
 
 def run(binary: Path, archive: Path | None, update_golden: bool) -> None:
     transcript = load_json(TRANSCRIPT_PATH)
-    with tempfile.TemporaryDirectory(prefix="codewiki-replay-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="repowiki-replay-") as temporary:
         temporary_root = Path(temporary)
         preview_result = execute_replay(binary, transcript, temporary_root / "preview-run")
 

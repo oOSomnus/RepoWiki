@@ -1,5 +1,5 @@
-use codewiki::reader::{load_manifest, ReaderCatalog};
-use codewiki::session::change_wiki_id;
+use repowiki::reader::{load_manifest, ReaderCatalog};
+use repowiki::session::change_wiki_id;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::fs;
@@ -193,8 +193,8 @@ fn catalog_uses_native_shape_and_canonical_hierarchical_page_ids() {
     );
 }
 
-fn page_ids(edition: &codewiki::reader::ReaderEdition) -> BTreeSet<String> {
-    fn collect(tree: &[codewiki::reader::NavigationNode], ids: &mut BTreeSet<String>) {
+fn page_ids(edition: &repowiki::reader::ReaderEdition) -> BTreeSet<String> {
+    fn collect(tree: &[repowiki::reader::NavigationNode], ids: &mut BTreeSet<String>) {
         for node in tree {
             ids.insert(node.page_id.clone());
             collect(&node.children, ids);

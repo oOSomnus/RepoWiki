@@ -1,5 +1,5 @@
-use codewiki::analyzer::{self, AnalyzeOptions};
-use codewiki::session;
+use repowiki::analyzer::{self, AnalyzeOptions};
+use repowiki::session;
 use std::fs;
 use std::path::Path;
 use tempfile::tempdir;
@@ -86,7 +86,7 @@ fn javascript_variable_declarators_keep_function_and_variable_kinds() {
             "const callback = (value: number) => value;\nconst value: number = 1;\n",
         ),
     ] {
-        let analysis = codewiki::language::analyze_file(
+        let analysis = repowiki::language::analyze_file(
             source,
             relative_path,
             Path::new(relative_path),

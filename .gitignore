@@ -1,14 +1,12 @@
 /**/target/
 /.build/
-/.codewiki/
-**/.codewiki/
-/skill/.codewiki-build/
+/skill/.repowiki-build/
 /preview/
 /dist/
 /graphify-out/
 /reference/.venv/
 **/__pycache__/
 *.pyc
-/.codewiki-build/
+/.repowiki-build/
 /.repowiki/
 *.rs.bk

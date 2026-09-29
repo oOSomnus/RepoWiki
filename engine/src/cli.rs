@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "codewiki",
+    name = "repowiki",
     version,
     about = "Agent-driven repository documentation"
 )]
@@ -393,11 +393,11 @@ pub fn run() -> Result<()> {
         Err(error) => return Err(anyhow!("CLI argument error: {error}")),
     };
     if let Some(repo) = &cli.session_repo {
-        std::env::set_var("CODEWIKI_SESSION_REPO", repo);
+        std::env::set_var("REPOWIKI_SESSION_REPO", repo);
     }
     match cli.command {
         None => {
-            Cli::parse_from(["codewiki", "--help"]);
+            Cli::parse_from(["repowiki", "--help"]);
             Ok(())
         }
         Some(command) => dispatch(command),
@@ -570,18 +570,18 @@ fn analyze_command(
             "prompt_types": prompts::catalog(),
             "prompt_specs": prompts::catalog_specs(),
             "logical_tool_mapping": {
-                "analyze_repo": "codewiki analyze",
-                "read_code_components": "codewiki components read",
-                "get_prompt": "codewiki prompt get",
-                "save_module_tree": "codewiki tree save",
-                "apply_cluster": "codewiki tree apply-cluster",
-                "apply_super_group": "codewiki tree apply-super-group",
-                "overview_context": "codewiki tree overview-context",
-                "get_processing_order": "codewiki tree order",
-                "write_doc_file": "codewiki doc write",
-                "edit_doc_file": "codewiki doc edit",
-                "validate_doc": "codewiki doc validate",
-                "close_session": "codewiki session close"
+                "analyze_repo": "repowiki analyze",
+                "read_code_components": "repowiki components read",
+                "get_prompt": "repowiki prompt get",
+                "save_module_tree": "repowiki tree save",
+                "apply_cluster": "repowiki tree apply-cluster",
+                "apply_super_group": "repowiki tree apply-super-group",
+                "overview_context": "repowiki tree overview-context",
+                "get_processing_order": "repowiki tree order",
+                "write_doc_file": "repowiki doc write",
+                "edit_doc_file": "repowiki doc edit",
+                "validate_doc": "repowiki doc validate",
+                "close_session": "repowiki session close"
             },
             "generation_contract": {
                 "prompt_get_is_transport_only": true,
@@ -594,9 +594,9 @@ fn analyze_command(
                 "template_only_pages_are_rejected": true
             },
             "next": if update_options.is_some() {
-                vec!["codewiki update plan", "codewiki update route", "host-agent routing_user decision", "codewiki update route-apply", "codewiki update context", "codewiki update stale-scan", "host-agent document edits", "codewiki update finalize"]
+                vec!["repowiki update plan", "repowiki update route", "host-agent routing_user decision", "repowiki update route-apply", "repowiki update context", "repowiki update stale-scan", "host-agent document edits", "repowiki update finalize"]
             } else {
-                vec!["host-agent root cluster response", "host-agent recursive scope=module clustering", "codewiki tree save", "host-agent leaf-first documentation", "host-agent overview documentation", "codewiki session close"]
+                vec!["host-agent root cluster response", "host-agent recursive scope=module clustering", "repowiki tree save", "host-agent leaf-first documentation", "host-agent overview documentation", "repowiki session close"]
             }
         });
         let workflow_path = session::session_value_path(&state, "workflow.json");
@@ -995,7 +995,7 @@ where
 }
 
 fn load_session(session_id: &str) -> Result<SessionState> {
-    let repo = std::env::var_os("CODEWIKI_SESSION_REPO")
+    let repo = std::env::var_os("REPOWIKI_SESSION_REPO")
         .map(PathBuf::from)
         .unwrap_or(std::env::current_dir()?);
     session::load(&repo, session_id)
@@ -1022,7 +1022,7 @@ mod tests {
 
     #[test]
     fn update_defaults_match_architecture_workflow() {
-        let cli = Cli::try_parse_from(["codewiki", "generate", "--update"])
+        let cli = Cli::try_parse_from(["repowiki", "generate", "--update"])
             .expect("default update arguments");
         let Some(Command::Generate(args)) = cli.command else {
             panic!("expected generate command");
@@ -1031,26 +1031,26 @@ mod tests {
         assert_eq!(options.rung, "3");
         assert_eq!(options.max_diff_tokens, 8000);
         assert_eq!(options.k_hop, 1);
-        let cli = Cli::try_parse_from(["codewiki", "generate", "--update", "--rung", "3b"])
+        let cli = Cli::try_parse_from(["repowiki", "generate", "--update", "--rung", "3b"])
             .expect("3b update arguments");
         let Some(Command::Generate(args)) = cli.command else {
             panic!("expected generate command");
         };
         assert_eq!(UpdateOptions::from(args.update_options).k_hop, 2);
-        assert!(Cli::try_parse_from(["codewiki", "generate", "--update", "--rung", "4"]).is_err());
+        assert!(Cli::try_parse_from(["repowiki", "generate", "--update", "--rung", "4"]).is_err());
     }
 
     #[test]
     fn analysis_defaults_use_depth_ceiling_four() {
         let cli =
-            Cli::try_parse_from(["codewiki", "generate"]).expect("default generate arguments");
+            Cli::try_parse_from(["repowiki", "generate"]).expect("default generate arguments");
         let Some(Command::Generate(args)) = cli.command else {
             panic!("expected generate command");
         };
         assert_eq!(args.common.max_depth, 4);
         assert_eq!(args.common.max_depth, DEFAULT_MAX_DEPTH);
 
-        let cli = Cli::try_parse_from(["codewiki", "analyze"]).expect("default analyze arguments");
+        let cli = Cli::try_parse_from(["repowiki", "analyze"]).expect("default analyze arguments");
         let Some(Command::Analyze(args)) = cli.command else {
             panic!("expected analyze command");
         };
@@ -1060,7 +1060,7 @@ mod tests {
     #[test]
     fn tree_save_can_require_complete_decomposition_reviews() {
         let cli = Cli::try_parse_from([
-            "codewiki",
+            "repowiki",
             "tree",
             "save",
             "--session",

@@ -69,7 +69,7 @@ Run a fresh, full dependency analysis, with no `--include`, `--focus`, or
 `generate --update`:
 
 ```text
-scripts/codewiki --repo-root <original-repo> generate --repo <worktree> --output <change-bundle> --max-depth 4
+scripts/repowiki --repo-root <original-repo> generate --repo <worktree> --output <change-bundle> --max-depth 4
 ```
 
 `--repo` identifies source at the head worktree; `--output` identifies the
@@ -77,9 +77,9 @@ new change edition in the original checkout. `--repo-root` is the effective
 session-storage root. Keep it on every later session command, including
 `components read`, `prompt get`, tree commands, document commands, validation,
 and `session close`. The session must be under
-`<original-repo>/.repowiki/.codewiki/sessions/<session-id>/`, while its
+`<original-repo>/.repowiki/.state/sessions/<session-id>/`, while its
 `state.json` `repo_path` remains the worktree. Locks are under the sibling
-`session-locks/` directory. Never migrate or read root `.codewiki` sessions.
+`session-locks/` directory.
 
 Capture the set of session IDs before generation. Save the returned session ID
 and verify the reported session path and analyzed repository before continuing.
@@ -204,5 +204,5 @@ creation:
 On success, `session close` performs normal session cleanup; then remove the
 worktree. Keep the generated bundle. If session close fails, treat the run as
 failed, preserve its session, and follow failure cleanup. The original
-`.repowiki/` repository bundle and all old root `.codewiki` data remain
+`.repowiki/` repository bundle and all unrelated data remain
 untouched on every path.

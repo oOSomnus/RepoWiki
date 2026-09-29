@@ -24,7 +24,7 @@ write.
 Sessions live below the effective repository root, selected by `--repo-root` (or the CLI's default repository root):
 
 ```text
-.repowiki/.codewiki/sessions/<session_id>/
+.repowiki/.state/sessions/<session_id>/
 ├── state.json
 ├── component_index.json
 ├── components.json
@@ -40,7 +40,7 @@ Sessions live below the effective repository root, selected by `--repo-root` (or
 └── documentation_validation.json
 ```
 
-Per-session locks live at `.repowiki/.codewiki/session-locks/<session_id>.lock`.
+Per-session locks live at `.repowiki/.state/session-locks/<session_id>.lock`.
 
 `components read` returns source paths for the requested IDs. The source files begin with component and language comments and are safe to read directly.
 
@@ -218,7 +218,7 @@ candidate selection; `max_depth` is the measured tree depth.
 After all pages have been written, run:
 
 ~~~text
-codewiki doc validate --repo-root <repo> --session <session_id>
+repowiki doc validate --repo-root <repo> --session <session_id>
 ~~~
 
 The command writes the session-side documentation validation report and
