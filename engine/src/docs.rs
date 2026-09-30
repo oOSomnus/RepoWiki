@@ -2095,6 +2095,61 @@ mod tests {
     }
 
     #[test]
+    fn crlf_pages_are_grounded_like_lf_pages() {
+        // Paragraph grounding must see the same paragraphs whatever line
+        // endings the page carries: read raw, a CRLF page is one giant
+        // paragraph and passes the symbol+path test on luck alone.
+        let ids = vec!["src/runtime.rs::Runtime".to_string()];
+        let module = Module {
+            components: ids.clone(),
+            ..Module::default()
+        };
+        let nodes = BTreeMap::from([(
+            ids[0].clone(),
+            Node {
+                id: ids[0].clone(),
+                name: "Runtime".to_string(),
+                relative_path: "src/runtime.rs".to_string(),
+                ..Node::default()
+            },
+        )]);
+        let lf = "====== Runtime ======\n\n===== Purpose ======\n\nRuntime owns the loop.\n\n===== Architecture ======\n\nsrc/runtime.rs carries the dispatch table.\n";
+        let crlf = lf.replace("\n", "\r\n");
+        let assess = |content: &str| {
+            assess_page(
+                "Runtime",
+                &module,
+                content,
+                &nodes,
+                PageAssessmentContext {
+                    is_leaf: true,
+                    is_overview: false,
+                    required_links: &[],
+                    actual_links: &[],
+                    grounded_labels: &[],
+                    diagram_labels: &[],
+                    structure: &lexed(
+                        content,
+                        &[
+                            "====== Runtime ======",
+                            "===== Purpose ======",
+                            "===== Architecture ======",
+                        ],
+                        &[],
+                    ),
+                },
+            )
+        };
+        let report = assess(lf);
+        assert_eq!(report["grounded_components"], json!(0), "{report}");
+        assert_eq!(
+            assess(&crlf)["grounded_components"],
+            report["grounded_components"],
+            "line endings must not decide what counts as grounded"
+        );
+    }
+
+    #[test]
     fn lexer_structure_decides_which_lines_are_headings_and_prose() {
         let filler = "The runtime owns request parsing and dispatch. ".repeat(6);
         let code = "<code java>\n===== Purpose =====\nint x = 1;\n</code>";

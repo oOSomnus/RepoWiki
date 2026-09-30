@@ -1050,10 +1050,10 @@ pub(super) fn assess_page(
         } else {
             &node.name
         };
-        let exact_id = content.contains(component_id);
+        let exact_id = source.contains(component_id);
         let symbol_and_path = !symbol.is_empty()
             && !source_path.is_empty()
-            && content
+            && source
                 .split("\n\n")
                 .any(|paragraph| paragraph.contains(symbol) && paragraph.contains(source_path));
         if exact_id || symbol_and_path {
@@ -1062,7 +1062,7 @@ pub(super) fn assess_page(
     }
     let grounded_modules = grounded_labels
         .iter()
-        .filter(|label| !label.is_empty() && content.contains(label.as_str()))
+        .filter(|label| !label.is_empty() && source.contains(label.as_str()))
         .count();
 
     let template_sections = [
@@ -1249,7 +1249,9 @@ fn span_ranges(source: &str, structure: &dokuwiki::PageStructure) -> Vec<(usize,
 /// Clamp a parser offset pair onto the source the caller holds. The parser
 /// counts bytes, so a pair that disagrees with this crate's view of the page
 /// could slice through a character: clamping wide keeps every slice well-formed
-/// and discards a pair that no longer describes a range.
+/// and discards a pair that no longer describes a range. Widening a span can
+/// only exclude more text from the prose count, so the bias is toward a
+/// stricter gate, never toward scoring a character cut in half as prose.
 fn bounded(source: &str, start: usize, end: usize) -> Option<(usize, usize)> {
     let start = floor_boundary(source, start.min(source.len()));
     let end = ceil_boundary(source, end.min(source.len()));
