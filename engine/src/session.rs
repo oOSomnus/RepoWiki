@@ -56,8 +56,12 @@ fn edition_wiki_id(output_dir: &Path) -> Result<String> {
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Cross-process serialization for operations that read and then mutate a
-/// session. The lock file lives outside the session directory so session
-/// cleanup cannot remove it while a command still owns the lock.
+/// session. The lock file lives outside the session directory so cleanup can
+/// destroy the session while its owner still holds the lock — and cleanup
+/// unlinks the lock file too, under that same lock. That is safe only because
+/// cleanup deletes the session data first: a racer that creates and locks a
+/// fresh file at the vacated path still reads nothing but "session not found".
+/// Never unlink a lock file whose session directory still exists.
 pub struct SessionLock {
     file: File,
     repo_path: PathBuf,
