@@ -971,14 +971,12 @@ fn close_session(args: CloseSessionArgs) -> Result<Value> {
     let repo = session_repo()?;
     session::close_session(&repo, &session_id, |state| {
         docs::validate_documentation(state)?;
-        let metadata = Some(docs::finalize_metadata(state, &args.model)?);
-        let session_path = state.session_dir();
+        let metadata = docs::finalize_metadata(state, &args.model)?;
         Ok(json!({
             "ok": true,
             "session_id": state.session_id,
             "metadata": metadata,
             "cleaned": true,
-            "session_path": session_path,
         }))
     })
 }
