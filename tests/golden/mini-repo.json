@@ -578,7 +578,7 @@
           "parser_succeeded": true,
           "prose_count_mode": "english_words",
           "prose_floor": 150,
-          "prose_words": 243,
+          "prose_words": 255,
           "role": "leaf",
           "semantic_sections": 3,
           "valid": true
@@ -616,7 +616,7 @@
           "parser_succeeded": true,
           "prose_count_mode": "english_words",
           "prose_floor": 200,
-          "prose_words": 285,
+          "prose_words": 298,
           "role": "module_overview",
           "semantic_sections": 3,
           "valid": true
@@ -654,7 +654,7 @@
           "parser_succeeded": true,
           "prose_count_mode": "english_words",
           "prose_floor": 150,
-          "prose_words": 252,
+          "prose_words": 260,
           "role": "leaf",
           "semantic_sections": 3,
           "valid": true
@@ -692,7 +692,7 @@
           "parser_succeeded": true,
           "prose_count_mode": "english_words",
           "prose_floor": 200,
-          "prose_words": 265,
+          "prose_words": 276,
           "role": "module_overview",
           "semantic_sections": 3,
           "valid": true
@@ -731,7 +731,7 @@
           "parser_succeeded": true,
           "prose_count_mode": "english_words",
           "prose_floor": 200,
-          "prose_words": 292,
+          "prose_words": 308,
           "role": "module_overview",
           "semantic_sections": 3,
           "valid": true
@@ -771,7 +771,7 @@
           "parser_succeeded": true,
           "prose_count_mode": "english_words",
           "prose_floor": 200,
-          "prose_words": 349,
+          "prose_words": 365,
           "role": "repository_overview",
           "semantic_sections": 3,
           "valid": true

@@ -1,4 +1,4 @@
-use crate::session::{self, SessionState};
+use crate::session::{self, files, SessionState};
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -9,6 +9,11 @@ use std::process::{Command, Output};
 use uuid::Uuid;
 
 const PINNED_DOKUWIKI_VERSION: &str = "2026-07-14c \"Mort\"";
+/// The JSON protocol version of RepoWiki's DokuWiki adapter. Engine and adapter
+/// ship in one repository and must be upgraded together; this pins what
+/// `engine/dokuwiki/VERSION` says the adapter speaks. Bump both sides together
+/// whenever the shape of a response changes.
+const PINNED_REPOWIKI_ADAPTER_VERSION: &str = "1";
 const PHP_MINIMUM_VERSION_ID: u32 = 80200;
 
 #[derive(Debug, Clone)]
@@ -47,6 +52,57 @@ pub struct WikiContextConfig {
 pub struct ParsedPage {
     pub links: Vec<String>,
     pub html: String,
+    /// How DokuWiki's own parser read the page.
+    ///
+    /// Required, not defaulted: the adapter's protocol version is pinned at
+    /// discovery, so a response without this field is a protocol bug to be
+    /// surfaced, not an old adapter to be tolerated into a silent zero.
+    pub structure: PageStructure,
+}
+
+/// The parts of a page that carry meaning about its source rather than its text.
+///
+/// Every offset is a **byte** offset into the page source with CRLF folded to LF,
+/// which is what DokuWiki's lexer reports; they are not character indices. Slice
+/// Rust text at them only after folding line endings the same way and rounding
+/// each one out to a character boundary, or a page containing multibyte text
+/// will panic mid-slice.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PageStructure {
+    pub headings: Vec<Heading>,
+    pub spans: Vec<Span>,
+}
+
+/// A heading line, from its first byte to the end of that line.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Heading {
+    /// DokuWiki's heading level, derived from the length of the `=` runs.
+    pub level: u8,
+    /// Title as the lexer reports it: `=` delimiters removed, inline markup kept.
+    pub text: String,
+    pub start: usize,
+    pub end: usize,
+}
+
+/// A run of source DokuWiki renders without parsing it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Span {
+    pub kind: SpanKind,
+    /// Delimiter-inclusive: points at `<code`, `<file`, `<nowiki>` or `%%`.
+    pub start: usize,
+    /// One past the closing delimiter.
+    pub end: usize,
+}
+
+/// Which construct a [`Span`] was produced by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SpanKind {
+    Code,
+    File,
+    Nowiki,
+    /// The `%%…%%` spelling of DokuWiki's unformatted mode.
+    Unformatted,
 }
 
 #[derive(Serialize)]
@@ -105,13 +161,16 @@ pub fn discover_runtime() -> Result<RuntimePaths> {
             integration_dir.display()
         ));
     }
+    check_adapter_version(&integration_dir)?;
     let php = std::env::var_os("REPOWIKI_PHP_BIN").unwrap_or_else(|| OsString::from("php"));
-    Ok(RuntimePaths {
+    let runtime = RuntimePaths {
         core_dir,
         package_root,
         integration_dir,
         php,
-    })
+    };
+    ensure_php_82(&runtime)?;
+    Ok(runtime)
 }
 
 fn resolve_core_dir(path: &Path) -> Option<PathBuf> {
@@ -122,7 +181,30 @@ fn resolve_core_dir(path: &Path) -> Option<PathBuf> {
     nested.join("VERSION").is_file().then_some(nested)
 }
 
-pub fn ensure_php_82(runtime: &RuntimePaths) -> Result<()> {
+/// Refuse an adapter that does not speak the protocol this engine decodes.
+/// Without this check a stale adapter under REPOWIKI_DOKUWIKI_DIR answers
+/// parse requests in an older shape and the engine misreads the omission as
+/// "this page has no headings" — a deployment error diagnosed as a content one.
+fn check_adapter_version(integration_dir: &Path) -> Result<()> {
+    let found = match fs::read_to_string(integration_dir.join("VERSION")) {
+        Ok(version) => version.trim().to_string(),
+        // A tree predating adapter versioning speaks whatever protocol it was
+        // checked out with; that is out of date by definition.
+        Err(_) => "none".to_string(),
+    };
+    if found != PINNED_REPOWIKI_ADAPTER_VERSION {
+        return Err(anyhow!(
+            "RepoWiki DokuWiki adapter is out of date: found '{}', expected {}; \
+             RepoWiki and its adapter must be upgraded together ({})",
+            found,
+            PINNED_REPOWIKI_ADAPTER_VERSION,
+            integration_dir.display()
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_php_82(runtime: &RuntimePaths) -> Result<()> {
     let output = Command::new(&runtime.php)
         .args(["-n", "-r", "echo PHP_VERSION_ID;"])
         .output()
@@ -199,8 +281,7 @@ fn prepare_data_directories(savedir: &Path) -> Result<()> {
 
 pub fn session_context(state: &SessionState) -> Result<WikiContext> {
     let runtime = discover_runtime()?;
-    let workspace = session::session_root(Path::new(&state.repo_path), &state.session_id)
-        .join("dokuwiki-runtime");
+    let workspace = session::session_file(state, files::DOKUWIKI_RUNTIME)?;
     let savedir = Path::new(&state.output_dir).join("dokuwiki/data");
     prepare_context(WikiContextConfig {
         runtime,
@@ -229,47 +310,38 @@ pub fn configure_process(command: &mut Command, context: &WikiContext) {
         );
 }
 
-pub fn read_page(state: &SessionState, page_id: &str) -> Result<String> {
-    let context = session_context(state)?;
-    let value = invoke_plugin(&context, "read", page_id, None)?;
-    value["content"]
-        .as_str()
-        .map(str::to_string)
-        .ok_or_else(|| anyhow!("DokuWiki read returned no page content for {page_id}"))
-}
+impl WikiContext {
+    pub fn read(&self, page_id: &str) -> Result<String> {
+        let value = invoke_plugin(self, "read", page_id, None)?;
+        value["content"]
+            .as_str()
+            .map(str::to_string)
+            .ok_or_else(|| anyhow!("DokuWiki read returned no page content for {page_id}"))
+    }
 
-pub fn write_page(state: &SessionState, page_id: &str, content: &str) -> Result<()> {
-    let context = session_context(state)?;
-    invoke_plugin(&context, "write", page_id, Some(content))?;
-    Ok(())
-}
+    pub fn write(&self, page_id: &str, content: &str) -> Result<()> {
+        invoke_plugin(self, "write", page_id, Some(content))?;
+        Ok(())
+    }
 
-pub fn parse_page(state: &SessionState, page_id: &str, content: &str) -> Result<ParsedPage> {
-    let context = session_context(state)?;
-    parse_page_in_context(&context, page_id, content)
-}
+    pub fn parse(&self, page_id: &str, content: &str) -> Result<ParsedPage> {
+        let value = invoke_plugin(self, "parse", page_id, Some(content))?;
+        serde_json::from_value(value).with_context(|| {
+            format!(
+                "invalid DokuWiki parse response for {page_id}; \
+                 a missing field means the adapter at {} does not match this engine",
+                self.runtime.integration_dir.display()
+            )
+        })
+    }
 
-pub fn parse_page_in_context(
-    context: &WikiContext,
-    page_id: &str,
-    content: &str,
-) -> Result<ParsedPage> {
-    let value = invoke_plugin(context, "parse", page_id, Some(content))?;
-    serde_json::from_value(value)
-        .with_context(|| format!("invalid DokuWiki parse response for {page_id}"))
-}
-
-pub fn render_page(state: &SessionState, page_id: &str) -> Result<String> {
-    let context = session_context(state)?;
-    render_page_in_context(&context, page_id)
-}
-
-pub fn render_page_in_context(context: &WikiContext, page_id: &str) -> Result<String> {
-    let value = invoke_plugin(context, "render", page_id, None)?;
-    value["html"]
-        .as_str()
-        .map(str::to_string)
-        .ok_or_else(|| anyhow!("DokuWiki render returned no HTML for {page_id}"))
+    pub fn render(&self, page_id: &str) -> Result<String> {
+        let value = invoke_plugin(self, "render", page_id, None)?;
+        value["html"]
+            .as_str()
+            .map(str::to_string)
+            .ok_or_else(|| anyhow!("DokuWiki render returned no HTML for {page_id}"))
+    }
 }
 
 fn invoke_plugin(
@@ -278,7 +350,6 @@ fn invoke_plugin(
     page_id: &str,
     content: Option<&str>,
 ) -> Result<Value> {
-    ensure_php_82(&context.runtime)?;
     let request_path = context
         .workspace
         .join(format!("request-{}.json", Uuid::new_v4().simple()));
@@ -519,4 +590,35 @@ pub fn validate_namespace(wiki_id: &str) -> Result<()> {
         return Err(anyhow!("invalid DokuWiki change namespace: {wiki_id}"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn an_adapter_tree_without_a_version_is_refused_as_out_of_date() {
+        let dir = tempdir().expect("adapter tempdir");
+        let error = check_adapter_version(dir.path()).expect_err("missing VERSION must fail");
+        assert!(
+            error.to_string().contains("out of date"),
+            "unexpected diagnosis: {error}"
+        );
+    }
+
+    #[test]
+    fn only_the_pinned_adapter_version_is_accepted() {
+        let dir = tempdir().expect("adapter tempdir");
+        let version = dir.path().join("VERSION");
+        fs::write(&version, "999\n").expect("write stale VERSION");
+        let error = check_adapter_version(dir.path()).expect_err("mismatch must fail");
+        assert!(
+            error.to_string().contains("out of date"),
+            "unexpected diagnosis: {error}"
+        );
+
+        fs::write(&version, format!("{PINNED_REPOWIKI_ADAPTER_VERSION}\n")).expect("write VERSION");
+        check_adapter_version(dir.path()).expect("the pinned version is accepted");
+    }
 }

@@ -1,14 +1,16 @@
+#[path = "common/mod.rs"]
+mod common;
+
 use repowiki::docs::{self, EditOperation};
 use repowiki::model::{
-    ArtifactIndex, BreadthRisk, ChangeSet, DecompositionDecision, DecompositionReview, Module,
-    ModuleTree, Node, Summary,
+    BreadthRisk, ChangeSet, DecompositionDecision, DecompositionReview, Module, ModuleTree, Node,
+    Summary,
 };
 use repowiki::session;
 use repowiki::update;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use tempfile::tempdir;
 
 fn node(id: &str, language: &str) -> Node {
     Node {
@@ -30,26 +32,14 @@ fn prepared_session_with_summary(
     leaf_nodes: &[&str],
     summary: Summary,
 ) -> (tempfile::TempDir, repowiki::session::SessionState) {
-    let repo = tempdir().expect("repository tempdir");
-    let output = repo.path().join("docs");
-    let mut state = session::create(repo.path(), &output).expect("create session");
-    let nodes = nodes
-        .iter()
-        .map(|(id, language)| ((*id).to_string(), node(id, language)))
-        .collect::<BTreeMap<_, _>>();
-    let leaves = leaf_nodes
-        .iter()
-        .map(|id| (*id).to_string())
-        .collect::<Vec<_>>();
-    session::write_analysis_files(
-        &mut state,
-        &nodes,
-        &leaves,
-        &summary,
-        &ArtifactIndex::default(),
+    common::prepared_session(
+        nodes
+            .iter()
+            .map(|(id, language)| node(id, language))
+            .collect(),
+        leaf_nodes,
+        summary,
     )
-    .expect("write analysis files");
-    (repo, state)
 }
 
 fn source_node(id: &str, language: &str, source_code: &str) -> Node {
@@ -193,16 +183,15 @@ fn languages_are_written_as_stable_component_counts() {
         &[("z", "python"), ("a", "python"), ("m", "javascript")],
         &["z", "a", "m"],
     );
-    let languages: Value =
-        session::read_json(&session::session_value_path(&state, "languages.json"))
-            .expect("read language counts");
+    let languages: Value = session::read_json(&common::session_file(&state, "languages.json"))
+        .expect("read language counts");
     assert_eq!(languages, json!({"javascript": 1, "python": 2}));
 }
 
 #[test]
 fn processing_order_rejects_legacy_item_names() {
     let (_repo, state) = prepared_session(&[("leaf", "python")], &["leaf"]);
-    let path = session::session_value_path(&state, "processing_order.json");
+    let path = common::session_file(&state, "processing_order.json");
     session::write_json(
         &path,
         &json!([{
@@ -220,6 +209,9 @@ fn processing_order_rejects_legacy_item_names() {
 
 #[test]
 fn document_paths_require_canonical_dokuwiki_page_ids() {
+    if !common::dokuwiki_runtime_available() {
+        return;
+    }
     let (_repo, mut state) = prepared_session(&[], &[]);
     for page_id in [
         ".repowiki:guide:start",
@@ -248,6 +240,9 @@ fn document_paths_require_canonical_dokuwiki_page_ids() {
 
 #[test]
 fn edit_insert_is_multiline_and_undo_pops_each_saved_version() {
+    if !common::dokuwiki_runtime_available() {
+        return;
+    }
     let (_repo, mut state) = prepared_session(&[], &[]);
     let page_id = "repo:guide:start";
     docs::write_document(&mut state, page_id, "zero\none\n").expect("write document");
@@ -300,9 +295,8 @@ fn edit_insert_is_multiline_and_undo_pops_each_saved_version() {
 #[test]
 fn component_and_candidate_order_is_deterministic() {
     let (_repo, state) = prepared_session(&[("b", "python"), ("a", "python")], &["b", "a"]);
-    let components: Value =
-        session::read_json(&session::session_value_path(&state, "components.json"))
-            .expect("read components");
+    let components: Value = session::read_json(&common::session_file(&state, "components.json"))
+        .expect("read components");
     let keys = components
         .as_object()
         .expect("component map")
@@ -424,6 +418,9 @@ fn depth_gate_allows_two_to_four_level_trees() {
 
 #[test]
 fn oversized_leaf_is_reported_and_blocks_documentation_close() {
+    if !common::dokuwiki_runtime_available() {
+        return;
+    }
     let (_repo, mut state) = prepared_session_with_summary(
         &[("a", "python"), ("b", "python")],
         &["a", "b"],
@@ -435,7 +432,7 @@ fn oversized_leaf_is_reported_and_blocks_documentation_close() {
         },
     );
     let components: BTreeMap<String, Node> =
-        session::read_json(&session::session_value_path(&state, "components.json"))
+        session::read_json(&common::session_file(&state, "components.json"))
             .expect("read fixture components");
     let mut components = components;
     components.insert(
@@ -447,7 +444,7 @@ fn oversized_leaf_is_reported_and_blocks_documentation_close() {
         source_node("b", "python", "def b(): return gamma + delta"),
     );
     session::write_json(
-        &session::session_value_path(&state, "components.json"),
+        &common::session_file(&state, "components.json"),
         &components,
     )
     .expect("write fixture sources");
@@ -481,17 +478,14 @@ fn oversized_singleton_is_a_warning_but_remains_documentable() {
         },
     );
     let mut nodes: BTreeMap<String, Node> =
-        session::read_json(&session::session_value_path(&state, "components.json"))
+        session::read_json(&common::session_file(&state, "components.json"))
             .expect("read singleton");
     nodes.insert(
         "only".to_string(),
         source_node("only", "rust", &"fn only() { return_value(); }".repeat(20)),
     );
-    session::write_json(
-        &session::session_value_path(&state, "components.json"),
-        &nodes,
-    )
-    .expect("write singleton source");
+    session::write_json(&common::session_file(&state, "components.json"), &nodes)
+        .expect("write singleton source");
     let mut tree = BTreeMap::new();
     tree.insert("Only".to_string(), module(&["only"], BTreeMap::new()));
     let saved = docs::save_module_tree(&state, &tree, true).expect("save singleton");
@@ -510,6 +504,9 @@ fn oversized_singleton_is_a_warning_but_remains_documentable() {
 
 #[test]
 fn documentation_quality_rejects_component_list_templates() {
+    if !common::dokuwiki_runtime_available() {
+        return;
+    }
     let (_repo, mut state) = prepared_session(&[("src/lib.rs::run", "rust")], &["src/lib.rs::run"]);
     let mut tree = BTreeMap::new();
     tree.insert(
@@ -669,18 +666,15 @@ fn overview_context_aggregates_full_dependency_graph_into_architecture_modules()
         &["api"],
     );
     let mut nodes: BTreeMap<String, Node> =
-        session::read_json(&session::session_value_path(&state, "components.json"))
+        session::read_json(&common::session_file(&state, "components.json"))
             .expect("read graph nodes");
     nodes.get_mut("api").unwrap().relative_path = "src/api.rs".to_string();
     nodes.get_mut("api").unwrap().depends_on = vec!["runtime".to_string()];
     nodes.get_mut("runtime").unwrap().relative_path = "src/runtime.rs".to_string();
     nodes.get_mut("runtime").unwrap().depends_on = vec!["storage".to_string()];
     nodes.get_mut("storage").unwrap().relative_path = "src/storage.rs".to_string();
-    session::write_json(
-        &session::session_value_path(&state, "components.json"),
-        &nodes,
-    )
-    .expect("write dependency graph");
+    session::write_json(&common::session_file(&state, "components.json"), &nodes)
+        .expect("write dependency graph");
 
     let tree = ModuleTree::from([
         (

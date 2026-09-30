@@ -1,10 +1,7 @@
-use crate::model::{
-    ArtifactIndex, ComponentIndexEntry, ModuleTree, Node, Summary, SUPPORTED_LANGUAGES,
-};
+use crate::model::{ArtifactIndex, ComponentIndexEntry, Node, Summary, SUPPORTED_LANGUAGES};
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions, TryLockError};
@@ -15,7 +12,6 @@ use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 pub const SESSION_TTL_SECONDS: i64 = 2 * 60 * 60;
-pub const MAX_SESSIONS: usize = 10;
 pub const SESSION_LOCK_TIMEOUT_SECONDS: u64 = 120;
 const SESSION_LOCK_RETRY_MILLIS: u64 = 50;
 pub const REPOSITORY_WIKI_ID: &str = "repo";
@@ -60,10 +56,16 @@ fn edition_wiki_id(output_dir: &Path) -> Result<String> {
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Cross-process serialization for operations that read and then mutate a
-/// session. The lock file lives outside the session directory so session
-/// cleanup cannot remove it while a command still owns the lock.
+/// session. The lock file lives outside the session directory so cleanup can
+/// destroy the session while its owner still holds the lock — and cleanup
+/// unlinks the lock file too, under that same lock. That is safe only because
+/// cleanup deletes the session data first: a racer that creates and locks a
+/// fresh file at the vacated path still reads nothing but "session not found".
+/// Never unlink a lock file whose session directory still exists.
 pub struct SessionLock {
     file: File,
+    repo_path: PathBuf,
+    session_id: String,
 }
 
 impl SessionLock {
@@ -82,7 +84,13 @@ impl SessionLock {
         let deadline = Instant::now() + Duration::from_secs(SESSION_LOCK_TIMEOUT_SECONDS);
         loop {
             match file.try_lock() {
-                Ok(()) => return Ok(Self { file }),
+                Ok(()) => {
+                    return Ok(Self {
+                        file,
+                        repo_path: repo_path.to_path_buf(),
+                        session_id: session_id.to_string(),
+                    })
+                }
                 Err(TryLockError::WouldBlock) => {
                     if Instant::now() >= deadline {
                         return Err(anyhow!(
@@ -98,6 +106,20 @@ impl SessionLock {
                 }
             }
         }
+    }
+
+    /// The state of the session this lock serializes access to. An expired
+    /// session is reclaimed and refused rather than handed out; a live one
+    /// comes back marked as accessed, and the caller decides whether to
+    /// persist that.
+    pub fn load(&self) -> Result<SessionState> {
+        let mut state = read_state(&self.repo_path, &self.session_id)?;
+        if is_expired(&state) {
+            cleanup(&self.repo_path, &self.session_id)?;
+            return Err(anyhow!("session expired: {}", self.session_id));
+        }
+        state.touch();
+        Ok(state)
     }
 }
 
@@ -120,11 +142,14 @@ pub struct SessionState {
     pub component_count: usize,
     pub leaf_count: usize,
     pub languages: Vec<String>,
-    #[serde(default)]
-    pub closed: bool,
 }
 
 impl SessionState {
+    /// The workspace directory this session owns every intermediate file in.
+    pub fn session_dir(&self) -> PathBuf {
+        session_root(Path::new(&self.repo_path), &self.session_id)
+    }
+
     pub fn touch(&mut self) {
         self.last_accessed = Utc::now().to_rfc3339();
     }
@@ -132,6 +157,44 @@ impl SessionState {
     pub fn mark_write(&mut self) {
         self.docs_written += 1;
         self.touch();
+    }
+}
+
+/// Every entry a session keeps in its workspace directory.
+///
+/// The skill contract documents the host-facing subset
+/// (`skill/references/cli-contract.md`); the rest are engine intermediates.
+/// Both live here so the on-disk schema has one owner rather than one literal
+/// per consumer.
+pub mod files {
+    pub const STATE: &str = "state.json";
+    pub const SUMMARY: &str = "summary.json";
+    pub const COMPONENTS: &str = "components.json";
+    pub const COMPONENT_INDEX: &str = "component_index.json";
+    pub const LEAF_NODES: &str = "leaf_nodes.json";
+    pub const LANGUAGES: &str = "languages.json";
+    pub const ARTIFACT_INDEX: &str = "artifact_index.json";
+    pub const CANDIDATE_MODULE_TREE: &str = "candidate_module_tree.json";
+    pub const PROCESSING_ORDER: &str = "processing_order.json";
+    pub const MODULE_TREE_VALIDATION: &str = "module_tree_validation.json";
+    pub const DOCUMENTATION_VALIDATION: &str = "documentation_validation.json";
+    pub const WORKFLOW: &str = "workflow.json";
+    pub const CHANGES: &str = "changes.json";
+    pub const ROUTES: &str = "routes.json";
+    pub const ROUTES_APPLIED: &str = "routes_applied.json";
+    pub const ROUTING_CONTEXT: &str = "routing_context.json";
+    pub const STALE_SCAN: &str = "stale_scan.json";
+    pub const UPDATE_RECORD_DRAFT: &str = "update_record_draft.json";
+    pub const ORPHAN_CONTEXT: &str = "orphan_context.json";
+
+    pub const SOURCES: &str = "sources";
+    pub const PROMPTS: &str = "prompts";
+    pub const HISTORY: &str = "history";
+    pub const REPORTS: &str = "reports";
+    pub const DOKUWIKI_RUNTIME: &str = "dokuwiki-runtime";
+
+    pub fn overview_context(branch: &str) -> String {
+        format!("overview_context_{branch}.json")
     }
 }
 
@@ -173,9 +236,9 @@ pub fn create(repo_path: &Path, output_dir: &Path) -> Result<SessionState> {
         session_id = Uuid::new_v4().simple().to_string()[..12].to_string();
     }
     let workspace = session_root(&repo_path, &session_id);
-    fs::create_dir_all(workspace.join("sources"))?;
-    fs::create_dir_all(workspace.join("prompts"))?;
-    fs::create_dir_all(workspace.join("history"))?;
+    fs::create_dir_all(workspace.join(files::SOURCES))?;
+    fs::create_dir_all(workspace.join(files::PROMPTS))?;
+    fs::create_dir_all(workspace.join(files::HISTORY))?;
 
     let now = Utc::now().to_rfc3339();
     let state = SessionState {
@@ -190,51 +253,59 @@ pub fn create(repo_path: &Path, output_dir: &Path) -> Result<SessionState> {
         component_count: 0,
         leaf_count: 0,
         languages: Vec::new(),
-        closed: false,
     };
     save_state(&state)?;
     Ok(state)
 }
 
-pub fn load(repo_path: &Path, session_id: &str) -> Result<SessionState> {
+fn read_state(repo_path: &Path, session_id: &str) -> Result<SessionState> {
     validate_session_id(session_id)?;
-    let state_path = session_root(repo_path, session_id).join("state.json");
-    if !state_path.is_file() {
-        return Err(anyhow!("session not found: {session_id}"));
-    }
-    let _lock = SessionLock::acquire(repo_path, session_id)?;
-    load_unlocked(repo_path, session_id)
-}
-
-pub fn load_unlocked(repo_path: &Path, session_id: &str) -> Result<SessionState> {
-    validate_session_id(session_id)?;
-    let path = session_root(repo_path, session_id).join("state.json");
+    let path = session_root(repo_path, session_id).join(files::STATE);
     let contents =
-        fs::read_to_string(&path).with_context(|| format!("session not found: {}", session_id))?;
-    let mut state: SessionState = serde_json::from_str(&contents)
-        .with_context(|| format!("invalid session state: {}", path.display()))?;
-    if is_expired(&state) {
-        cleanup(repo_path, session_id)?;
-        return Err(anyhow!("session expired: {}", session_id));
-    }
-    state.touch();
-    save_state(&state)?;
-    Ok(state)
+        fs::read_to_string(&path).with_context(|| format!("session not found: {session_id}"))?;
+    serde_json::from_str(&contents)
+        .with_context(|| format!("invalid session state: {}", path.display()))
 }
 
+/// Read a session without taking the lock.
+///
+/// Another operation may replace what this returns the moment it reads it, so
+/// the snapshot is only good for facts a session never changes — which
+/// repository it belongs to. Anything that reads and then mutates goes through
+/// [`with_locked_session`] or [`close_session`] instead.
+pub fn peek(repo_path: &Path, session_id: &str) -> Result<SessionState> {
+    read_state(repo_path, session_id)
+}
+
+/// Run `operation` with exclusive access to the session, then persist the
+/// state it leaves behind. A failing operation writes nothing and leaves the
+/// session exactly as it was.
 pub fn with_locked_session<T, F>(repo_path: &Path, session_id: &str, operation: F) -> Result<T>
 where
     F: FnOnce(&mut SessionState) -> Result<T>,
 {
-    let _lock = SessionLock::acquire(repo_path, session_id)?;
-    let mut state = load_unlocked(repo_path, session_id)?;
-    operation(&mut state)
+    let lock = SessionLock::acquire(repo_path, session_id)?;
+    let mut state = lock.load()?;
+    let value = operation(&mut state)?;
+    save_state(&state)?;
+    Ok(value)
 }
 
-pub fn save_state(state: &SessionState) -> Result<()> {
-    let repo_path = Path::new(&state.repo_path);
-    let path = session_root(repo_path, &state.session_id).join("state.json");
-    write_json(&path, state)
+/// Like [`with_locked_session`], but discards the session when `operation`
+/// succeeds. Validation failures therefore keep it alive for another attempt.
+pub fn close_session<T, F>(repo_path: &Path, session_id: &str, operation: F) -> Result<T>
+where
+    F: FnOnce(&mut SessionState) -> Result<T>,
+{
+    let lock = SessionLock::acquire(repo_path, session_id)?;
+    let mut state = lock.load()?;
+    let value = operation(&mut state)?;
+    cleanup(repo_path, session_id)?;
+    Ok(value)
+}
+
+fn save_state(state: &SessionState) -> Result<()> {
+    write_json(&session_file(state, files::STATE)?, state)
 }
 
 fn session_lock_path(repo_path: &Path, session_id: &str) -> PathBuf {
@@ -255,86 +326,19 @@ fn remove_if_empty(dir: &Path) -> bool {
     !dir.exists()
 }
 
-/// Drop a session's directory, its lock file, and any storage directories
-/// that became empty, so nothing lingers after the session is gone.
-fn remove_session_leftovers(repo_path: &Path, session_id: &str) {
-    let _ = fs::remove_dir_all(session_root(repo_path, session_id));
-    // May fail on platforms that refuse to unlink an open handle; the next
-    // prune sweep collects whatever is left behind.
-    let _ = fs::remove_file(session_lock_path(repo_path, session_id));
-    let storage = session_storage_root(repo_path);
-    remove_if_empty(&storage.join("sessions"));
-    remove_if_empty(&storage.join("session-locks"));
-    remove_if_empty(&storage);
-}
-
 pub fn cleanup(repo_path: &Path, session_id: &str) -> Result<()> {
     validate_session_id(session_id)?;
     let root = session_root(repo_path, session_id);
     if root.exists() {
         fs::remove_dir_all(&root).with_context(|| format!("remove {}", root.display()))?;
     }
-    // The lock file may still be open on platforms that cannot unlink an
-    // open handle; prune() sweeps whatever is left behind.
+    // A platform that refuses to unlink an open handle can leave the lock file
+    // behind. Nothing sweeps it: session IDs are fresh per session, so a stale
+    // lock can never be mistaken for a live one.
     let _ = fs::remove_file(session_lock_path(repo_path, session_id));
     let storage = session_storage_root(repo_path);
     remove_if_empty(&storage.join("sessions"));
     remove_if_empty(&storage.join("session-locks"));
-    remove_if_empty(&storage);
-    Ok(())
-}
-
-pub fn prune(repo_path: &Path) -> Result<()> {
-    let root = sessions_root(repo_path);
-    if root.exists() {
-        let mut sessions = Vec::new();
-        for entry in fs::read_dir(&root)? {
-            let entry = entry?;
-            if !entry.file_type()?.is_dir() {
-                continue;
-            }
-            let path = entry.path().join("state.json");
-            if let Ok(contents) = fs::read_to_string(&path) {
-                if let Ok(state) = serde_json::from_str::<SessionState>(&contents) {
-                    if is_expired(&state) {
-                        remove_session_leftovers(repo_path, &state.session_id);
-                    } else {
-                        sessions.push(state);
-                    }
-                }
-            }
-        }
-        sessions.sort_by(|a, b| a.last_accessed.cmp(&b.last_accessed));
-        if sessions.len() > MAX_SESSIONS {
-            let remove_count = sessions.len() - MAX_SESSIONS;
-            for state in sessions.into_iter().take(remove_count) {
-                remove_session_leftovers(repo_path, &state.session_id);
-            }
-        }
-    }
-    sweep_orphan_locks(repo_path)?;
-    Ok(())
-}
-
-/// Delete lock files whose session no longer exists.
-fn sweep_orphan_locks(repo_path: &Path) -> Result<()> {
-    let lock_root = session_storage_root(repo_path).join("session-locks");
-    if !lock_root.exists() {
-        return Ok(());
-    }
-    for entry in fs::read_dir(&lock_root)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else { continue };
-        let Some(session_id) = name.strip_suffix(".lock") else {
-            continue;
-        };
-        if !session_root(repo_path, session_id).exists() {
-            let _ = fs::remove_file(entry.path());
-        }
-    }
-    let storage = session_storage_root(repo_path);
-    remove_if_empty(&lock_root);
     remove_if_empty(&storage);
     Ok(())
 }
@@ -352,7 +356,6 @@ pub fn write_analysis_files(
     summary: &Summary,
     artifact_index: &ArtifactIndex,
 ) -> Result<()> {
-    let root = session_root(Path::new(&state.repo_path), &state.session_id);
     let entries: Vec<ComponentIndexEntry> = nodes
         .values()
         .map(|node| ComponentIndexEntry {
@@ -366,8 +369,8 @@ pub fn write_analysis_files(
             end_line: node.end_line,
         })
         .collect();
-    write_json(&root.join("component_index.json"), &entries)?;
-    write_json(&root.join("leaf_nodes.json"), leaf_nodes)?;
+    write_json(&session_file(state, files::COMPONENT_INDEX)?, &entries)?;
+    write_json(&session_file(state, files::LEAF_NODES)?, leaf_nodes)?;
     let mut language_counts = BTreeMap::new();
     for node in nodes.values() {
         if SUPPORTED_LANGUAGES.contains(&node.language.as_str()) {
@@ -376,12 +379,13 @@ pub fn write_analysis_files(
                 .or_insert(0usize) += 1;
         }
     }
-    write_json(&root.join("languages.json"), &language_counts)?;
-    write_json(&root.join("summary.json"), summary)?;
-    write_json(&root.join("artifact_index.json"), artifact_index)?;
-    write_json(&root.join("components.json"), nodes)?;
+    write_json(&session_file(state, files::LANGUAGES)?, &language_counts)?;
+    write_json(&session_file(state, files::SUMMARY)?, summary)?;
+    write_json(&session_file(state, files::ARTIFACT_INDEX)?, artifact_index)?;
+    write_json(&session_file(state, files::COMPONENTS)?, nodes)?;
     for node in nodes.values() {
-        let source_path = root.join("sources").join(safe_source_filename(&node.id));
+        let relative = format!("{}/{}", files::SOURCES, safe_source_filename(&node.id));
+        let source_path = session_file(state, &relative)?;
         let header = format!(
             "// Component: {}\n// Language: {}\n",
             node.id, node.language
@@ -417,10 +421,6 @@ pub fn write_text(path: &Path, contents: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn read_text(path: &Path) -> Result<String> {
-    fs::read_to_string(path).with_context(|| format!("read {}", path.display()))
-}
-
 pub fn safe_source_filename(component_id: &str) -> String {
     let mut sanitized = String::with_capacity(component_id.len());
     for ch in component_id.chars().take(180) {
@@ -437,8 +437,9 @@ pub fn safe_source_filename(component_id: &str) -> String {
     format!("{}_{}.src", sanitized, &digest[..8])
 }
 
-pub fn safe_session_path(repo_path: &Path, session_id: &str, relative: &Path) -> Result<PathBuf> {
-    validate_session_id(session_id)?;
+pub fn session_file(state: &SessionState, relative: &str) -> Result<PathBuf> {
+    validate_session_id(&state.session_id)?;
+    let relative = Path::new(relative);
     if relative.is_absolute()
         || relative.components().any(|component| {
             matches!(
@@ -449,7 +450,7 @@ pub fn safe_session_path(repo_path: &Path, session_id: &str, relative: &Path) ->
     {
         return Err(anyhow!("unsafe session path: {}", relative.display()));
     }
-    Ok(session_root(repo_path, session_id).join(relative))
+    Ok(state.session_dir().join(relative))
 }
 
 pub fn validate_session_id(session_id: &str) -> Result<()> {
@@ -468,29 +469,10 @@ pub fn output_dir(state: &SessionState) -> PathBuf {
     PathBuf::from(&state.output_dir)
 }
 
-pub fn repo_path(state: &SessionState) -> PathBuf {
-    PathBuf::from(&state.repo_path)
-}
-
-pub fn session_value_path(state: &SessionState, name: &str) -> PathBuf {
-    session_root(Path::new(&state.repo_path), &state.session_id).join(name)
-}
-
-pub fn read_value(state: &SessionState, name: &str) -> Result<Value> {
-    read_json(&session_value_path(state, name))
-}
-
-pub fn write_value(state: &SessionState, name: &str, value: &Value) -> Result<()> {
-    write_json(&session_value_path(state, name), value)
-}
-
 pub fn module_tree_path(state: &SessionState) -> PathBuf {
     output_dir(state).join("module_tree.json")
 }
 
-pub fn read_module_tree(state: &SessionState) -> Result<ModuleTree> {
-    read_json(&module_tree_path(state))
-}
 #[cfg(test)]
 mod tests {
     use super::*;

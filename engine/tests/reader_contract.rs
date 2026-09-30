@@ -1,3 +1,6 @@
+#[path = "common/mod.rs"]
+mod common;
+
 use repowiki::reader::{load_manifest, ReaderCatalog};
 use repowiki::session::change_wiki_id;
 use serde_json::{json, Value};
@@ -532,6 +535,9 @@ impl Drop for RunningReader {
 #[cfg(unix)]
 #[test]
 fn binary_serves_native_dokuwiki_catalog_and_canonical_edition_pages() {
+    if !common::dokuwiki_runtime_available() {
+        return;
+    }
     let (_repository, wiki) = fixture();
     let (first_change, second_change) = add_change_editions(&wiki);
     let first_wiki_id = change_wiki_id(&first_change).expect("derive first namespace");

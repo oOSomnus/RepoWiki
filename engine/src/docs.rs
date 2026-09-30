@@ -4,7 +4,7 @@ use crate::model::{
     Summary, DEFAULT_CLUSTER_BATCH_SIZE, DEFAULT_MAX_TOKEN_PER_LEAF_MODULE,
     DEFAULT_MAX_TOKEN_PER_MODULE,
 };
-use crate::session::{self, SessionState};
+use crate::session::{self, files, SessionState};
 use anyhow::{anyhow, Context, Result};
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
@@ -13,6 +13,11 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+mod pages;
+pub use pages::{
+    enumerate_pages, module_page_id, overview_page_id, page_file_path, pages_root,
+    require_canonical_page, validate_page_id, PageFileOnDisk, PageScope, WikiId,
+};
 mod quality;
 pub use quality::{validate_documentation, validate_documentation_report};
 
@@ -121,9 +126,10 @@ pub fn write_document_with_policy(
     reuse_if_same: bool,
 ) -> Result<WriteResult> {
     let path = document_path(state, requested)?;
-    let parsed = dokuwiki::parse_page(state, requested, content)?;
+    let context = dokuwiki::session_context(state)?;
+    let parsed = context.parse(requested, content)?;
     if path.exists() {
-        if reuse_if_same && dokuwiki::read_page(state, requested)? == content {
+        if reuse_if_same && context.read(requested)? == content {
             return Ok(WriteResult {
                 path: requested.to_string(),
                 created: false,
@@ -139,9 +145,8 @@ pub fn write_document_with_policy(
         }
         return Err(anyhow!("document already exists: {}", path.display()));
     }
-    dokuwiki::write_page(state, requested, content)?;
+    context.write(requested, content)?;
     state.mark_write();
-    session::save_state(state)?;
     Ok(WriteResult {
         path: requested.to_string(),
         created: true,
@@ -159,9 +164,9 @@ pub fn edit_document(
     if !path.is_file() {
         return Err(anyhow!("document page does not exist: {requested}"));
     }
-    let mut content = dokuwiki::read_page(state, requested)?;
-    let history =
-        session::session_root(Path::new(&state.repo_path), &state.session_id).join("history");
+    let context = dokuwiki::session_context(state)?;
+    let mut content = context.read(requested)?;
+    let history = session::session_file(state, files::HISTORY)?;
     let mut history_stack = load_history(&history, &path)?;
     let mut pending_history = Vec::new();
     let mut consumed_history = Vec::new();
@@ -201,8 +206,8 @@ pub fn edit_document(
             }
         }
     }
-    let parsed = dokuwiki::parse_page(state, requested, &content)?;
-    dokuwiki::write_page(state, requested, &content)?;
+    let parsed = context.parse(requested, &content)?;
+    context.write(requested, &content)?;
     for history_path in consumed_history {
         if history_path.exists() {
             fs::remove_file(&history_path).map_err(|error| {
@@ -217,7 +222,6 @@ pub fn edit_document(
         write_history_snapshot(&history, &path, &snapshot, index)?;
     }
     state.mark_write();
-    session::save_state(state)?;
     Ok(WriteResult {
         path: requested.to_string(),
         created: false,
@@ -231,8 +235,9 @@ pub fn view_document(state: &SessionState, requested: &str) -> Result<Value> {
     if !path.is_file() {
         return Err(anyhow!("document page does not exist: {requested}"));
     }
-    let content = dokuwiki::read_page(state, requested)?;
-    let parsed = dokuwiki::parse_page(state, requested, &content)?;
+    let context = dokuwiki::session_context(state)?;
+    let content = context.read(requested)?;
+    let parsed = context.parse(requested, &content)?;
     Ok(json!({
         "path": requested,
         "file": path,
@@ -292,14 +297,14 @@ pub fn save_module_tree_with_review(
     };
 
     let nodes: BTreeMap<String, Node> =
-        session::read_json(&session::session_value_path(state, "components.json"))?;
+        session::read_json(&session::session_file(state, files::COMPONENTS)?)?;
     let mut processing = ProcessingSummary::default();
     for (name, module) in tree {
         collect_processing(&state.wiki_id, name, module, &[], &mut processing)?;
     }
     let known_ids = nodes.keys().cloned().collect::<BTreeSet<_>>();
     let candidate_ids =
-        session::read_json::<Vec<String>>(&session::session_value_path(state, "leaf_nodes.json"))?
+        session::read_json::<Vec<String>>(&session::session_file(state, files::LEAF_NODES)?)?
             .into_iter()
             .collect::<BTreeSet<_>>();
     let unmatched = processing
@@ -344,9 +349,8 @@ pub fn save_module_tree_with_review(
         "depth_errors": quality["depth_errors"],
         "quality_limits": quality["limits"],
     });
-    let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
-    let order_path = root.join("processing_order.json");
-    let validation_path = root.join("module_tree_validation.json");
+    let order_path = session::session_file(state, files::PROCESSING_ORDER)?;
+    let validation_path = session::session_file(state, files::MODULE_TREE_VALIDATION)?;
     session::write_json(&order_path, &processing.order)?;
     session::write_json(&validation_path, &validation)?;
     Ok(TreeSaveResult {
@@ -407,7 +411,7 @@ pub fn apply_cluster_response(
         ));
     }
     let nodes: BTreeMap<String, Node> =
-        session::read_json(&session::session_value_path(state, "components.json"))?;
+        session::read_json(&session::session_file(state, files::COMPONENTS)?)?;
     let requested = input_ids.iter().cloned().collect::<BTreeSet<_>>();
     let unknown_input = requested
         .difference(&nodes.keys().cloned().collect())
@@ -716,7 +720,7 @@ pub fn overview_context_for_session(
 ) -> Result<Value> {
     let structure = overview_context(&state.wiki_id, tree, target_path, output_dir)?;
     let nodes: BTreeMap<String, Node> =
-        session::read_json(&session::session_value_path(state, "components.json"))?;
+        session::read_json(&session::session_file(state, files::COMPONENTS)?)?;
     Ok(json!({
         "repo_structure": structure,
         "architecture_context": build_architecture_context(tree, target_path, &nodes),
@@ -1239,7 +1243,7 @@ fn assess_decomposition_reviews(tree: &ModuleTree, required: bool) -> Value {
 
 pub fn read_processing_order(state: &SessionState) -> Result<Vec<ProcessingItem>> {
     let order: Vec<ProcessingItem> =
-        session::read_json(&session::session_value_path(state, "processing_order.json"))?;
+        session::read_json(&session::session_file(state, files::PROCESSING_ORDER)?)?;
     for item in &order {
         if item.doc_path != module_page_id(&state.wiki_id, &item.path)? {
             return Err(anyhow!(
@@ -1302,10 +1306,10 @@ pub fn finalize_metadata(state: &SessionState, model: &str) -> Result<Metadata> 
         },
         files_generated,
         documentation_profile: "architecture".to_string(),
-        documentation_quality: session::read_json(&session::session_value_path(
+        documentation_quality: session::read_json(&session::session_file(
             state,
-            "documentation_validation.json",
-        ))
+            files::DOCUMENTATION_VALIDATION,
+        )?)
         .ok(),
         last_update: output
             .join("update_record.json")
@@ -1370,8 +1374,10 @@ fn assess_tree_quality(
     nodes: &BTreeMap<String, Node>,
     candidate_ids: &BTreeSet<String>,
 ) -> Value {
-    let summary: Summary =
-        session::read_json(&session::session_value_path(state, "summary.json")).unwrap_or_default();
+    let summary: Summary = session::session_file(state, files::SUMMARY)
+        .ok()
+        .and_then(|path| session::read_json(&path).ok())
+        .unwrap_or_default();
     let module_limit = nonzero_or(summary.max_token_per_module, DEFAULT_MAX_TOKEN_PER_MODULE);
     let leaf_limit = nonzero_or(
         summary.max_token_per_leaf_module,
@@ -1631,77 +1637,6 @@ fn document_path(state: &SessionState, requested: &str) -> Result<PathBuf> {
     Ok(candidate)
 }
 
-fn is_canonical_dokuwiki_segment(segment: &str) -> bool {
-    let bytes = segment.as_bytes();
-    !bytes.is_empty()
-        && !matches!(bytes[0], b'_' | b'-')
-        && !matches!(bytes[bytes.len() - 1], b'_' | b'-')
-        && !segment.contains("__")
-        && bytes.iter().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'_' || *byte == b'-'
-        })
-}
-
-fn canonical_module_segment(name: &str) -> Result<String> {
-    if name.is_empty()
-        || !name
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
-    {
-        return Err(anyhow!(
-            "invalid module name '{name}': use a non-empty ASCII name containing only letters, digits, '_' or '-'"
-        ));
-    }
-    let segment = name.to_ascii_lowercase();
-    if !is_canonical_dokuwiki_segment(&segment) {
-        return Err(anyhow!(
-            "invalid module name '{name}': DokuWiki canonical IDs cannot start or end with '_' or '-' or contain '__'"
-        ));
-    }
-    Ok(segment)
-}
-
-fn validate_wiki_id(wiki_id: &str) -> Result<()> {
-    if wiki_id.is_empty() || !wiki_id.split(':').all(is_canonical_dokuwiki_segment) {
-        return Err(anyhow!("invalid DokuWiki namespace ID '{wiki_id}'"));
-    }
-    Ok(())
-}
-
-pub fn module_page_id(wiki_id: &str, path: &[String]) -> Result<String> {
-    validate_wiki_id(wiki_id)?;
-    if path.is_empty() {
-        return Err(anyhow!("module path cannot be empty"));
-    }
-    let segments = path
-        .iter()
-        .map(|name| canonical_module_segment(name))
-        .collect::<Result<Vec<_>>>()?;
-    Ok(format!("{wiki_id}:{}:start", segments.join(":")))
-}
-
-pub fn overview_page_id(wiki_id: &str) -> Result<String> {
-    validate_wiki_id(wiki_id)?;
-    Ok(format!("{wiki_id}:start"))
-}
-
-pub fn page_file_path(output: &Path, wiki_id: &str, page_id: &str) -> Result<PathBuf> {
-    validate_wiki_id(wiki_id)?;
-    let wiki_prefix = format!("{wiki_id}:");
-    let page_suffix = page_id
-        .strip_prefix(&wiki_prefix)
-        .ok_or_else(|| anyhow!("page ID '{page_id}' is outside wiki namespace '{wiki_id}'"))?;
-    let mut path = output.join("dokuwiki").join("data").join("pages");
-    for segment in wiki_id.split(':').chain(page_suffix.split(':')) {
-        if !is_canonical_dokuwiki_segment(segment) {
-            return Err(anyhow!("invalid DokuWiki page ID '{page_id}'"));
-        }
-        path.push(segment);
-    }
-    path.set_extension("txt");
-    Ok(path)
-}
-
 fn output_relative_path(output: &Path, path: &Path) -> Result<String> {
     Ok(path
         .strip_prefix(output)
@@ -1733,7 +1668,7 @@ pub fn validate_module_page_paths(wiki_id: &str, tree: &ModuleTree) -> Result<()
         Ok(())
     }
 
-    validate_wiki_id(wiki_id)?;
+    WikiId::parse(wiki_id)?;
     visit(wiki_id, tree, &[], &mut BTreeMap::new())
 }
 
@@ -1845,6 +1780,16 @@ mod tests {
     }
 
     fn assess_overview_diagram(content: &str, diagram_labels: &[String]) -> Value {
+        let structure = lexed(
+            content,
+            &[
+                "====== Repository Overview ======",
+                "===== Purpose ======",
+                "===== Architecture ======",
+                "===== Responsibilities ======",
+            ],
+            &[],
+        );
         assess_page(
             "Repository",
             &Module::default(),
@@ -1857,8 +1802,52 @@ mod tests {
                 actual_links: &[],
                 grounded_labels: &[],
                 diagram_labels,
+                structure: &structure,
             },
         )
+    }
+
+    /// Stand in for DokuWiki's lexer with the structure it would report for
+    /// `content`, so one page can be assessed without a PHP runtime. Every
+    /// entry must sit in the fixture verbatim and exactly once: headings as
+    /// their whole source line, spans as the delimiter-inclusive run.
+    fn lexed(
+        content: &str,
+        headings: &[&str],
+        spans: &[(&str, dokuwiki::SpanKind)],
+    ) -> dokuwiki::PageStructure {
+        let located = |needle: &str| {
+            let start = content
+                .find(needle)
+                .unwrap_or_else(|| panic!("{needle} is not part of the fixture"));
+            (start, start + needle.len())
+        };
+        dokuwiki::PageStructure {
+            headings: headings
+                .iter()
+                .map(|line| {
+                    let (start, end) = located(line);
+                    let equals = line.chars().take_while(|ch| *ch == '=').count();
+                    dokuwiki::Heading {
+                        level: (7 - equals).max(1) as u8,
+                        text: line.trim().trim_matches('=').trim().to_string(),
+                        start,
+                        end,
+                    }
+                })
+                .collect(),
+            spans: spans
+                .iter()
+                .map(|(run, kind)| {
+                    let (start, end) = located(run);
+                    dokuwiki::Span {
+                        kind: *kind,
+                        start,
+                        end,
+                    }
+                })
+                .collect(),
+        }
     }
 
     #[test]
@@ -1983,6 +1972,15 @@ mod tests {
                 actual_links: &required_links,
                 grounded_labels: &[],
                 diagram_labels: &[],
+                structure: &lexed(
+                    &cjk_content,
+                    &[
+                        "====== 运行时 ======",
+                        "===== 目的与职责 =====",
+                        "===== 架构流程 =====",
+                    ],
+                    &[("<code>inline_code</code>", dokuwiki::SpanKind::Code)],
+                ),
             },
         );
         assert_eq!(cjk["prose_count_mode"], json!("cjk_characters"));
@@ -2008,6 +2006,15 @@ mod tests {
                 actual_links: &[],
                 grounded_labels: &[],
                 diagram_labels: &[],
+                structure: &lexed(
+                    &english_content,
+                    &[
+                        "====== Runtime ======",
+                        "===== Purpose =====",
+                        "===== Architecture =====",
+                    ],
+                    &[],
+                ),
             },
         );
         assert_eq!(english["prose_count_mode"], json!("english_words"));
@@ -2064,6 +2071,15 @@ mod tests {
                 actual_links: &[],
                 grounded_labels: &["Runtime".to_string()],
                 diagram_labels: &["Runtime".to_string()],
+                structure: &lexed(
+                    &content,
+                    &[
+                        "====== Runtime ======",
+                        "===== Purpose ======",
+                        "===== Architecture ======",
+                    ],
+                    &[],
+                ),
             },
         );
         assert_eq!(report["grounded_components"], json!(1));
@@ -2076,5 +2092,135 @@ mod tests {
                 .as_str()
                 .unwrap_or_default()
                 .contains("expected at least 2")));
+    }
+
+    #[test]
+    fn crlf_pages_are_grounded_like_lf_pages() {
+        // Paragraph grounding must see the same paragraphs whatever line
+        // endings the page carries: read raw, a CRLF page is one giant
+        // paragraph and passes the symbol+path test on luck alone.
+        let ids = vec!["src/runtime.rs::Runtime".to_string()];
+        let module = Module {
+            components: ids.clone(),
+            ..Module::default()
+        };
+        let nodes = BTreeMap::from([(
+            ids[0].clone(),
+            Node {
+                id: ids[0].clone(),
+                name: "Runtime".to_string(),
+                relative_path: "src/runtime.rs".to_string(),
+                ..Node::default()
+            },
+        )]);
+        let lf = "====== Runtime ======\n\n===== Purpose ======\n\nRuntime owns the loop.\n\n===== Architecture ======\n\nsrc/runtime.rs carries the dispatch table.\n";
+        let crlf = lf.replace("\n", "\r\n");
+        let assess = |content: &str| {
+            assess_page(
+                "Runtime",
+                &module,
+                content,
+                &nodes,
+                PageAssessmentContext {
+                    is_leaf: true,
+                    is_overview: false,
+                    required_links: &[],
+                    actual_links: &[],
+                    grounded_labels: &[],
+                    diagram_labels: &[],
+                    structure: &lexed(
+                        content,
+                        &[
+                            "====== Runtime ======",
+                            "===== Purpose ======",
+                            "===== Architecture ======",
+                        ],
+                        &[],
+                    ),
+                },
+            )
+        };
+        let report = assess(lf);
+        assert_eq!(report["grounded_components"], json!(0), "{report}");
+        assert_eq!(
+            assess(&crlf)["grounded_components"],
+            report["grounded_components"],
+            "line endings must not decide what counts as grounded"
+        );
+    }
+
+    #[test]
+    fn lexer_structure_decides_which_lines_are_headings_and_prose() {
+        let filler = "The runtime owns request parsing and dispatch. ".repeat(6);
+        let code = "<code java>\n===== Purpose =====\nint x = 1;\n</code>";
+        let content = format!(
+            "====== Runtime ======\n\n{filler}\n\n{code}\n\nIt names ''src/runtime.rs'' as the owner.\n"
+        );
+        let structure = lexed(
+            &content,
+            &["====== Runtime ======"],
+            &[(code, dokuwiki::SpanKind::Code)],
+        );
+        let report = assess_page(
+            "Runtime",
+            &Module::default(),
+            &content,
+            &BTreeMap::new(),
+            PageAssessmentContext {
+                is_leaf: true,
+                is_overview: false,
+                required_links: &[],
+                actual_links: &[],
+                grounded_labels: &[],
+                diagram_labels: &[],
+                structure: &structure,
+            },
+        );
+        // 42 words of filler, then the closing line's five spoken words plus
+        // the three that ''src/runtime.rs'' spells out: DokuWiki renders an
+        // inline code run, so its text is explanation the reader sees.
+        assert_eq!(report["prose_words"], json!(50));
+        // Only the real heading counts. The ===== Purpose ===== that sits inside
+        // the code block is program text, which a line scanner cannot know.
+        assert_eq!(report["semantic_sections"], json!(0));
+    }
+
+    #[test]
+    fn offsets_that_split_a_multibyte_character_are_clamped_wide() {
+        let content = "===== 目的 =====\n\n该模块负责说明边界与流程。\n";
+        let boundary = content.find("边界").expect("fixture keeps the target word");
+        let structure = dokuwiki::PageStructure {
+            headings: vec![dokuwiki::Heading {
+                level: 2,
+                text: "目的".to_string(),
+                start: 0,
+                end: content.find('\n').expect("fixture has a heading line"),
+            }],
+            // One byte into 边 is the shape a parser that counts differently
+            // from this crate could hand back.
+            spans: vec![dokuwiki::Span {
+                kind: dokuwiki::SpanKind::Unformatted,
+                start: boundary + 1,
+                end: boundary + 2,
+            }],
+        };
+        let report = assess_page(
+            "Runtime",
+            &Module::default(),
+            content,
+            &BTreeMap::new(),
+            PageAssessmentContext {
+                is_leaf: true,
+                is_overview: false,
+                required_links: &[],
+                actual_links: &[],
+                grounded_labels: &[],
+                diagram_labels: &[],
+                structure: &structure,
+            },
+        );
+        // The whole character is widened out of the scan rather than sliced in
+        // two, leaving the other twelve characters less 边.
+        assert_eq!(report["prose_words"], json!(11));
     }
 }

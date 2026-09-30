@@ -1,16 +1,17 @@
 use super::{
-    collect_expected_pages, module_page_id, overview_page_id, page_file_path,
-    validate_module_page_paths,
+    collect_expected_pages, enumerate_pages, module_page_id, overview_page_id, page_file_path,
+    validate_module_page_paths, PageScope, WikiId,
 };
 use crate::dokuwiki;
 use crate::model::{Module, ModuleTree, Node};
-use crate::session::{self, SessionState};
+use crate::session::{self, files, SessionState};
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MermaidReport {
     pub blocks: usize,
@@ -71,7 +72,7 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
         }
     }
 
-    let validation_path = session::session_value_path(state, "module_tree_validation.json");
+    let validation_path = session::session_file(state, files::MODULE_TREE_VALIDATION)?;
     let validation: Value = session::read_json(&validation_path).with_context(|| {
         format!(
             "incomplete documentation: missing {}",
@@ -145,7 +146,7 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
     let overview_id = overview_page_id(&state.wiki_id)?;
     expected.insert(overview_id);
 
-    let actual_files = collect_dokuwiki_pages(&output, &state.wiki_id)?;
+    let actual_files = enumerate_pages(&output, &WikiId::parse(&state.wiki_id)?, PageScope::All)?;
     let mut actual_page_ids = BTreeSet::new();
     let mut actual_paths_by_id = BTreeMap::<String, Vec<PathBuf>>::new();
     let mut actual_ids_canonical = true;
@@ -198,13 +199,14 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
     }
 
     let nodes: BTreeMap<String, Node> =
-        session::read_json(&session::session_value_path(state, "components.json"))?;
+        session::read_json(&session::session_file(state, files::COMPONENTS)?)?;
     let mut page_sources = BTreeMap::new();
     let mut parsed_page_ids = BTreeSet::new();
     let mut dokuwiki_links = Vec::new();
     let mut broken_dokuwiki_links = Vec::new();
+    let context = dokuwiki::session_context(state)?;
     for file in &actual_files {
-        if !file.safe_to_read {
+        if !file.readable {
             let message = format!(
                 "refusing to read DokuWiki page ID {} through a symlink",
                 file.page_id
@@ -213,9 +215,8 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
             page_sources.insert(
                 file.page_id.clone(),
                 PageSource {
-                    content: String::new(),
-                    links: None,
                     parser_error: Some(message),
+                    ..PageSource::default()
                 },
             );
             continue;
@@ -228,15 +229,14 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
                 page_sources.insert(
                     file.page_id.clone(),
                     PageSource {
-                        content: String::new(),
-                        links: None,
                         parser_error: Some(message),
+                        ..PageSource::default()
                     },
                 );
                 continue;
             }
         };
-        match dokuwiki::parse_page(state, &file.page_id, &content) {
+        match context.parse(&file.page_id, &content) {
             Ok(parsed) => {
                 parsed_page_ids.insert(file.page_id.clone());
                 for target_page_id in &parsed.links {
@@ -254,6 +254,7 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
                     PageSource {
                         content,
                         links: Some(parsed.links),
+                        structure: parsed.structure,
                         parser_error: None,
                     },
                 );
@@ -268,8 +269,8 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
                     file.page_id.clone(),
                     PageSource {
                         content,
-                        links: None,
                         parser_error: Some(message),
+                        ..PageSource::default()
                     },
                 );
             }
@@ -363,19 +364,20 @@ pub fn validate_documentation_report(state: &SessionState) -> Result<Value> {
         },
     });
     session::write_json(
-        &session::session_value_path(state, "documentation_validation.json"),
+        &session::session_file(state, files::DOCUMENTATION_VALIDATION)?,
         &report,
     )?;
     Ok(report)
 }
 
 fn analyze_mermaid(
-    content: &str,
+    source: &str,
+    ignored_ranges: &[(usize, usize)],
     grounded_labels: &[String],
     strict: bool,
     forbid_support_nodes: bool,
 ) -> MermaidReport {
-    let (blocks, balanced) = extract_mermaid_blocks(content);
+    let (blocks, balanced) = extract_mermaid_blocks(source, ignored_ranges);
 
     let mut kinds = BTreeSet::new();
     let mut nodes = BTreeMap::<String, String>::new();
@@ -523,16 +525,15 @@ struct MermaidBlockStats {
     edges: Vec<(String, String)>,
 }
 
-fn extract_mermaid_blocks(content: &str) -> (Vec<String>, bool) {
-    let ignored_ranges = opaque_dokuwiki_ranges(content);
+fn extract_mermaid_blocks(content: &str, ignored_ranges: &[(usize, usize)]) -> (Vec<String>, bool) {
     let mut blocks = Vec::new();
     let mut current = None::<usize>;
     let mut balanced = true;
     let mut cursor = 0;
 
     loop {
-        let open = next_unignored_markup(content, "<mermaid>", cursor, &ignored_ranges);
-        let close = next_unignored_markup(content, "</mermaid>", cursor, &ignored_ranges);
+        let open = next_unignored_markup(content, "<mermaid>", cursor, ignored_ranges);
+        let close = next_unignored_markup(content, "</mermaid>", cursor, ignored_ranges);
         let next = match (open, close) {
             (None, None) => break,
             (Some(open), None) => (open, true),
@@ -726,9 +727,13 @@ fn has_diagram_path(
         .any(|node| visit(node, &adjacency, &mut BTreeSet::new(), 0, minimum_edges))
 }
 
+#[derive(Default)]
 struct PageSource {
     content: String,
     links: Option<Vec<String>>,
+    /// What DokuWiki's lexer made of `content`. Empty when the page never
+    /// reached the parser, which `parser_error` already reports.
+    structure: dokuwiki::PageStructure,
     parser_error: Option<String>,
 }
 
@@ -777,6 +782,8 @@ impl<'a> DocumentationReportBuilder<'a> {
             let actual_links = source
                 .and_then(|source| source.links.as_deref())
                 .unwrap_or(&[]);
+            let empty_structure = dokuwiki::PageStructure::default();
+            let structure = source.map_or(&empty_structure, |source| &source.structure);
             let required_links = module
                 .children
                 .keys()
@@ -806,6 +813,7 @@ impl<'a> DocumentationReportBuilder<'a> {
                     actual_links,
                     grounded_labels: &labels,
                     diagram_labels: &diagram_labels,
+                    structure,
                 },
             );
             if let Some(error) = Self::attach_parser_result(&page_id, source, &mut result) {
@@ -824,6 +832,8 @@ impl<'a> DocumentationReportBuilder<'a> {
         let actual_links = source
             .and_then(|source| source.links.as_deref())
             .unwrap_or(&[]);
+        let empty_structure = dokuwiki::PageStructure::default();
+        let structure = source.map_or(&empty_structure, |source| &source.structure);
         let overview_links = tree
             .keys()
             .map(|name| module_page_id(wiki_id, std::slice::from_ref(name)))
@@ -844,6 +854,7 @@ impl<'a> DocumentationReportBuilder<'a> {
                 actual_links,
                 grounded_labels: &labels,
                 diagram_labels: &diagram_labels,
+                structure,
             },
         );
         if let Some(error) = Self::attach_parser_result(&page_id, source, &mut result) {
@@ -927,6 +938,9 @@ pub(super) struct PageAssessmentContext<'a> {
     pub(super) actual_links: &'a [String],
     pub(super) grounded_labels: &'a [String],
     pub(super) diagram_labels: &'a [String],
+    /// DokuWiki's own reading of `content`. Headings and opaque runs are taken
+    /// from here rather than guessed at, so only the policy below lives here.
+    pub(super) structure: &'a dokuwiki::PageStructure,
 }
 
 pub(super) fn assess_page(
@@ -943,11 +957,14 @@ pub(super) fn assess_page(
         actual_links,
         grounded_labels,
         diagram_labels,
+        structure,
     } = context;
-    let headings = dokuwiki_headings(content);
+    let headings = heading_titles(structure);
     let lower = content.to_ascii_lowercase();
-    let mermaid = analyze_mermaid(content, diagram_labels, !is_leaf, is_overview);
-    let prose = prose_counts(content);
+    let source = lexed_source(content);
+    let spans = span_ranges(&source, structure);
+    let mermaid = analyze_mermaid(&source, &spans, diagram_labels, !is_leaf, is_overview);
+    let prose = prose_counts(&source, &spans, structure);
     let cjk_mode = prose.cjk_characters > prose.words;
     let prose_words = if cjk_mode {
         prose.cjk_characters
@@ -1033,10 +1050,10 @@ pub(super) fn assess_page(
         } else {
             &node.name
         };
-        let exact_id = content.contains(component_id);
+        let exact_id = source.contains(component_id);
         let symbol_and_path = !symbol.is_empty()
             && !source_path.is_empty()
-            && content
+            && source
                 .split("\n\n")
                 .any(|paragraph| paragraph.contains(symbol) && paragraph.contains(source_path));
         if exact_id || symbol_and_path {
@@ -1045,7 +1062,7 @@ pub(super) fn assess_page(
     }
     let grounded_modules = grounded_labels
         .iter()
-        .filter(|label| !label.is_empty() && content.contains(label.as_str()))
+        .filter(|label| !label.is_empty() && source.contains(label.as_str()))
         .count();
 
     let template_sections = [
@@ -1176,24 +1193,88 @@ fn collect_module_diagram_labels(
     }
 }
 
-fn dokuwiki_headings(content: &str) -> Vec<String> {
-    content
-        .lines()
-        .filter_map(|line| {
-            let trimmed = line.trim();
-            let leading = trimmed.bytes().take_while(|byte| *byte == b'=').count();
-            let trailing = trimmed
-                .bytes()
-                .rev()
-                .take_while(|byte| *byte == b'=')
-                .count();
-            if leading < 2 || leading != trailing || leading * 2 >= trimmed.len() {
-                return None;
-            }
-            let heading = trimmed[leading..trimmed.len() - trailing].trim();
-            (!heading.is_empty()).then(|| dokuwiki_visible_text(heading).to_ascii_lowercase())
-        })
+/// DokuWiki folds CRLF before it lexes a page, so every offset the parser
+/// reports indexes the LF-folded text. Copying only when the page really does
+/// contain CRLF keeps the common case allocation-free.
+fn lexed_source(content: &str) -> Cow<'_, str> {
+    if content.contains("\r\n") {
+        Cow::Owned(content.replace("\r\n", "\n"))
+    } else {
+        Cow::Borrowed(content)
+    }
+}
+
+/// The lowercase text of every heading the parser found, with inline markup
+/// stripped. A `== … ==` run inside a code block is not a heading and a heading
+/// indented by two spaces is verbatim text, which only the parser can tell.
+fn heading_titles(structure: &dokuwiki::PageStructure) -> Vec<String> {
+    structure
+        .headings
+        .iter()
+        .map(|heading| dokuwiki_visible_text(&heading.text).to_ascii_lowercase())
         .collect()
+}
+
+fn heading_ranges(source: &str, structure: &dokuwiki::PageStructure) -> Vec<(usize, usize)> {
+    structure
+        .headings
+        .iter()
+        .filter_map(|heading| bounded(source, heading.start, heading.end))
+        .collect()
+}
+
+/// The byte ranges of code, file, nowiki and `%%…%%` runs, merged. Their
+/// content is literal text rather than explanation, so it never counts as
+/// prose.
+fn span_ranges(source: &str, structure: &dokuwiki::PageStructure) -> Vec<(usize, usize)> {
+    let mut ranges = structure
+        .spans
+        .iter()
+        .filter_map(|span| bounded(source, span.start, span.end))
+        .collect::<Vec<_>>();
+    ranges.sort_unstable();
+    let mut merged = Vec::<(usize, usize)>::new();
+    for (start, end) in ranges {
+        if let Some((_, previous_end)) = merged.last_mut() {
+            if start <= *previous_end {
+                *previous_end = (*previous_end).max(end);
+                continue;
+            }
+        }
+        merged.push((start, end));
+    }
+    merged
+}
+
+/// Clamp a parser offset pair onto the source the caller holds. The parser
+/// counts bytes, so a pair that disagrees with this crate's view of the page
+/// could slice through a character: clamping wide keeps every slice well-formed
+/// and discards a pair that no longer describes a range. Widening a span can
+/// only exclude more text from the prose count, so the bias is toward a
+/// stricter gate, never toward scoring a character cut in half as prose.
+fn bounded(source: &str, start: usize, end: usize) -> Option<(usize, usize)> {
+    let start = floor_boundary(source, start.min(source.len()));
+    let end = ceil_boundary(source, end.min(source.len()));
+    (start < end).then_some((start, end))
+}
+
+fn floor_boundary(source: &str, offset: usize) -> usize {
+    (0..=offset)
+        .rev()
+        .find(|index| source.is_char_boundary(*index))
+        .expect("a string starts at a character boundary")
+}
+
+fn ceil_boundary(source: &str, offset: usize) -> usize {
+    (offset..=source.len())
+        .find(|index| source.is_char_boundary(*index))
+        .expect("a string ends at a character boundary")
+}
+
+fn overlaps(ranges: &[(usize, usize)], start: usize, end: usize) -> bool {
+    ranges
+        .iter()
+        .any(|(range_start, range_end)| *range_start < end && *range_end > start)
 }
 
 fn has_heading_term(headings: &[String], terms: &[&str]) -> bool {
@@ -1208,20 +1289,28 @@ struct ProseCounts {
     cjk_characters: usize,
 }
 
-fn prose_counts(content: &str) -> ProseCounts {
-    let mut opaque_ranges = opaque_dokuwiki_ranges(content);
-    let mermaid_ranges = mermaid_source_ranges(content, &opaque_ranges);
-    opaque_ranges.extend(mermaid_ranges);
-    opaque_ranges.sort_unstable();
+/// Count the explanatory words of a page: prose lines only, with the byte
+/// ranges the parser called literal cut out of them. `spans` is the caller's
+/// [`span_ranges`] of the same source, shared so diagram scanning agrees.
+fn prose_counts(
+    source: &str,
+    spans: &[(usize, usize)],
+    structure: &dokuwiki::PageStructure,
+) -> ProseCounts {
+    let mut excluded = spans.to_vec();
+    excluded.extend(mermaid_source_ranges(source, spans));
+    excluded.sort_unstable();
+    let headings = heading_ranges(source, structure);
     let mut counts = ProseCounts::default();
     let mut line_start = 0;
-    for raw_line in content.split_inclusive('\n') {
+    for raw_line in source.split_inclusive('\n') {
         let line = raw_line.strip_suffix('\n').unwrap_or(raw_line);
         let line = line.strip_suffix('\r').unwrap_or(line);
         let trimmed = line.trim();
         let indentation = line.len() - line.trim_start().len();
+        let line_end = line_start + line.len();
         if trimmed.is_empty()
-            || is_dokuwiki_heading(trimmed)
+            || overlaps(&headings, line_start, line_end)
             || trimmed.starts_with('*')
             || trimmed.starts_with('-')
             || trimmed.starts_with('>')
@@ -1233,23 +1322,8 @@ fn prose_counts(content: &str) -> ProseCounts {
             line_start += raw_line.len();
             continue;
         }
-        let line_end = line_start + line.len();
-        let mut visible = String::new();
-        let mut cursor = line_start;
-        for (start, end) in opaque_ranges
-            .iter()
-            .filter(|(start, end)| *start < line_end && *end > line_start)
-        {
-            let visible_end = (*start).min(line_end);
-            if cursor < visible_end {
-                visible.push_str(&content[cursor..visible_end]);
-            }
-            cursor = cursor.max((*end).min(line_end));
-        }
-        if cursor < line_end {
-            visible.push_str(&content[cursor..line_end]);
-        }
-        let line_counts = prose_counts_in_line(&visible);
+        let line_counts =
+            prose_counts_in_line(&visible_between(source, &excluded, line_start, line_end));
         counts.words += line_counts.words;
         counts.cjk_characters += line_counts.cjk_characters;
         line_start += raw_line.len();
@@ -1257,133 +1331,24 @@ fn prose_counts(content: &str) -> ProseCounts {
     counts
 }
 
-fn is_dokuwiki_heading(line: &str) -> bool {
-    let leading = line.bytes().take_while(|byte| *byte == b'=').count();
-    let trailing = line.bytes().rev().take_while(|byte| *byte == b'=').count();
-    leading >= 2 && leading == trailing && leading * 2 < line.len()
-}
-
-struct DokuwikiPageFile {
-    page_id: String,
-    path: PathBuf,
-    canonical: bool,
-    safe_to_read: bool,
-}
-
-fn collect_dokuwiki_pages(output: &Path, wiki_id: &str) -> Result<Vec<DokuwikiPageFile>> {
-    fn visit(directory: &Path, files: &mut Vec<(PathBuf, bool)>) -> Result<()> {
-        if !directory.exists() {
-            return Ok(());
+/// The bytes of one line that survive every excluded range, joined back.
+fn visible_between(source: &str, excluded: &[(usize, usize)], start: usize, end: usize) -> String {
+    let mut visible = String::new();
+    let mut cursor = start;
+    for (range_start, range_end) in excluded
+        .iter()
+        .filter(|(range_start, range_end)| *range_start < end && *range_end > start)
+    {
+        let visible_end = (*range_start).min(end);
+        if cursor < visible_end {
+            visible.push_str(&source[cursor..visible_end]);
         }
-        for entry in fs::read_dir(directory)? {
-            let entry = entry?;
-            let path = entry.path();
-            let file_type = entry.file_type()?;
-            if file_type.is_dir() {
-                visit(&path, files)?;
-            } else if path.extension().and_then(|value| value.to_str()) == Some("txt")
-                && (file_type.is_file() || file_type.is_symlink())
-            {
-                files.push((path, file_type.is_file()));
-            }
-        }
-        Ok(())
+        cursor = cursor.max((*range_end).min(end));
     }
-
-    let page_root = output.join("dokuwiki/data/pages");
-    if page_root.exists() {
-        let canonical_output = output.canonicalize()?;
-        if !page_root.canonicalize()?.starts_with(&canonical_output) {
-            return Err(anyhow!(
-                "DokuWiki pages directory escapes edition output: {}",
-                page_root.display()
-            ));
-        }
+    if cursor < end {
+        visible.push_str(&source[cursor..end]);
     }
-    let mut paths = Vec::new();
-    visit(&page_root, &mut paths)?;
-    paths.sort_by(|left, right| left.0.cmp(&right.0));
-    paths
-        .into_iter()
-        .map(|(path, safe_to_read)| {
-            let page_id = page_id_from_file(&page_root, &path)?;
-            let canonical = safe_to_read
-                && page_file_path(output, wiki_id, &page_id)
-                    .is_ok_and(|expected_path| expected_path == path);
-            Ok(DokuwikiPageFile {
-                page_id,
-                path,
-                canonical,
-                safe_to_read,
-            })
-        })
-        .collect()
-}
-
-fn page_id_from_file(page_root: &Path, path: &Path) -> Result<String> {
-    let relative = path.strip_prefix(page_root)?;
-    let mut segments = relative
-        .parent()
-        .into_iter()
-        .flat_map(|parent| parent.components())
-        .filter_map(|component| match component {
-            std::path::Component::Normal(segment) => Some(segment.to_string_lossy().into_owned()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    let page_name = path
-        .file_stem()
-        .ok_or_else(|| anyhow!("DokuWiki page file has no name: {}", path.display()))?
-        .to_string_lossy()
-        .into_owned();
-    segments.push(page_name);
-    Ok(segments.join(":"))
-}
-
-fn opaque_dokuwiki_ranges(content: &str) -> Vec<(usize, usize)> {
-    let mut ranges = Vec::new();
-    for tag in ["code", "file", "nowiki"] {
-        let opening = format!("<{tag}");
-        let closing = format!("</{tag}>");
-        let mut cursor = 0;
-        while let Some(relative_start) = content[cursor..].find(&opening) {
-            let start = cursor + relative_start;
-            let tag_end = start + opening.len();
-            if content
-                .as_bytes()
-                .get(tag_end)
-                .is_some_and(|byte| !byte.is_ascii_whitespace() && *byte != b'>')
-            {
-                cursor = tag_end;
-                continue;
-            }
-            let Some(relative_end) = content[tag_end..].find('>') else {
-                ranges.push((start, content.len()));
-                break;
-            };
-            let body_start = tag_end + relative_end + 1;
-            if let Some(relative_close) = content[body_start..].find(&closing) {
-                let end = body_start + relative_close + closing.len();
-                ranges.push((start, end));
-                cursor = end;
-            } else {
-                ranges.push((start, content.len()));
-                break;
-            }
-        }
-    }
-    ranges.sort_unstable();
-    let mut merged = Vec::<(usize, usize)>::new();
-    for (start, end) in ranges {
-        if let Some((_, previous_end)) = merged.last_mut() {
-            if start <= *previous_end {
-                *previous_end = (*previous_end).max(end);
-                continue;
-            }
-        }
-        merged.push((start, end));
-    }
-    merged
+    visible
 }
 
 fn next_unignored_markup(
@@ -1463,18 +1428,17 @@ fn dokuwiki_visible_text(line: &str) -> String {
                 continue;
             }
         }
-        if remainder.starts_with("''") || remainder.starts_with("%%") {
-            let delimiter = &remainder[..2];
-            if let Some(end) = remainder[2..].find(delimiter) {
-                cursor += 2 + end + 2;
-                continue;
-            }
-        }
-        if remainder.starts_with("**")
+        if remainder.starts_with("''")
+            || remainder.starts_with("%%")
+            || remainder.starts_with("**")
             || remainder.starts_with("//")
             || remainder.starts_with("__")
             || remainder.starts_with("~~")
         {
+            // Every one of these is markup around visible text, so only the
+            // two-byte delimiter goes away. `%%…%%` and `<nowiki>` reach here
+            // only inside a heading: the parser reports them as literal runs
+            // and prose counting cuts those bytes out before this point.
             cursor += 2;
             continue;
         }

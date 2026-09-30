@@ -16,6 +16,9 @@ use splitbrain\phpcli\Options;
 
 class cli_plugin_repowiki extends CLIPlugin
 {
+    /** @var string[] parser instructions that say something about the page source itself */
+    private const STRUCTURAL_INSTRUCTIONS = ['header', 'code', 'file', 'unformatted'];
+
     /** @inheritdoc */
     protected function setup(Options $options)
     {
@@ -76,6 +79,7 @@ class cli_plugin_repowiki extends CLIPlugin
                     $result = [
                         'links' => $this->internalTargets($instructions, $pageId),
                         'html' => $this->renderInstructions($instructions),
+                        'structure' => $this->pageStructure($instructions, $content),
                     ];
                     break;
 
@@ -143,6 +147,136 @@ class cli_plugin_repowiki extends CLIPlugin
             if ($target !== '') $targets[] = $target;
         }
         return $targets;
+    }
+
+    /**
+     * Project the parser's structural instructions back onto the page source.
+     *
+     * DokuWiki lexes "\n" . <source with CRLF folded to LF> . "\n" (Parser::parse),
+     * so every instruction position sits one byte past the same offset in the
+     * source. The offsets reported here undo that shift and are byte offsets into
+     * the CRLF-folded source, not character indices: a caller slicing text with
+     * them has to fold line endings the same way and round to a character
+     * boundary first, or a page with multibyte text cuts a character in half.
+     *
+     * @param array<int, array> $instructions
+     * @return array{headings: list<array<string, mixed>>, spans: list<array<string, mixed>>}
+     */
+    private function pageStructure(array $instructions, string $content): array
+    {
+        $source = str_replace("\r\n", "\n", $content);
+        $headings = [];
+        $spans = [];
+        foreach ($instructions as $instruction) {
+            if (!is_array($instruction)) continue;
+            $name = $instruction[0] ?? null;
+            if (!is_string($name) || !in_array($name, self::STRUCTURAL_INSTRUCTIONS, true)) {
+                continue;
+            }
+            $arguments = $instruction[1] ?? null;
+            $position = $instruction[2] ?? null;
+            if (!is_array($arguments) || !is_int($position)) {
+                throw new RuntimeException("DokuWiki parser returned an invalid $name instruction");
+            }
+
+            if ($name === 'header') {
+                $headings[] = $this->headingStructure($arguments, $position, $source);
+            } else {
+                $spans[] = $this->spanStructure($name, $arguments, $position, $source);
+            }
+        }
+        return ['headings' => $headings, 'spans' => $spans];
+    }
+
+    /**
+     * @param array<int, mixed> $arguments header title, level and source position
+     * @return array<string, mixed>
+     */
+    private function headingStructure(array $arguments, int $position, string $source): array
+    {
+        $title = $arguments[0] ?? null;
+        $level = $arguments[1] ?? null;
+        if (!is_string($title) || !is_int($level)) {
+            throw new RuntimeException('DokuWiki parser returned an invalid header instruction');
+        }
+
+        // The heading pattern claims a whole line and only whitespace may sit
+        // beside it, so the heading runs from its line start to that line's end.
+        $start = $this->sourcePosition($position);
+        $newline = strpos($source, "\n", $start);
+        return [
+            'level' => $level,
+            'text' => $title,
+            'start' => $start,
+            'end' => $newline === false ? strlen($source) : $newline,
+        ];
+    }
+
+    /**
+     * @param array<int, mixed> $arguments the unparsed body of a code, file or unformatted run
+     * @return array<string, mixed>
+     */
+    private function spanStructure(string $name, array $arguments, int $position, string $source): array
+    {
+        $body = $arguments[0] ?? null;
+        if (!is_string($body)) {
+            throw new RuntimeException("DokuWiki parser returned an invalid $name instruction");
+        }
+        $bodyStart = $this->sourcePosition($position);
+        if ($name === 'unformatted') {
+            [$opener, $closer, $kind] = $this->unformattedDelimiters($source, $bodyStart);
+        } else {
+            [$opener, $closer, $kind] = ['<' . $name, '</' . $name . '>', $name];
+        }
+
+        // The lexer reports the body alone, bounded exactly by the two patterns
+        // that opened and closed the mode, so the delimiters are recoverable from
+        // the body's own position: the opener ends where the body starts, and the
+        // closer is the first occurrence of the exit pattern at or after it.
+        // For <code> and <file> this holds even though the open tag carries
+        // attributes: the entry pattern ('<code\b(?=.*</code>)') matches only the
+        // 5 bytes "<code" — \b and the lookahead consume nothing — so the body
+        // token still begins with the tag's remainder (" java>") and its position
+        // sits exactly strlen($opener) past the tag start. The substr guard below
+        // is what turns any other lexer behaviour into a loud failure.
+        $start = $bodyStart - strlen($opener);
+        if ($start < 0 || substr($source, $start, strlen($opener)) !== $opener) {
+            throw new RuntimeException("DokuWiki {$name} body at {$bodyStart} is not preceded by {$opener}");
+        }
+        $close = strpos($source, $closer, $bodyStart);
+        if ($close === false) {
+            throw new RuntimeException("DokuWiki {$name} body at {$bodyStart} is not closed by {$closer}");
+        }
+        return ['kind' => $kind, 'start' => $start, 'end' => $close + strlen($closer)];
+    }
+
+    /**
+     * <nowiki> and %% both suppress markup and both report the same instruction
+     * name, so only the bytes beside the body say which of them opened the run.
+     *
+     * @return array{0: string, 1: string, 2: string} opener, closer and reported kind
+     */
+    private function unformattedDelimiters(string $source, int $bodyStart): array
+    {
+        $tag = '<nowiki>';
+        if ($bodyStart >= strlen($tag)
+            && substr($source, $bodyStart - strlen($tag), strlen($tag)) === $tag) {
+            return [$tag, '</nowiki>', 'nowiki'];
+        }
+        return ['%%', '%%', 'unformatted'];
+    }
+
+    /**
+     * Undo the newline DokuWiki's parser prepends to the source before lexing it.
+     */
+    private function sourcePosition(int $position): int
+    {
+        if ($position < 1) {
+            throw new RuntimeException(
+                "DokuWiki instruction position $position is before the page source"
+            );
+        }
+        return $position - 1;
     }
 
     /**

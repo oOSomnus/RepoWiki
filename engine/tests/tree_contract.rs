@@ -1,7 +1,9 @@
+#[path = "common/mod.rs"]
+mod common;
+
 use repowiki::docs;
 use repowiki::model::{
-    ArtifactIndex, BreadthRisk, DecompositionDecision, DecompositionReview, Module, ModuleTree,
-    Node, Summary,
+    BreadthRisk, DecompositionDecision, DecompositionReview, Module, ModuleTree, Node, Summary,
 };
 use repowiki::session;
 use serde_json::{json, Value};
@@ -28,25 +30,14 @@ fn prepared_session(
     leaf_nodes: &[&str],
     summary: Summary,
 ) -> (tempfile::TempDir, repowiki::session::SessionState) {
-    let repo = tempdir().expect("repository tempdir");
-    let output = repo.path().join("docs");
-    let mut state = session::create(repo.path(), &output).expect("create session");
-    let nodes = nodes
-        .iter()
-        .map(|(id, kind, source)| ((*id).to_string(), node(id, kind, source)))
-        .collect::<BTreeMap<_, _>>();
-    session::write_analysis_files(
-        &mut state,
-        &nodes,
-        &leaf_nodes
+    common::prepared_session(
+        nodes
             .iter()
-            .map(|id| (*id).to_string())
-            .collect::<Vec<_>>(),
-        &summary,
-        &ArtifactIndex::default(),
+            .map(|(id, kind, source)| node(id, kind, source))
+            .collect(),
+        leaf_nodes,
+        summary,
     )
-    .expect("write analysis files");
-    (repo, state)
 }
 
 fn leaves(tree: &ModuleTree) -> Vec<String> {

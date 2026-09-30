@@ -1,13 +1,13 @@
 use crate::docs;
 use crate::dokuwiki;
 use crate::model::{ChangeSet, ModuleTree, Node, UpdateOptions, UpdateRecord};
-use crate::session::{self, SessionState};
+use crate::session::{self, files, SessionState};
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 pub const VALID_RUNGS: &[&str] = &["0", "1", "2", "3", "3b"];
@@ -119,13 +119,14 @@ pub fn plan(state: &SessionState, options: &UpdateOptions) -> Result<Value> {
         errors: Vec::new(),
         wall_seconds: started.elapsed().as_secs_f64(),
     };
-    let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
-    session::write_json(&root.join("changes.json"), &diff)?;
-    session::write_json(&root.join("update_record_draft.json"), &record)?;
+    let changes_path = session::session_file(state, files::CHANGES)?;
+    let record_path = session::session_file(state, files::UPDATE_RECORD_DRAFT)?;
+    session::write_json(&changes_path, &diff)?;
+    session::write_json(&record_path, &record)?;
     Ok(json!({
         "session_id": state.session_id,
-        "changes_path": root.join("changes.json"),
-        "record_path": root.join("update_record_draft.json"),
+        "changes_path": changes_path,
+        "record_path": record_path,
         "outcome": outcome,
         "active": active,
         "fallback": fallback,
@@ -137,9 +138,9 @@ pub fn plan(state: &SessionState, options: &UpdateOptions) -> Result<Value> {
 }
 
 pub fn route(state: &SessionState) -> Result<Value> {
-    let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
-    let diff: ChangeSet = session::read_json(&root.join("changes.json"))?;
-    let nodes: BTreeMap<String, Node> = session::read_json(&root.join("components.json"))?;
+    let diff: ChangeSet = session::read_json(&session::session_file(state, files::CHANGES)?)?;
+    let nodes: BTreeMap<String, Node> =
+        session::read_json(&session::session_file(state, files::COMPONENTS)?)?;
     let options = load_update_options(state)?;
     let module_index = module_index(state)?;
     let fallback_page = module_index
@@ -159,8 +160,8 @@ pub fn route(state: &SessionState) -> Result<Value> {
             .unwrap_or_else(|| fallback_page.clone());
         routes.insert(id.clone(), route);
     }
-    let path = root.join("routes.json");
-    session::write_json(&path, &routes)?;
+    let routes_path = session::session_file(state, files::ROUTES)?;
+    session::write_json(&routes_path, &routes)?;
     let orphans = routes
         .iter()
         .filter_map(|(id, route)| {
@@ -175,13 +176,13 @@ pub fn route(state: &SessionState) -> Result<Value> {
             })
         })
         .collect::<Vec<_>>();
-    let routing_context_path = root.join("routing_context.json");
+    let routing_context_path = session::session_file(state, files::ROUTING_CONTEXT)?;
     session::write_json(
         &routing_context_path,
         &json!({"module_tree": load_tree_value(state), "orphans": orphans}),
     )?;
     Ok(json!({
-        "routes_path": path,
+        "routes_path": routes_path,
         "routes": routes,
         "orphans": orphans,
         "routing_context_path": routing_context_path,
@@ -193,16 +194,16 @@ pub fn route(state: &SessionState) -> Result<Value> {
 /// not decide prose or call an LLM; it only enforces the routing decision
 /// schema and updates aggregate IDs consistently for every ancestor.
 pub fn apply_routes(state: &SessionState, decisions_path: &Path) -> Result<Value> {
-    let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
     let value: Value = session::read_json(decisions_path)?;
     let decisions = value
         .get("decisions")
         .and_then(Value::as_array)
         .ok_or_else(|| anyhow!("routing decisions must contain a 'decisions' array"))?;
     let mut tree = docs::read_tree_file(&session::module_tree_path(state))?;
-    let diff: ChangeSet = session::read_json(&root.join("changes.json"))?;
+    let diff: ChangeSet = session::read_json(&session::session_file(state, files::CHANGES)?)?;
     remove_deleted_and_renamed(&mut tree, &diff);
-    let nodes: BTreeMap<String, Node> = session::read_json(&root.join("components.json"))?;
+    let nodes: BTreeMap<String, Node> =
+        session::read_json(&session::session_file(state, files::COMPONENTS)?)?;
     let mut applied = Vec::new();
     let mut rejected = Vec::new();
     let mut untracked = Vec::new();
@@ -267,14 +268,15 @@ pub fn apply_routes(state: &SessionState, decisions_path: &Path) -> Result<Value
         "rejected": rejected,
         "validation_path": saved.validation_path,
     });
-    session::write_json(&root.join("routes_applied.json"), &output)?;
+    let applied_path = session::session_file(state, files::ROUTES_APPLIED)?;
+    session::write_json(&applied_path, &output)?;
     Ok(output)
 }
 
 pub fn context(state: &SessionState) -> Result<Value> {
-    let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
-    let diff: ChangeSet = session::read_json(&root.join("changes.json"))?;
-    let nodes: BTreeMap<String, Node> = session::read_json(&root.join("components.json"))?;
+    let diff: ChangeSet = session::read_json(&session::session_file(state, files::CHANGES)?)?;
+    let nodes: BTreeMap<String, Node> =
+        session::read_json(&session::session_file(state, files::COMPONENTS)?)?;
     let options = load_update_options(state)?;
     let active = active_ids(&diff);
     let tree = load_tree_value(state);
@@ -292,7 +294,7 @@ pub fn context(state: &SessionState) -> Result<Value> {
             })
         })
         .collect::<Vec<_>>();
-    let reports_dir = root.join("reports");
+    let reports_dir = session::session_file(state, files::REPORTS)?;
     fs::create_dir_all(&reports_dir)?;
     let mut reports = Vec::new();
     for id in active {
@@ -322,7 +324,7 @@ pub fn context(state: &SessionState) -> Result<Value> {
         }
     }
     let stale = stale_scan(state)?;
-    let orphan_context_path = reports_dir.join("orphan_context.json");
+    let orphan_context_path = reports_dir.join(files::ORPHAN_CONTEXT);
     session::write_json(
         &orphan_context_path,
         &json!({"module_tree": tree, "orphans": orphan_context}),
@@ -346,22 +348,23 @@ pub fn stale_scan(state: &SessionState) -> Result<Value> {
     let mut expected = BTreeSet::from([docs::overview_page_id(&state.wiki_id)?]);
     docs::collect_expected_pages(&state.wiki_id, &tree, &mut expected)?;
 
-    let pages = list_page_ids(state)?;
+    let pages = canonical_page_ids(state)?;
     let present = pages.iter().cloned().collect::<BTreeSet<_>>();
     let missing_pages = expected.difference(&present).cloned().collect::<Vec<_>>();
     let extra_pages = present.difference(&expected).cloned().collect::<Vec<_>>();
     let mut broken_links = Vec::new();
+    let context = dokuwiki::session_context(state)?;
     for page_id in &pages {
         let path = docs::page_file_path(&output, &state.wiki_id, page_id)?;
         let content = fs::read_to_string(path)?;
-        let parsed = dokuwiki::parse_page(state, page_id, &content)?;
+        let parsed = context.parse(page_id, &content)?;
         for target in parsed.links {
             if !present.contains(&target) {
                 broken_links.push(json!({"page": page_id, "target": target}));
             }
         }
     }
-    let validation = session::session_value_path(state, "module_tree_validation.json");
+    let validation = session::session_file(state, files::MODULE_TREE_VALIDATION)?;
     let validation_value: Value = if validation.is_file() {
         session::read_json(&validation)?
     } else {
@@ -378,25 +381,25 @@ pub fn stale_scan(state: &SessionState) -> Result<Value> {
             .cloned()
             .unwrap_or_else(|| json!([])),
     });
-    let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
-    session::write_json(&root.join("stale_scan.json"), &result)?;
+    let stale_scan_path = session::session_file(state, files::STALE_SCAN)?;
+    session::write_json(&stale_scan_path, &result)?;
     Ok(result)
 }
 
 pub fn finalize(state: &SessionState, model: &str, verdicts_path: Option<&Path>) -> Result<Value> {
-    let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
-    let mut record: UpdateRecord = if root.join("update_record_draft.json").exists() {
-        session::read_json(&root.join("update_record_draft.json"))?
+    let draft_path = session::session_file(state, files::UPDATE_RECORD_DRAFT)?;
+    let mut record: UpdateRecord = if draft_path.exists() {
+        session::read_json(&draft_path)?
     } else {
         UpdateRecord::default()
     };
     if let Some(path) = verdicts_path {
         record.verdicts = read_verdicts(path, &state.wiki_id)?;
     }
-    record.reports = list_report_files(&root.join("reports"))?;
+    record.reports = list_report_files(&session::session_file(state, files::REPORTS)?)?;
     record.stale_scan = stale_scan(state)?;
     record.finished_at = Utc::now().to_rfc3339();
-    record.pages_written = list_page_ids(state)?;
+    record.pages_written = canonical_page_ids(state)?;
     record.wall_seconds = record
         .started_at
         .parse::<chrono::DateTime<chrono::FixedOffset>>()
@@ -431,7 +434,7 @@ fn read_verdicts(path: &Path, wiki_id: &str) -> Result<BTreeMap<String, String>>
         .ok_or_else(|| anyhow!("verdicts file must contain a JSON object"))?;
     let mut verdicts = BTreeMap::new();
     for (page, value) in object {
-        docs::page_file_path(Path::new(""), wiki_id, page)?;
+        docs::validate_page_id(wiki_id, page)?;
         let verdict = match value {
             Value::String(verdict) => verdict.trim().to_ascii_lowercase(),
             Value::Object(fields) => {
@@ -792,8 +795,7 @@ fn deepest_module_page(wiki_id: &str, tree: &ModuleTree, id: &str) -> Result<Opt
 }
 
 fn load_update_options(state: &SessionState) -> Result<UpdateOptions> {
-    let root = session::session_root(Path::new(&state.repo_path), &state.session_id);
-    let path = root.join("update_record_draft.json");
+    let path = session::session_file(state, files::UPDATE_RECORD_DRAFT)?;
     let options = if path.exists() {
         let record: UpdateRecord = session::read_json(&path)?;
         record.options
@@ -940,114 +942,30 @@ fn truncate_text(text: &str, max_tokens: usize) -> String {
     format!("{head}{marker}{tail}")
 }
 
-fn list_page_ids(state: &SessionState) -> Result<Vec<String>> {
-    fn path_segments(path: &Path) -> Option<Vec<String>> {
-        path.components()
-            .map(|component| match component {
-                Component::Normal(segment) => segment.to_str().map(str::to_string),
-                _ => None,
-            })
-            .collect()
-    }
-
-    fn visit(
-        directory: &Path,
-        pages_root: &Path,
-        output: &Path,
-        wiki_id: &str,
-        namespace: &[&str],
-        pages: &mut BTreeSet<String>,
-    ) -> Result<()> {
-        for entry in fs::read_dir(directory)? {
-            let entry = entry?;
-            let path = entry.path();
-            let file_type = entry.file_type()?;
-            if file_type.is_dir() {
-                visit(&path, pages_root, output, wiki_id, namespace, pages)?;
-            } else if file_type.is_file()
-                && path.extension().and_then(|extension| extension.to_str()) == Some("txt")
-            {
-                let Some(relative) = path.strip_prefix(pages_root).ok() else {
-                    continue;
-                };
-                let mut segments = relative
-                    .parent()
-                    .and_then(path_segments)
-                    .unwrap_or_default();
-                let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
-                    continue;
-                };
-                segments.push(stem.to_string());
-                if segments.len() <= namespace.len()
-                    || !segments
-                        .iter()
-                        .take(namespace.len())
-                        .map(String::as_str)
-                        .eq(namespace.iter().copied())
-                {
-                    continue;
-                }
-                let page_id = segments.join(":");
-                if let Ok(mapped_path) = docs::page_file_path(output, wiki_id, &page_id) {
-                    if mapped_path == path {
-                        pages.insert(page_id);
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
+fn canonical_page_ids(state: &SessionState) -> Result<Vec<String>> {
     let output = session::output_dir(state);
-    let canonical_output = output.canonicalize()?;
-    let pages_root = output.join("dokuwiki").join("data").join("pages");
-    let canonical_pages_root = match pages_root.canonicalize() {
-        Ok(path) if path.starts_with(&canonical_output) => path,
-        Ok(_) => return Ok(Vec::new()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(error.into()),
-    };
-    let namespace = state.wiki_id.split(':').collect::<Vec<_>>();
-    let namespace_root = namespace
-        .iter()
-        .fold(pages_root.clone(), |path, segment| path.join(*segment));
-    let canonical_namespace_root = match namespace_root.canonicalize() {
-        Ok(path) if path.starts_with(&canonical_pages_root) => path,
-        Ok(_) => return Ok(Vec::new()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(error.into()),
-    };
-    if !fs::symlink_metadata(&namespace_root)?.file_type().is_dir()
-        || !canonical_namespace_root.is_dir()
-    {
-        return Ok(Vec::new());
-    }
-
-    let mut pages = BTreeSet::new();
-    visit(
-        &namespace_root,
-        &pages_root,
-        &output,
-        &state.wiki_id,
-        &namespace,
-        &mut pages,
-    )?;
+    let wiki_id = docs::WikiId::parse(&state.wiki_id)?;
+    let pages = docs::enumerate_pages(&output, &wiki_id, docs::PageScope::Edition)?
+        .into_iter()
+        .filter(|page| page.canonical)
+        .map(|page| page.page_id)
+        .collect::<BTreeSet<_>>();
     Ok(pages.into_iter().collect())
 }
 
 fn list_report_files(reports: &Path) -> Result<Vec<String>> {
-    let mut files = Vec::new();
+    let mut names = Vec::new();
     if !reports.exists() {
-        return Ok(files);
+        return Ok(names);
     }
     for entry in fs::read_dir(reports)? {
         let entry = entry?;
         if entry.path().extension().and_then(|ext| ext.to_str()) == Some("json") {
-            files.push(entry.file_name().to_string_lossy().into_owned());
+            names.push(entry.file_name().to_string_lossy().into_owned());
         }
     }
-    files.sort();
-    Ok(files)
+    names.sort();
+    Ok(names)
 }
 
 fn safe_id(value: &str) -> String {

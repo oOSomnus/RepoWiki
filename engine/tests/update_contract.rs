@@ -1,3 +1,6 @@
+#[path = "common/mod.rs"]
+mod common;
+
 use repowiki::docs;
 use repowiki::model::{ArtifactIndex, ChangeSet, Module, ModuleTree, Node, Summary, UpdateRecord};
 use repowiki::session;
@@ -26,26 +29,7 @@ fn prepared_session(
     nodes: &[Node],
     leaf_nodes: &[&str],
 ) -> (tempfile::TempDir, repowiki::session::SessionState) {
-    let repo = tempdir().expect("repository tempdir");
-    let output = repo.path().join("docs");
-    let mut state = session::create(repo.path(), &output).expect("create session");
-    let components = nodes
-        .iter()
-        .cloned()
-        .map(|node| (node.id.clone(), node))
-        .collect::<BTreeMap<_, _>>();
-    session::write_analysis_files(
-        &mut state,
-        &components,
-        &leaf_nodes
-            .iter()
-            .map(|id| (*id).to_string())
-            .collect::<Vec<_>>(),
-        &Summary::default(),
-        &ArtifactIndex::default(),
-    )
-    .expect("write analysis files");
-    (repo, state)
+    common::prepared_session(nodes.to_vec(), leaf_nodes, Summary::default())
 }
 
 fn nested_tree() -> ModuleTree {
@@ -348,7 +332,8 @@ fn update_plan_write_sets_use_canonical_page_ids() {
 
     update::plan(&state, &Default::default()).expect("plan update");
     let record: UpdateRecord = session::read_json(
-        &session::session_root(repo.path(), &state.session_id).join("update_record_draft.json"),
+        &session::session_root(repo.path(), &state.session_id)
+            .join(session::files::UPDATE_RECORD_DRAFT),
     )
     .expect("read update plan");
     assert_eq!(
@@ -397,7 +382,8 @@ fn update_plan_write_sets_stay_in_change_wiki_namespace() {
 
     update::plan(&state, &Default::default()).expect("plan change update");
     let record: UpdateRecord = session::read_json(
-        &session::session_root(repo.path(), &state.session_id).join("update_record_draft.json"),
+        &session::session_root(repo.path(), &state.session_id)
+            .join(session::files::UPDATE_RECORD_DRAFT),
     )
     .expect("read update plan");
     let wiki_id = session::change_wiki_id(&change_id).expect("change wiki ID");
@@ -489,6 +475,9 @@ fn context_contains_upstream_referrers_and_orphan_context() {
 
 #[test]
 fn stale_scan_reports_missing_pages_broken_links_and_extra_pages() {
+    if !common::dokuwiki_runtime_available() {
+        return;
+    }
     let leaf = node("src/api.rs::Api", "src/api.rs", "fn api() {}", &[]);
     let (repo, state) = prepared_session(&[leaf], &["src/api.rs::Api"]);
     let tree = ModuleTree::from([(
@@ -540,6 +529,9 @@ fn stale_scan_reports_missing_pages_broken_links_and_extra_pages() {
 
 #[test]
 fn finalize_records_verdicts_reports_stale_scan_and_metadata() {
+    if !common::dokuwiki_runtime_available() {
+        return;
+    }
     let leaf = node("src/api.rs::Api", "src/api.rs", "fn api() {}", &[]);
     let (repo, state) = prepared_session(&[leaf], &["src/api.rs::Api"]);
     let tree = ModuleTree::from([(

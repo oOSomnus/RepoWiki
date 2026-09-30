@@ -42,6 +42,11 @@ Sessions live below the effective repository root, selected by `--repo-root` (or
 
 Per-session locks live at `.repowiki/.state/session-locks/<session_id>.lock`.
 
+A session is destroyed by `session close` on the normal path. A crashed session
+is reclaimed when its ID is opened again after the TTL expires; an expired
+session nobody reopens is never swept automatically and stays on disk until the
+user deletes `.repowiki/.state/sessions/`.
+
 `components read` returns source paths for the requested IDs. The source files begin with component and language comments and are safe to read directly.
 
 `candidate_module_tree.json` is an engine-generated structural starting point,

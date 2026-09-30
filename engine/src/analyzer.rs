@@ -4,7 +4,7 @@ use crate::model::{
     DEFAULT_MAX_DEPTH, DEFAULT_MAX_TOKEN_PER_LEAF_MODULE, DEFAULT_MAX_TOKEN_PER_MODULE,
     SUPPORTED_LANGUAGES,
 };
-use crate::session::{self, SessionState};
+use crate::session::{self, files, SessionState};
 use anyhow::{Context, Result};
 use ignore::WalkBuilder;
 use regex::Regex;
@@ -65,12 +65,12 @@ pub fn analyze(
     } else {
         repo_path.join(output_dir)
     };
-    let _session_lock = session_id
+    let session_lock = session_id
         .map(|id| session::SessionLock::acquire(&repo_path, id))
         .transpose()?;
     fs::create_dir_all(&output_dir)?;
-    let mut state = match session_id {
-        Some(id) => session::load_unlocked(&repo_path, id)?,
+    let mut state = match &session_lock {
+        Some(lock) => lock.load()?,
         None => session::create(&repo_path, &output_dir)?,
     };
     if state.output_dir != output_dir.to_string_lossy() {
@@ -252,16 +252,14 @@ pub fn analyze(
         session_id: state.session_id.clone(),
         summary,
         graph_path: graph_path.to_string_lossy().into_owned(),
-        component_index_path: session::session_value_path(&state, "component_index.json")
+        component_index_path: session::session_file(&state, files::COMPONENT_INDEX)?
             .to_string_lossy()
             .into_owned(),
-        leaf_nodes_path: session::session_value_path(&state, "leaf_nodes.json")
+        leaf_nodes_path: session::session_file(&state, files::LEAF_NODES)?
             .to_string_lossy()
             .into_owned(),
         artifact_index_path: artifact_path.to_string_lossy().into_owned(),
-        session_path: session::session_root(&repo_path, &state.session_id)
-            .to_string_lossy()
-            .into_owned(),
+        session_path: state.session_dir().to_string_lossy().into_owned(),
     };
     Ok((state, output, nodes))
 }

@@ -3,7 +3,7 @@ use crate::docs::{self, EditOperation};
 use crate::html;
 use crate::model::{ModuleTree, Node, UpdateOptions, DEFAULT_MAX_DEPTH};
 use crate::prompts::{self, PromptType};
-use crate::session::{self, SessionState};
+use crate::session::{self, files, SessionState};
 use crate::update;
 use anyhow::{anyhow, Context, Result};
 use clap::{error::ErrorKind, Args, Parser, Subcommand, ValueEnum};
@@ -522,7 +522,7 @@ fn analyze_command(
         if !tree_path.exists() {
             let leaf_nodes: Vec<String> = session::read_json(Path::new(&output.leaf_nodes_path))?;
             let candidate = analyzer::build_initial_module_tree(&nodes, &leaf_nodes);
-            let candidate_path = session::session_value_path(&state, "candidate_module_tree.json");
+            let candidate_path = session::session_file(&state, files::CANDIDATE_MODULE_TREE)?;
             session::write_json(&candidate_path, &candidate)?;
             value["candidate_module_tree_path"] = json!(candidate_path);
             value["candidate_tree_is_final"] = json!(false);
@@ -599,7 +599,7 @@ fn analyze_command(
                 vec!["host-agent root cluster response", "host-agent recursive scope=module clustering", "repowiki tree save", "host-agent leaf-first documentation", "host-agent overview documentation", "repowiki session close"]
             }
         });
-        let workflow_path = session::session_value_path(&state, "workflow.json");
+        let workflow_path = session::session_file(&state, files::WORKFLOW)?;
         session::write_json(&workflow_path, &workflow)?;
         value["workflow_path"] = json!(workflow_path);
         if let Some(options) = update_options {
@@ -620,7 +620,7 @@ fn read_components(args: ReadComponentsArgs) -> Result<Value> {
             return Err(anyhow!("components read requires --ids or --ids-file"));
         }
         let nodes: BTreeMap<String, crate::model::Node> =
-            session::read_json(&session::session_value_path(state, "components.json"))?;
+            session::read_json(&session::session_file(state, files::COMPONENTS)?)?;
         let mut result = Vec::new();
         for id in ids {
             let node = nodes
@@ -629,7 +629,7 @@ fn read_components(args: ReadComponentsArgs) -> Result<Value> {
             result.push(json!({
                 "id": id,
                 "language": node.language,
-                "path": session::session_value_path(state, &format!("sources/{}", session::safe_source_filename(&node.id))),
+                "path": session::session_file(state, &format!("{}/{}", files::SOURCES, session::safe_source_filename(&node.id)))?,
                 "start_line": node.start_line,
                 "end_line": node.end_line,
             }));
@@ -654,7 +654,7 @@ fn get_prompt(args: GetPromptArgs) -> Result<Value> {
             BTreeMap::new()
         };
         let nodes: BTreeMap<String, Node> =
-            session::read_json(&session::session_value_path(state, "components.json"))?;
+            session::read_json(&session::session_file(state, files::COMPONENTS)?)?;
         if matches!(kind, PromptType::User | PromptType::OverviewRepo)
             && !vars.contains_key("artifact_index")
         {
@@ -664,7 +664,7 @@ fn get_prompt(args: GetPromptArgs) -> Result<Value> {
         }
         let rendered = prompts::render_with_components(kind, &vars, &nodes)?;
         let filename = format!("{}-{}.txt", kind.as_str(), Uuid::new_v4().simple());
-        let path = session::session_value_path(state, &format!("prompts/{filename}"));
+        let path = session::session_file(state, &format!("{}/{}", files::PROMPTS, filename))?;
         session::write_text(&path, &rendered)?;
         let mut hasher = Sha256::new();
         hasher.update(rendered.as_bytes());
@@ -681,7 +681,7 @@ fn get_prompt(args: GetPromptArgs) -> Result<Value> {
 }
 
 fn artifact_prompt_value(state: &SessionState) -> Result<Option<Value>> {
-    let path = session::session_value_path(state, "artifact_index.json");
+    let path = session::session_file(state, files::ARTIFACT_INDEX)?;
     if !path.is_file() {
         return Ok(None);
     }
@@ -785,7 +785,7 @@ fn overview_context(args: OverviewContextArgs) -> Result<Value> {
             } else {
                 docs::module_page_id(&state.wiki_id, &target_path)?.replace(':', "__")
             };
-            session::session_value_path(state, &format!("overview_context_{suffix}.json"))
+            session::session_file(state, &files::overview_context(&suffix))?
         };
         session::write_json(&output, &context)?;
         Ok(json!({
@@ -968,19 +968,15 @@ fn session_info(args: SessionArg) -> Result<Value> {
 
 fn close_session(args: CloseSessionArgs) -> Result<Value> {
     let session_id = args.session.clone();
-    with_locked_session(&session_id, |state| {
+    let repo = session_repo()?;
+    session::close_session(&repo, &session_id, |state| {
         docs::validate_documentation(state)?;
-        let metadata = Some(docs::finalize_metadata(state, &args.model)?);
-        state.closed = true;
-        session::save_state(state)?;
-        let session_path = session::session_root(Path::new(&state.repo_path), &state.session_id);
-        session::cleanup(Path::new(&state.repo_path), &state.session_id)?;
+        let metadata = docs::finalize_metadata(state, &args.model)?;
         Ok(json!({
             "ok": true,
             "session_id": state.session_id,
             "metadata": metadata,
             "cleaned": true,
-            "session_path": session_path,
         }))
     })
 }
@@ -989,16 +985,15 @@ fn with_locked_session<T, F>(session_id: &str, operation: F) -> Result<T>
 where
     F: FnOnce(&mut SessionState) -> Result<T>,
 {
-    let existing = load_session(session_id)?;
-    let repo = PathBuf::from(&existing.repo_path);
-    session::with_locked_session(&repo, session_id, operation)
+    let repo = session_repo()?;
+    let existing = session::peek(&repo, session_id)?;
+    session::with_locked_session(Path::new(&existing.repo_path), session_id, operation)
 }
 
-fn load_session(session_id: &str) -> Result<SessionState> {
-    let repo = std::env::var_os("REPOWIKI_SESSION_REPO")
+fn session_repo() -> Result<PathBuf> {
+    Ok(std::env::var_os("REPOWIKI_SESSION_REPO")
         .map(PathBuf::from)
-        .unwrap_or(std::env::current_dir()?);
-    session::load(&repo, session_id)
+        .unwrap_or(std::env::current_dir()?))
 }
 
 fn print_json(value: &Value) -> Result<()> {

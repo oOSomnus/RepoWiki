@@ -39,6 +39,7 @@ pub fn generate(state: &SessionState) -> Result<String> {
 
     let mut sections = String::new();
     let render_context = dokuwiki::session_context(state)?;
+    let wiki_id = docs::WikiId::parse(&state.wiki_id)?;
     for page in &pages {
         if !expected.contains(&page.page_id) {
             return Err(anyhow!(
@@ -46,9 +47,9 @@ pub fn generate(state: &SessionState) -> Result<String> {
                 page.page_id
             ));
         }
-        let path = docs::page_file_path(&output, &state.wiki_id, &page.page_id)?;
-        ensure_regular_page(&path)?;
-        let rendered = dokuwiki::render_page_in_context(&render_context, &page.page_id)
+        docs::require_canonical_page(&output, &wiki_id, &page.page_id)?;
+        let rendered = render_context
+            .render(&page.page_id)
             .with_context(|| format!("render DokuWiki page {}", page.page_id))?;
         sections.push_str("<section class=\"wiki-page\" id=\"");
         sections.push_str(&page_anchor(&page.page_id));
@@ -177,17 +178,6 @@ fn render_navigation(
     Ok(())
 }
 
-fn ensure_regular_page(path: &Path) -> Result<()> {
-    let metadata = fs::symlink_metadata(path)
-        .with_context(|| format!("read DokuWiki page file {}", path.display()))?;
-    if metadata.file_type().is_symlink() || !metadata.is_file() {
-        return Err(anyhow!(
-            "DokuWiki page is not a regular file: {}",
-            path.display()
-        ));
-    }
-    Ok(())
-}
 fn ensure_export_assets(output: &Path) -> Result<PathBuf> {
     let assets = output.join("assets");
     match fs::symlink_metadata(&assets) {
