@@ -9,6 +9,11 @@ use std::process::{Command, Output};
 use uuid::Uuid;
 
 const PINNED_DOKUWIKI_VERSION: &str = "2026-07-14c \"Mort\"";
+/// The JSON protocol version of RepoWiki's DokuWiki adapter. Engine and adapter
+/// ship in one repository and must be upgraded together; this pins what
+/// `engine/dokuwiki/VERSION` says the adapter speaks. Bump both sides together
+/// whenever the shape of a response changes.
+const PINNED_REPOWIKI_ADAPTER_VERSION: &str = "1";
 const PHP_MINIMUM_VERSION_ID: u32 = 80200;
 
 #[derive(Debug, Clone)]
@@ -49,9 +54,9 @@ pub struct ParsedPage {
     pub html: String,
     /// How DokuWiki's own parser read the page.
     ///
-    /// Defaulted because the field is additive on the wire: a binary from either
-    /// side of an upgrade must still decode the other's response.
-    #[serde(default)]
+    /// Required, not defaulted: the adapter's protocol version is pinned at
+    /// discovery, so a response without this field is a protocol bug to be
+    /// surfaced, not an old adapter to be tolerated into a silent zero.
     pub structure: PageStructure,
 }
 
@@ -156,6 +161,7 @@ pub fn discover_runtime() -> Result<RuntimePaths> {
             integration_dir.display()
         ));
     }
+    check_adapter_version(&integration_dir)?;
     let php = std::env::var_os("REPOWIKI_PHP_BIN").unwrap_or_else(|| OsString::from("php"));
     let runtime = RuntimePaths {
         core_dir,
@@ -173,6 +179,29 @@ fn resolve_core_dir(path: &Path) -> Option<PathBuf> {
     }
     let nested = path.join("vendor/dokuwiki");
     nested.join("VERSION").is_file().then_some(nested)
+}
+
+/// Refuse an adapter that does not speak the protocol this engine decodes.
+/// Without this check a stale adapter under REPOWIKI_DOKUWIKI_DIR answers
+/// parse requests in an older shape and the engine misreads the omission as
+/// "this page has no headings" — a deployment error diagnosed as a content one.
+fn check_adapter_version(integration_dir: &Path) -> Result<()> {
+    let found = match fs::read_to_string(integration_dir.join("VERSION")) {
+        Ok(version) => version.trim().to_string(),
+        // A tree predating adapter versioning speaks whatever protocol it was
+        // checked out with; that is out of date by definition.
+        Err(_) => "none".to_string(),
+    };
+    if found != PINNED_REPOWIKI_ADAPTER_VERSION {
+        return Err(anyhow!(
+            "RepoWiki DokuWiki adapter is out of date: found '{}', expected {}; \
+             RepoWiki and its adapter must be upgraded together ({})",
+            found,
+            PINNED_REPOWIKI_ADAPTER_VERSION,
+            integration_dir.display()
+        ));
+    }
+    Ok(())
 }
 
 fn ensure_php_82(runtime: &RuntimePaths) -> Result<()> {
@@ -297,8 +326,13 @@ impl WikiContext {
 
     pub fn parse(&self, page_id: &str, content: &str) -> Result<ParsedPage> {
         let value = invoke_plugin(self, "parse", page_id, Some(content))?;
-        serde_json::from_value(value)
-            .with_context(|| format!("invalid DokuWiki parse response for {page_id}"))
+        serde_json::from_value(value).with_context(|| {
+            format!(
+                "invalid DokuWiki parse response for {page_id}; \
+                 a missing field means the adapter at {} does not match this engine",
+                self.runtime.integration_dir.display()
+            )
+        })
     }
 
     pub fn render(&self, page_id: &str) -> Result<String> {
@@ -556,4 +590,35 @@ pub fn validate_namespace(wiki_id: &str) -> Result<()> {
         return Err(anyhow!("invalid DokuWiki change namespace: {wiki_id}"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn an_adapter_tree_without_a_version_is_refused_as_out_of_date() {
+        let dir = tempdir().expect("adapter tempdir");
+        let error = check_adapter_version(dir.path()).expect_err("missing VERSION must fail");
+        assert!(
+            error.to_string().contains("out of date"),
+            "unexpected diagnosis: {error}"
+        );
+    }
+
+    #[test]
+    fn only_the_pinned_adapter_version_is_accepted() {
+        let dir = tempdir().expect("adapter tempdir");
+        let version = dir.path().join("VERSION");
+        fs::write(&version, "999\n").expect("write stale VERSION");
+        let error = check_adapter_version(dir.path()).expect_err("mismatch must fail");
+        assert!(
+            error.to_string().contains("out of date"),
+            "unexpected diagnosis: {error}"
+        );
+
+        fs::write(&version, format!("{PINNED_REPOWIKI_ADAPTER_VERSION}\n")).expect("write VERSION");
+        check_adapter_version(dir.path()).expect("the pinned version is accepted");
+    }
 }

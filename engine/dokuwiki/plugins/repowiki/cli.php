@@ -233,6 +233,12 @@ class cli_plugin_repowiki extends CLIPlugin
         // that opened and closed the mode, so the delimiters are recoverable from
         // the body's own position: the opener ends where the body starts, and the
         // closer is the first occurrence of the exit pattern at or after it.
+        // For <code> and <file> this holds even though the open tag carries
+        // attributes: the entry pattern ('<code\b(?=.*</code>)') matches only the
+        // 5 bytes "<code" — \b and the lookahead consume nothing — so the body
+        // token still begins with the tag's remainder (" java>") and its position
+        // sits exactly strlen($opener) past the tag start. The substr guard below
+        // is what turns any other lexer behaviour into a loud failure.
         $start = $bodyStart - strlen($opener);
         if ($start < 0 || substr($source, $start, strlen($opener)) !== $opener) {
             throw new RuntimeException("DokuWiki {$name} body at {$bodyStart} is not preceded by {$opener}");
